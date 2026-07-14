@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aave-risk-engine"
+version = "0.1.0"
+description = "Collateral and Hub-Spoke credit-line risk engine for Aave-style lending markets."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Giacomo Bianchi" }]
+dependencies = [
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "matplotlib>=3.8",
+  "pandas>=2.2",
+  "plotly>=5.24",
+  "streamlit>=1.40",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/your-username/aave-risk-engine"
+
+[tool.setuptools]
+packages = ["aave_risk_engine", "aave_risk_engine.tests"]
+
+[tool.setuptools.package-dir]
+aave_risk_engine = "."
+"aave_risk_engine.tests" = "tests"

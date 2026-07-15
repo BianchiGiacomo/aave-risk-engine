@@ -29,6 +29,34 @@ u_k = rho_k * Z + sqrt(1 - rho_k^2) * e_k
 
 The allocator greedily assigns credit to the Spoke with the lowest marginal Hub-CVaR per dollar until the Hub balance or CVaR budget binds. Marginal premia are approximately equalized because the allocator is discrete.
 
+## Results Preview
+
+### Single-Spoke Credit-Line Sizing
+
+The chart below is the core decision view. It sweeps the borrow cap / Spoke credit line and reports the resulting 99% CVaR bad debt. The recommended cap is the largest exposure that stays inside the chosen risk budget.
+
+![CVaR budget vs credit line](docs/assets/cap_budget.png)
+
+### Liquidation Capacity
+
+Liquidators clear positions only while execution slippage is below break-even:
+
+```text
+slippage <= bonus / (1 + bonus)
+```
+
+Below that line, slippage is a liquidator cost compensated by the bonus. Above it, liquidations stall and the protocol marks collateral to delayed executable value.
+
+![Liquidation slippage curve](docs/assets/slippage_curve.png)
+
+### Loss Distribution
+
+Most scenarios have no bad debt. The relevant risk is concentrated in the far right tail, which is why the engine uses CVaR rather than only VaR.
+
+![Bad debt distribution](docs/assets/loss_distribution.png)
+
+For a fuller walkthrough, see [docs/results.md](docs/results.md).
+
 ## Install
 
 ```bash

@@ -1,6 +1,14 @@
 # Aave Risk Engine
 
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Status](https://img.shields.io/badge/status-research%20prototype-orange)
+
 Decision-support tooling for Aave-style collateral risk and V4 Hub-Spoke credit-line sizing.
+
+> Independent research prototype. This project is not affiliated with, endorsed by, or sponsored by Aave Labs or the Aave DAO.
+
+![Aave-style risk engine flow](docs/assets/aave_risk_flow.svg)
 
 The project answers two related questions:
 
@@ -8,6 +16,20 @@ The project answers two related questions:
 2. **Hub allocation:** how should one shared Hub balance be split across multiple Spokes with different volatility, liquidity, and correlation?
 
 This is not an automated risk agent and not a governance replacement. It is a compact quant prototype for making risk/growth trade-offs explicit.
+
+## 60-Second Tour
+
+- Sizes a borrow cap / V4 Spoke credit line from 99% CVaR bad debt.
+- Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
+- Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
+- Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.
+- Shows why lower-correlation Spokes can receive credit even when they look risky standalone.
+
+## Read Next
+
+- [Results walkthrough](docs/results.md)
+- [Methodology](METHODOLOGY.md)
+- [Implementation notes](IMPLEMENTATION.md)
 
 ## What It Models
 
@@ -56,6 +78,18 @@ Most scenarios have no bad debt. The relevant risk is concentrated in the far ri
 ![Bad debt distribution](docs/assets/loss_distribution.png)
 
 For a fuller walkthrough, see [docs/results.md](docs/results.md).
+
+### Hub Allocation Example
+
+The Hub demo allocates a `$700m` USDC Hub balance across three Spokes under an `$8m` CVaR budget.
+
+| Spoke | rho | Credit line | Standalone CVaR | Risk premium / $1m |
+|---|---:|---:|---:|---:|
+| stETH | 0.95 | $70m | $2.0m | $48.5k |
+| WBTC | 0.85 | $315m | $4.2m | $79.4k |
+| LONGTAIL | 0.45 | $105m | $2.6m | $61.6k |
+
+In this run, total credit is `$490m` (`70%` of Hub balance), Hub CVaR is `$7.9m`, and diversification benefit is about `$0.9m`. The exact numbers vary with Monte Carlo seed and allocation granularity; the qualitative story is the point.
 
 ## Install
 

@@ -50,6 +50,60 @@ The terminal collateral return can be:
 
 The same downside draw also drives peg stress and depth evaporation.
 
+## Real-Data Calibration
+
+When a market snapshot is available, model inputs come from observation
+rather than assumption:
+
+- **Risk parameters** (LT, LTV, bonus) are read from the Aave V3
+  `PoolDataProvider`; the spot price from the Aave oracle (USD, 8 decimals).
+- **Borrower book**: accounts are discovered from recent `Borrow` events and
+  aggregated with `Pool.getUserAccountData`. Each account enters the book
+  under an *effective single-asset mapping*: its total collateral is treated
+  as the target asset and shocked by the scenario price, using the account's
+  own on-chain weighted-average liquidation threshold. This is the
+  perfectly-correlated-collateral view; restricting to accounts whose
+  collateral is dominated by the target asset (default share >= 50%) keeps
+  the approximation honest.
+- **Depth**: observed routed sell quotes are used two ways. The engine
+  interpolates the (notional, slippage) points directly -- real exit
+  liquidity can fall off a cliff once concentrated pools are exhausted
+  (observed for wstETH: ~0.3% at $2m, >50% at $9m), which no single-`L`
+  curve represents. A scenario depth haircut `h` acts as size scaling,
+  `s(Q, h) = s_quiet(Q / (1 - h))`, an identity under the analytic curve.
+  A median-fitted `L` reference point is kept for components needing a
+  smooth curve. Slippage is measured against the smallest-size quote rate,
+  not an external oracle. Quotes the router rejects under its max-impact
+  guard still carry a routed amount; those are treated as indicative
+  stress-depth, not guaranteed executable liquidity. Beyond the largest
+  quoted size the interpolation is flat -- an understatement, so ladders
+  should extend past the sizes that matter.
+- **Debt denomination**: accounts whose debt is mostly WETH-denominated
+  (leveraged staking loops) are excluded from the USD-shock book. Their
+  debt leg falls with ETH-correlated collateral in a USD crash, so
+  stable-debt scenarios do not describe them; their residual risk is the
+  LST exchange rate, not the price level. The report states the excluded
+  volume explicitly.
+- **Return law**: annualized realized volatility from daily closes; the
+  Student-t degrees of freedom are matched to sample excess kurtosis
+  (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy.
+- **Exposure sweeps** on a real book scale debt and collateral together,
+  preserving the observed health-factor distribution.
+
+## ARFC Checks
+
+Two requirements of the Aave Risk Framework (governance ARFC, June 2026)
+are evaluated directly:
+
+- **Peg rule**: for pegged collateral, no deviation of 1% or more below peg
+  sustained for two days or longer (E-Mode precondition).
+- **Liquidation capacity**: secondary-market depth must clear the largest
+  expected borrower within the liquidation bonus. In this model that is the
+  liquidator break-even condition `s(Q) <= bonus / (1 + bonus)` evaluated at
+  `Q = min(collateral, debt * (1 + bonus))` for the largest account, under
+  quiet and stressed depth. The break-even is hit at `Q* = sqrt(P) * L * bonus`,
+  which the report quotes as maximum clearable notional.
+
 ## Hub Allocation
 
 A V4-style Hub aggregates liquidity and allocates credit lines to Spokes. The model uses one systemic factor `Z` and one idiosyncratic factor per Spoke:

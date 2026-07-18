@@ -1,0 +1,190 @@
+"""Market report: real Aave V3 state vs model-recommended exposure.
+
+Usage:
+    python -m aave_risk_engine.run_market_report [--snapshot path] [--budget 5e6]
+
+Loads a committed MarketSnapshot (build a fresh one with
+``python -m aave_risk_engine.data.build_snapshot``), runs the risk engine on
+the real borrower book with calibrated parameters, and prints the decision
+view: current caps and usage, model-safe exposure, and the ARFC
+largest-borrower clearance test.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+
+from .config import SimConfig
+from .data import arfc_clearance_test, build_real_book, load_snapshot
+from .data.book import scenario_config_from_snapshot
+from .engine import RiskEngine
+
+
+def _fmt(x: float) -> str:
+    for unit, div in (("bn", 1e9), ("m", 1e6), ("k", 1e3)):
+        if abs(x) >= div:
+            return f"${x / div:,.2f}{unit}"
+    return f"${x:,.0f}"
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--snapshot", default=None, help="path to a MarketSnapshot JSON")
+    parser.add_argument("--budget", type=float, default=5e6, help="CVaR99 bad-debt budget (USD)")
+    parser.add_argument("--min-target-share", type=float, default=0.5)
+    parser.add_argument("--n-scenarios", type=int, default=20_000)
+    parser.add_argument("--seed", type=int, default=7)
+    args = parser.parse_args()
+
+    snapshot = load_snapshot(args.snapshot)
+    reserve = snapshot.reserve
+    date = dt.datetime.fromtimestamp(snapshot.timestamp, dt.timezone.utc).date()
+
+    print(f"Aave V3 {reserve.symbol} market report | block {snapshot.block:,} ({date})")
+    if snapshot.scan_blocks:
+        days = snapshot.scan_blocks * 12 / 86_400
+        print(
+            f"borrower sample: Borrow events over the last {snapshot.scan_blocks:,} blocks "
+            f"(~{days:.0f} days); dormant borrowers outside that window are not sampled"
+        )
+    elif snapshot.notes:
+        print(f"borrower sample: {snapshot.notes}")
+    print(
+        f"on-chain params: LT {reserve.liquidation_threshold:.2%} | LTV {reserve.ltv:.2%} "
+        f"| bonus {reserve.liquidation_bonus:.2%} | oracle {_fmt(reserve.price_usd)}"
+    )
+    if snapshot.stress is not None:
+        s = snapshot.stress
+        dof = f"{s.t_dof:.1f}" if s.t_dof is not None else "n/a (thin tails)"
+        print(
+            f"calibration [{s.source}]: realized vol {s.annual_vol:.1%} "
+            f"({s.lookback_days}d) | t-dof {dof}"
+        )
+        if s.peg_pass is not None:
+            print(
+                f"ARFC peg rule (>=1% for >=2d): {'PASS' if s.peg_pass else 'FAIL'} "
+                f"| worst deviation {s.peg_worst_deviation:.2%} "
+                f"| longest breach {s.peg_max_run_days:.0f}d"
+            )
+    if snapshot.depth is not None:
+        d = snapshot.depth
+        print(
+            f"depth [{d.source} {d.pair}]: {_fmt(d.ref_notional_usd)} sells at "
+            f"{d.ref_slippage:.2%} slippage"
+        )
+
+    print("\nSupply side")
+    print(f"  supply cap : {reserve.supply_cap_tokens:>14,.0f} {reserve.symbol}  {_fmt(reserve.supply_cap_usd)}")
+    used = reserve.total_supplied_tokens / reserve.supply_cap_tokens if reserve.supply_cap_tokens else float("nan")
+    print(f"  supplied   : {reserve.total_supplied_tokens:>14,.0f} {reserve.symbol}  {_fmt(reserve.supplied_usd)}  ({used:.0%} of cap)")
+
+    dominant = [
+        a for a in snapshot.accounts
+        if a.collateral_usd > 0 and a.target_share >= args.min_target_share and a.debt_usd >= 10_000
+    ]
+    loopers = [a for a in dominant if a.eth_debt_share > 0.5]
+    print(
+        f"\n{reserve.symbol}-dominant accounts (share >= {args.min_target_share:.0%}): "
+        f"{len(dominant)} | debt {_fmt(sum(a.debt_usd for a in dominant))}"
+    )
+    print(
+        f"  of which ETH-debt loopers (debt falls with collateral; excluded from USD shock): "
+        f"{len(loopers)} accounts, {_fmt(sum(a.debt_usd for a in loopers))} debt"
+    )
+
+    book = build_real_book(snapshot, min_target_share=args.min_target_share)
+    print(
+        f"USD-debt book entering the engine: {book.debt_usd.size} accounts "
+        f"| debt {_fmt(book.total_debt)} "
+        f"| collateral {_fmt(float(book.collateral_value(reserve.price_usd).sum()))} "
+        f"| median HF {sorted(book.hf0)[book.hf0.size // 2]:.2f}"
+    )
+
+    config = scenario_config_from_snapshot(snapshot)
+    config.sim = SimConfig(n_scenarios=args.n_scenarios, seed=args.seed, chunk_size=2_000)
+    engine = RiskEngine(config)
+
+    base = engine.run(book=book)
+    print("\nTail risk at observed book exposure")
+    print(f"  P(bad debt) : {base.prob_bad_debt:.2%}")
+    print(f"  VaR99       : {_fmt(base.var)}")
+    print(f"  CVaR99      : {_fmt(base.cvar)}")
+
+    # The effective single-asset mapping attributes each account's whole
+    # collateral to the target asset; show how much the conclusion depends
+    # on how strictly the book is filtered to target-dominated accounts.
+    print("\nSensitivity to the target-share filter (single-asset mapping)")
+    shares = sorted({args.min_target_share, 0.7, 0.9})
+    for share in shares:
+        try:
+            b = build_real_book(snapshot, min_target_share=share)
+        except ValueError:
+            print(f"  share >= {share:.0%}: no accounts pass")
+            continue
+        r = engine.run(book=b)
+        print(
+            f"  share >= {share:.0%}: {b.debt_usd.size:>3} accounts "
+            f"| debt {_fmt(b.total_debt):>9} | CVaR99 {_fmt(r.cvar):>9} "
+            f"| P(bad debt) {r.prob_bad_debt:.2%}"
+        )
+
+    rec = engine.recommend_cap(
+        budget_usd=args.budget,
+        cap_min=book.total_debt * 0.1,
+        cap_max=book.total_debt * 3.0,
+        n_grid=18,
+        book=book,
+    )
+    safe = rec["recommended_cap"]
+    print(f"\nModel-safe debt exposure (CVaR99 budget {_fmt(args.budget)})")
+    print(f"  observed book debt : {_fmt(book.total_debt)}")
+    print(f"  model safe exposure: {_fmt(safe)}")
+    if safe == safe:  # not NaN
+        gap = safe - book.total_debt
+        print(f"  headroom           : {'+' if gap >= 0 else ''}{_fmt(gap)} ({gap / book.total_debt:+.0%})")
+    else:
+        print("  headroom           : n/a (budget breached across the whole sweep)")
+    implied = reserve.supply_cap_usd * reserve.ltv
+    print(f"  for reference, supply cap x LTV allows up to {_fmt(implied)} debt against {reserve.symbol}")
+
+    if snapshot.depth is None:
+        print("\nARFC clearance test skipped: snapshot has no depth calibration")
+        return
+    clearance = arfc_clearance_test(snapshot, min_target_share=args.min_target_share)
+    print("\nARFC clearance test (largest borrower within liquidation bonus)")
+    print(f"  liquidator break-even slippage : {clearance.breakeven_slippage:.2%}")
+    print(f"  largest borrower sale          : {_fmt(clearance.largest_borrower_usd)}")
+    print(f"  top-5 borrower sales           : {_fmt(clearance.top5_borrowers_usd)}")
+    ladder_top = max(n for n, _ in snapshot.depth.points)
+    if clearance.largest_borrower_usd > ladder_top:
+        print(
+            f"  caution: the sale exceeds the quote ladder top ({_fmt(ladder_top)}); "
+            "slippage beyond it is held flat at the worst observed quote, "
+            "which understates losses out there"
+        )
+    print(
+        f"  quiet depth    : slippage {clearance.slippage_quiet:.2%} "
+        f"| max clearable {_fmt(clearance.max_clearable_usd_quiet)} "
+        f"-> {'PASS' if clearance.passes_quiet else 'FAIL'}"
+    )
+    print(
+        f"  stressed depth ({clearance.depth_haircut_stressed:.0%} haircut)"
+        f" : slippage {clearance.slippage_stressed:.2%} "
+        f"| max clearable {_fmt(clearance.max_clearable_usd_stressed)} "
+        f"-> {'PASS' if clearance.passes_stressed else 'FAIL'}"
+    )
+    print(
+        "  note: this measures instant routed on-chain exits only. For LSTs,"
+        " liquidators can also exit via the redemption queue over days, which"
+        " this strict reading of the ARFC requirement does not credit."
+    )
+    print(
+        "  note: unlike the USD-shock book, this test includes ETH-debt"
+        " loopers -- their collateral still sells on this asset's depth curve"
+        " when liquidated, so clearance is a pure market-depth question."
+    )
+
+
+if __name__ == "__main__":
+    main()

@@ -37,10 +37,17 @@ class RiskParams:
 
 @dataclass
 class LiquidityParams:
-    """Reference liquidation depth used to calibrate the slippage curve."""
+    """Reference liquidation depth used to calibrate the slippage curve.
+
+    When `depth_points` (observed [notional_usd, slippage] quotes) are
+    present, the engine interpolates them directly instead of the analytic
+    single-L curve; the reference point remains for calibrating scenario
+    depth haircuts and for components that need a smooth curve.
+    """
 
     ref_notional_usd: float = 25_000_000.0
     ref_slippage: float = 0.02
+    depth_points: list[list[float]] | None = None
 
 
 @dataclass

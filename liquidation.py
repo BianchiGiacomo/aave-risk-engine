@@ -8,6 +8,7 @@ import numpy as np
 
 from .config import RiskParams
 from .positions import PositionBook
+from .slippage import empirical_slippage
 
 
 @dataclass
@@ -26,19 +27,26 @@ def process_chunk(
     depth_liquidity: np.ndarray,
     risk: RiskParams,
     delay_drawdown: float,
+    depth_points: list[list[float]] | None = None,
+    depth_haircut: np.ndarray | None = None,
 ) -> ChunkResult:
     """Compute liquidation outcomes for a chunk of scenarios.
 
     Slippage is a liquidator cost while liquidations clear. It becomes a
     protocol recovery cost only when the queue stalls because the slippage is
     above liquidator break-even: bonus / (1 + bonus).
+
+    With `depth_points` (and the scenario `depth_haircut`), slippage comes
+    from interpolated real quotes evaluated at notional / (1 - haircut)
+    instead of the analytic curve.
     """
     debt = book.debt_usd[None, :]
     units = book.coll_units[None, :]
     price = coll_price[:, None]
 
+    lt = risk.liquidation_threshold if book.lt is None else book.lt[None, :]
     coll_value = units * price
-    hf = coll_value * risk.liquidation_threshold / debt
+    hf = coll_value * lt / debt
     liquidatable = hf < 1.0
 
     close = np.where(hf < risk.full_liquidation_hf, 1.0, risk.close_factor)
@@ -50,8 +58,12 @@ def process_chunk(
     seize = repay * (1.0 + risk.liquidation_bonus)
     liquidated_usd = seize.sum(axis=1)
 
-    q = liquidated_usd / np.sqrt(coll_price)
-    s = np.where(liquidated_usd > 0, q / (depth_liquidity + q), 0.0)
+    if depth_points is not None and depth_haircut is not None:
+        effective = liquidated_usd / np.maximum(1e-9, 1.0 - depth_haircut)
+        s = np.where(liquidated_usd > 0, empirical_slippage(effective, depth_points), 0.0)
+    else:
+        q = liquidated_usd / np.sqrt(coll_price)
+        s = np.where(liquidated_usd > 0, q / (depth_liquidity + q), 0.0)
 
     stall_threshold = risk.liquidation_bonus / (1.0 + risk.liquidation_bonus)
     stalled = s > stall_threshold

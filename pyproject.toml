@@ -26,8 +26,12 @@ dev = ["pytest>=8"]
 Homepage = "https://github.com/your-username/aave-risk-engine"
 
 [tool.setuptools]
-packages = ["aave_risk_engine", "aave_risk_engine.tests"]
+packages = ["aave_risk_engine", "aave_risk_engine.data", "aave_risk_engine.tests"]
 
 [tool.setuptools.package-dir]
 aave_risk_engine = "."
+"aave_risk_engine.data" = "data"
 "aave_risk_engine.tests" = "tests"
+
+[tool.setuptools.package-data]
+"aave_risk_engine.data" = ["snapshots/*.json"]

@@ -51,6 +51,8 @@ u_k = rho_k * Z + sqrt(1 - rho_k^2) * e_k
 
 The allocator greedily assigns credit to the Spoke with the lowest marginal Hub-CVaR per dollar until the Hub balance or CVaR budget binds. Marginal premia are approximately equalized because the allocator is discrete.
 
+Aave V4 has been live on Ethereum mainnet since March 2026 with governed Spoke add/draw caps, cross-Hub credit lines, and a collateral risk premium (launched at 0 bps) -- the quantities this engine sizes. See the [V4 activation ARFC](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293).
+
 ## Results Preview
 
 ### Single-Spoke Credit-Line Sizing
@@ -112,6 +114,7 @@ pip install -e ".[dev]"
 ```bash
 python -m aave_risk_engine.run_demo
 python -m aave_risk_engine.run_hub_demo
+python -m aave_risk_engine.run_market_report
 python -m streamlit run aave_risk_engine/dashboard.py
 ```
 
@@ -120,7 +123,46 @@ Tests:
 ```bash
 python -m aave_risk_engine.tests.test_engine
 python -m aave_risk_engine.tests.test_hub
+python -m aave_risk_engine.tests.test_data
 ```
+
+## Real Market Data (Aave V3)
+
+The `data/` layer replaces synthetic assumptions with observed Aave V3
+Ethereum state, using only keyless public sources and the standard library:
+
+- **On-chain reserve state** (public JSON-RPC): liquidation threshold, LTV,
+  liquidation bonus, supply/borrow caps, current supply and debt, oracle price.
+- **Real borrower book**: borrowers discovered from recent `Borrow` events,
+  account aggregates from `Pool.getUserAccountData`, filtered to accounts
+  dominated by the target collateral. Each account keeps its own on-chain
+  weighted-average liquidation threshold.
+- **Depth calibration**: routed Paraswap sell quotes at a ladder of sizes.
+  The engine interpolates the observed points directly, because real exit
+  liquidity cliffs (wstETH: ~0.3% slippage at $2m, >50% at $9m) cannot be
+  represented by a single-parameter curve.
+- **Debt denomination**: WETH-denominated debt is measured per account, and
+  leveraged-staking loopers (collateral and debt both ETH-correlated) are
+  excluded from USD-shock books rather than mismodeled as stable-debt
+  borrowers.
+- **Stress calibration**: realized volatility and a Student-t tail fitted
+  from Kraken price history; stETH/ETH peg history from Coingecko.
+- **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
+  peg rule (no >=1% deviation sustained >=2 days) and its liquidation-capacity
+  requirement -- depth must clear the largest borrower within the liquidation
+  bonus -- evaluated as the engine's liquidator break-even condition.
+
+Snapshots are committed JSON (`data/snapshots/`), so the report, tests, and
+CI run offline and deterministically. Refresh with:
+
+```bash
+python -m aave_risk_engine.data.build_snapshot --asset wstETH
+```
+
+The market report then compares governance dials against model output:
+current cap and usage, tail risk of the real book, the model-safe exposure
+for a chosen CVaR budget, and the clearance test under quiet and stressed
+depth.
 
 ## Dashboard
 
@@ -137,22 +179,35 @@ Demo tip: in the Hub tab, lower `LONGTAIL`'s `rho`. Its credit line should rise 
 aave_risk_engine/
   config.py              dataclass inputs
   stress.py              return laws and stressed scenarios
-  positions.py           synthetic borrower book
+  positions.py           synthetic and real borrower books
   liquidation.py         liquidation and bad-debt accounting
   slippage.py            concentrated-liquidity execution shortfall
   engine.py              single-Spoke Monte Carlo engine
   hub.py                 multi-Spoke Hub allocator
+  data/                  Aave V3 on-chain state, prices, depth, snapshots
+    aave_v3.py           reserve/caps/account readers (raw eth_call)
+    markets.py           price history, vol/tail calibration, ARFC peg rule
+    depth.py             slippage-curve fit from aggregator quotes
+    book.py              snapshot -> real PositionBook and calibrated config
+    clearance.py         ARFC largest-borrower clearance test
+    build_snapshot.py    live snapshot builder CLI
+    snapshots/           committed JSON snapshots (offline/deterministic)
   dashboard.py           Streamlit UI
   run_demo.py            single-Spoke demo
   run_hub_demo.py        Hub allocation demo
+  run_market_report.py   real-market report: caps vs model-safe exposure
   tests/                 invariant/economics tests
 ```
 
 ## Honest Limitations
 
-- Synthetic borrower books by default; real Aave account data is not wired in.
-- Single-collateral Spokes; no borrower-level cross-collateral portfolios.
-- Slippage uses one calibrated concentrated-liquidity curve, not full DEX/CEX routing.
+- Real books use an effective single-asset mapping: an account's whole
+  collateral is shocked as the target asset (with the account's own average
+  liquidation threshold). No borrower-level cross-collateral modeling yet.
+- Borrower discovery scans recent `Borrow` events, so dormant borrowers
+  outside the scan window are missed.
+- Slippage uses one concentrated-liquidity curve fitted to aggregator quotes;
+  no CEX depth or venue-concentration modeling.
 - Hub allocation is a static snapshot with one systemic factor.
 - The model is meant for analysis and discussion, not production parameter automation.
 

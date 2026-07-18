@@ -11,11 +11,17 @@ from .config import AssetParams, PositionConfig, RiskParams
 
 @dataclass
 class PositionBook:
-    """Vectorised borrower book."""
+    """Vectorised borrower book.
+
+    `lt` optionally carries a per-position liquidation threshold (real Aave
+    accounts hold mixed collateral, so each account has its own weighted
+    average LT). When None, the market-wide RiskParams threshold applies.
+    """
 
     debt_usd: np.ndarray
     coll_units: np.ndarray
     hf0: np.ndarray
+    lt: np.ndarray | None = None
 
     @property
     def total_debt(self) -> float:
@@ -24,8 +30,24 @@ class PositionBook:
     def collateral_value(self, price: float) -> np.ndarray:
         return self.coll_units * price
 
-    def health_factor(self, price: float, lt: float) -> np.ndarray:
-        return self.collateral_value(price) * lt / self.debt_usd
+    def health_factor(self, price: float, lt: float | None = None) -> np.ndarray:
+        thresholds = self.lt if lt is None and self.lt is not None else lt
+        return self.collateral_value(price) * thresholds / self.debt_usd
+
+
+def scale_book(book: PositionBook, target_debt_usd: float) -> PositionBook:
+    """Scale exposure to a target aggregate debt, preserving health factors."""
+    if target_debt_usd < 0:
+        raise ValueError("target_debt_usd must be non-negative")
+    if book.total_debt <= 0:
+        raise ValueError("cannot scale an empty book")
+    factor = target_debt_usd / book.total_debt
+    return PositionBook(
+        debt_usd=book.debt_usd * factor,
+        coll_units=book.coll_units * factor,
+        hf0=book.hf0.copy(),
+        lt=None if book.lt is None else book.lt.copy(),
+    )
 
 
 def build_position_book(

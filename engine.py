@@ -8,7 +8,7 @@ import numpy as np
 
 from .config import RiskParams, ScenarioConfig
 from .liquidation import process_chunk
-from .positions import PositionBook, build_position_book
+from .positions import PositionBook, build_position_book, scale_book
 from .stress import Scenarios, sample_scenarios
 
 
@@ -66,6 +66,7 @@ def evaluate_book(
     delay_drawdown: float,
     cvar_level: float,
     chunk_size: int = 2_000,
+    depth_points: list[list[float]] | None = None,
 ) -> RiskResult:
     """Evaluate a borrower book against an externally supplied scenario set."""
     n = scenarios.coll_price.size
@@ -82,6 +83,8 @@ def evaluate_book(
             scenarios.depth_liquidity[start:end],
             risk,
             delay_drawdown,
+            depth_points=depth_points,
+            depth_haircut=scenarios.depth_haircut[start:end],
         )
         bad[start:end] = res.bad_debt
         slip[start:end] = res.slippage
@@ -121,16 +124,26 @@ class RiskEngine:
         total_debt_usd: float | None = None,
         risk: RiskParams | None = None,
         book_seed: int = 0,
+        book: PositionBook | None = None,
     ) -> RiskResult:
+        """Evaluate a book; `book` supplies real positions instead of synthetic.
+
+        A real book combined with `total_debt_usd` is scaled proportionally,
+        preserving its health-factor distribution.
+        """
         cfg = self.config
         risk = risk or cfg.risk
-        book = build_position_book(
-            cfg.positions,
-            risk,
-            cfg.asset,
-            np.random.default_rng(book_seed),
-            total_debt_usd=total_debt_usd,
-        )
+        if book is not None:
+            if total_debt_usd is not None:
+                book = scale_book(book, total_debt_usd)
+        else:
+            book = build_position_book(
+                cfg.positions,
+                risk,
+                cfg.asset,
+                np.random.default_rng(book_seed),
+                total_debt_usd=total_debt_usd,
+            )
         return self._evaluate(book, risk)
 
     def _evaluate(self, book: PositionBook, risk: RiskParams) -> RiskResult:
@@ -142,9 +155,15 @@ class RiskEngine:
             cfg.stress.liquidation_delay_drawdown,
             cfg.sim.cvar_level,
             chunk_size=cfg.sim.chunk_size,
+            depth_points=cfg.liquidity.depth_points,
         )
 
-    def cap_sweep(self, caps_usd: np.ndarray, book_seed: int = 0) -> dict:
+    def cap_sweep(
+        self,
+        caps_usd: np.ndarray,
+        book_seed: int = 0,
+        book: PositionBook | None = None,
+    ) -> dict:
         caps_usd = np.asarray(caps_usd, dtype=float)
         mean = np.empty_like(caps_usd)
         cvar = np.empty_like(caps_usd)
@@ -152,7 +171,7 @@ class RiskEngine:
         prob = np.empty_like(caps_usd)
         p99s = np.empty_like(caps_usd)
         for i, cap in enumerate(caps_usd):
-            r = self.run(total_debt_usd=float(cap), book_seed=book_seed)
+            r = self.run(total_debt_usd=float(cap), book_seed=book_seed, book=book)
             mean[i], cvar[i], var[i], prob[i] = r.mean, r.cvar, r.var, r.prob_bad_debt
             p99s[i] = np.quantile(r.slippage, 0.99)
         return {
@@ -171,11 +190,12 @@ class RiskEngine:
         cap_max: float | None = None,
         n_grid: int = 40,
         book_seed: int = 0,
+        book: PositionBook | None = None,
     ) -> dict:
         if cap_max is None:
             cap_max = self.config.positions.total_debt_usd * 2.0
         caps = np.linspace(cap_min, cap_max, n_grid)
-        sweep = self.cap_sweep(caps, book_seed=book_seed)
+        sweep = self.cap_sweep(caps, book_seed=book_seed, book=book)
         return {
             "sweep": sweep,
             "budget": budget_usd,

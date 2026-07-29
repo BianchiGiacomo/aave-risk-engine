@@ -36,7 +36,7 @@ def empirical_slippage(notional_usd, points):
     exhausted, which no single-L curve represents; this interpolates the
     observed points instead. Linear in notional below the first point
     (slippage is asymptotically linear in size), linear in log-notional
-    between points, and flat beyond the last point -- which understates
+    between points, and flat beyond the last point, which understates
     losses out there, so quote ladders should extend past the sizes that
     matter.
 

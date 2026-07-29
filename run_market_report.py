@@ -17,6 +17,7 @@ import datetime as dt
 
 from .config import SimConfig
 from .data import arfc_clearance_test, build_real_book, load_snapshot
+from .data.aave_v3 import CHAINS
 from .data.book import scenario_config_from_snapshot
 from .engine import RiskEngine
 
@@ -41,9 +42,14 @@ def main() -> None:
     reserve = snapshot.reserve
     date = dt.datetime.fromtimestamp(snapshot.timestamp, dt.timezone.utc).date()
 
-    print(f"Aave V3 {reserve.symbol} market report | block {snapshot.block:,} ({date})")
+    print(
+        f"Aave V3 {reserve.symbol} market report ({snapshot.chain}) "
+        f"| block {snapshot.block:,} ({date})"
+    )
     if snapshot.scan_blocks:
-        days = snapshot.scan_blocks * 12 / 86_400
+        chain = CHAINS.get(snapshot.chain)
+        block_time = chain.block_time_s if chain else 12.0
+        days = snapshot.scan_blocks * block_time / 86_400
         print(
             f"borrower sample: Borrow events over the last {snapshot.scan_blocks:,} blocks "
             f"(~{days:.0f} days); dormant borrowers outside that window are not sampled"
@@ -181,7 +187,7 @@ def main() -> None:
     )
     print(
         "  note: unlike the USD-shock book, this test includes ETH-debt"
-        " loopers -- their collateral still sells on this asset's depth curve"
+        " loopers: their collateral still sells on this asset's depth curve"
         " when liquidated, so clearance is a pure market-depth question."
     )
 

@@ -66,7 +66,7 @@ rather than assumption:
   collateral is dominated by the target asset (default share >= 50%) keeps
   the approximation honest.
 - **Depth**: observed routed sell quotes are used two ways. The engine
-  interpolates the (notional, slippage) points directly -- real exit
+  interpolates the (notional, slippage) points directly, because real exit
   liquidity can fall off a cliff once concentrated pools are exhausted
   (observed for wstETH: ~0.3% at $2m, >50% at $9m), which no single-`L`
   curve represents. A scenario depth haircut `h` acts as size scaling,
@@ -76,8 +76,8 @@ rather than assumption:
   not an external oracle. Quotes the router rejects under its max-impact
   guard still carry a routed amount; those are treated as indicative
   stress-depth, not guaranteed executable liquidity. Beyond the largest
-  quoted size the interpolation is flat -- an understatement, so ladders
-  should extend past the sizes that matter.
+  quoted size the interpolation is flat, which understates losses there,
+  so ladders should extend past the sizes that matter.
 - **Debt denomination**: accounts whose debt is mostly WETH-denominated
   (leveraged staking loops) are excluded from the USD-shock book. Their
   debt leg falls with ETH-correlated collateral in a USD crash, so

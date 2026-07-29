@@ -1,15 +1,17 @@
-"""Aave V3 Ethereum-mainnet on-chain readers (reserve state, caps, accounts).
+"""Aave V3 on-chain readers (reserve state, caps, accounts) per chain.
 
 Uses raw eth_call with hardcoded 4-byte selectors so the only runtime
 dependency is the standard library. Selectors were verified against
-4byte.directory and by live probes against mainnet contracts.
+4byte.directory and by live probes; per-chain contract addresses come from
+the BGD aave-address-book and were verified by live probes as well.
 """
 
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 
-from .rpc import EthRpc
+from .rpc import DEFAULT_ENDPOINTS, LOG_ENDPOINTS, EthRpc
 
 POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
 ADDRESSES_PROVIDER = "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
@@ -27,6 +29,7 @@ SELECTOR = {
     "getUserAccountData(address)": "0xbf92857c",
     "getAssetPrice(address)": "0xb3596f07",
     "balanceOf(address)": "0x70a08231",
+    "decimals()": "0x313ce567",
 }
 
 # Well-known mainnet token addresses (checksummed).
@@ -37,6 +40,67 @@ TOKENS = {
     "USDC": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "USDT": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
     "DAI": "0x6B175474E89094C44Da98b954EedeAC495271d0F",
+}
+
+
+@dataclass(frozen=True)
+class ChainConfig:
+    """Everything chain-specific: contracts, RPC endpoints, aggregators."""
+
+    name: str
+    addresses_provider: str
+    pool: str
+    rpc_endpoints: tuple[str, ...]
+    log_endpoints: tuple[str, ...]
+    tokens: dict[str, str] = field(default_factory=dict)
+    log_chunk_blocks: int = 5_000
+    block_time_s: float = 12.0
+    # Aggregator support for depth quotes; None means unsupported.
+    paraswap_network: int | None = None
+    kyber_slug: str | None = None
+
+    def make_rpc(self) -> EthRpc:
+        return EthRpc(endpoints=self.rpc_endpoints, log_endpoints=self.log_endpoints)
+
+
+CHAINS: dict[str, ChainConfig] = {
+    "ethereum": ChainConfig(
+        name="ethereum",
+        addresses_provider=ADDRESSES_PROVIDER,
+        pool=POOL,
+        rpc_endpoints=DEFAULT_ENDPOINTS,
+        log_endpoints=LOG_ENDPOINTS,
+        tokens=TOKENS,
+        log_chunk_blocks=5_000,
+        paraswap_network=1,
+        kyber_slug="ethereum",
+    ),
+    # Addresses from bgd-labs/aave-address-book AaveV3Linea.sol.
+    "linea": ChainConfig(
+        name="linea",
+        addresses_provider="0x89502c3731F69DDC95B65753708A07F8Cd0373F4",
+        pool="0xc47b8C00b0f69a36fa203Ffeac0334874574a8Ac",
+        rpc_endpoints=(
+            "https://rpc.linea.build",
+            "https://linea-rpc.publicnode.com",
+            "https://linea.drpc.org",
+            "https://1rpc.io/linea",
+        ),
+        # rpc.linea.build serves 100k-block log ranges; drpc caps at 10k.
+        log_endpoints=("https://rpc.linea.build",),
+        tokens={
+            "WETH": "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f",
+            "WBTC": "0x3aAB2285ddcDdaD8edf438C1bAB47e1a9D05a9b4",
+            "USDC": "0x176211869cA2b568f2A7D4EE941E073a821EE1ff",
+            "USDT": "0xA219439258ca9da29E9Cc4cE5596924745e12B93",
+            "wstETH": "0xB5beDd42000b71FddE22D3eE8a79Bd49A568fC8F",
+            "weETH": "0x1Bf74C010E6320bab11e2e5A532b5AC15e0b8aA6",
+        },
+        log_chunk_blocks=100_000,
+        block_time_s=2.0,
+        paraswap_network=None,
+        kyber_slug="linea",
+    ),
 }
 
 # getUserAccountData returns HF = 2**256 - 1 for accounts with zero debt.
@@ -56,10 +120,11 @@ def _word_to_address(word: int) -> str:
     return "0x" + f"{word:040x}"
 
 
-def resolve_contracts(rpc: EthRpc) -> tuple[str, str]:
+def resolve_contracts(rpc: EthRpc, chain: ChainConfig | None = None) -> tuple[str, str]:
     """Resolve the current (PoolDataProvider, AaveOracle) from the provider."""
-    dp = _word_to_address(_words(rpc.eth_call(ADDRESSES_PROVIDER, SELECTOR["getPoolDataProvider()"]))[0])
-    oracle = _word_to_address(_words(rpc.eth_call(ADDRESSES_PROVIDER, SELECTOR["getPriceOracle()"]))[0])
+    provider = (chain or CHAINS["ethereum"]).addresses_provider
+    dp = _word_to_address(_words(rpc.eth_call(provider, SELECTOR["getPoolDataProvider()"]))[0])
+    oracle = _word_to_address(_words(rpc.eth_call(provider, SELECTOR["getPriceOracle()"]))[0])
     return dp, oracle
 
 
@@ -103,6 +168,10 @@ def variable_debt_token_address(rpc: EthRpc, data_provider: str, asset: str) -> 
     return _word_to_address(w[2])
 
 
+def token_decimals(rpc: EthRpc, token: str) -> int:
+    return _words(rpc.eth_call(token, SELECTOR["decimals()"]))[0]
+
+
 def asset_price_usd(rpc: EthRpc, oracle: str, asset: str) -> float:
     """Aave oracle price; mainnet base currency is USD with 8 decimals."""
     w = _words(rpc.eth_call(oracle, SELECTOR["getAssetPrice(address)"] + _addr_arg(asset)))
@@ -115,25 +184,28 @@ def discover_borrowers(
     to_block: int,
     chunk_blocks: int = 5_000,
     pause_s: float = 1.5,
+    chain: ChainConfig | None = None,
 ) -> set[str]:
     """Unique onBehalfOf addresses from Borrow events in a block window.
 
     This sees only recently active borrowers; dormant whales are missed.
     Widen the window (at RPC cost) to reduce that bias.
     """
+    pool = (chain or CHAINS["ethereum"]).pool
     users: set[str] = set()
     for start in range(from_block, to_block + 1, chunk_blocks):
         end = min(start + chunk_blocks - 1, to_block)
-        logs = rpc.get_logs(POOL, [BORROW_TOPIC0], start, end)
+        logs = rpc.get_logs(pool, [BORROW_TOPIC0], start, end)
         users.update("0x" + log["topics"][2][26:] for log in logs)
         time.sleep(pause_s)
     return users
 
 
-def account_data(rpc: EthRpc, users: list[str]) -> list[dict]:
+def account_data(rpc: EthRpc, users: list[str], chain: ChainConfig | None = None) -> list[dict]:
     """Batched Pool.getUserAccountData; base-currency figures in USD."""
+    pool = (chain or CHAINS["ethereum"]).pool
     params = [
-        [{"to": POOL, "data": SELECTOR["getUserAccountData(address)"] + _addr_arg(u)}, "latest"]
+        [{"to": pool, "data": SELECTOR["getUserAccountData(address)"] + _addr_arg(u)}, "latest"]
         for u in users
     ]
     out = []

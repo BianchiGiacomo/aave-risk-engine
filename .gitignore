@@ -11,4 +11,4 @@ dist/
 .streamlit/
 figures/*.png
 !figures/.gitkeep
-data/snapshots/.borrowers_cache.json
+data/snapshots/.borrowers_cache*.json

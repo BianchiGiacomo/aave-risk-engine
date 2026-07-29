@@ -28,6 +28,7 @@ This is not an automated risk agent and not a governance replacement. It is a co
 ## Read Next
 
 - [Results walkthrough](docs/results.md)
+- [Case study: reproducing the July 2026 Linea cap reductions](docs/case_studies/2026-07-linea-cap-reductions.md)
 - [Methodology](METHODOLOGY.md)
 - [Implementation notes](IMPLEMENTATION.md)
 
@@ -51,7 +52,7 @@ u_k = rho_k * Z + sqrt(1 - rho_k^2) * e_k
 
 The allocator greedily assigns credit to the Spoke with the lowest marginal Hub-CVaR per dollar until the Hub balance or CVaR budget binds. Marginal premia are approximately equalized because the allocator is discrete.
 
-Aave V4 has been live on Ethereum mainnet since March 2026 with governed Spoke add/draw caps, cross-Hub credit lines, and a collateral risk premium (launched at 0 bps) -- the quantities this engine sizes. See the [V4 activation ARFC](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293).
+Aave V4 has been live on Ethereum mainnet since March 2026 with governed Spoke add/draw caps, cross-Hub credit lines, and a collateral risk premium (launched at 0 bps): the quantities this engine sizes. See the [V4 activation ARFC](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293).
 
 ## Results Preview
 
@@ -129,7 +130,8 @@ python -m aave_risk_engine.tests.test_data
 ## Real Market Data (Aave V3)
 
 The `data/` layer replaces synthetic assumptions with observed Aave V3
-Ethereum state, using only keyless public sources and the standard library:
+state (Ethereum mainnet and Linea), using only keyless public sources and
+the standard library:
 
 - **On-chain reserve state** (public JSON-RPC): liquidation threshold, LTV,
   liquidation bonus, supply/borrow caps, current supply and debt, oracle price.
@@ -137,10 +139,11 @@ Ethereum state, using only keyless public sources and the standard library:
   account aggregates from `Pool.getUserAccountData`, filtered to accounts
   dominated by the target collateral. Each account keeps its own on-chain
   weighted-average liquidation threshold.
-- **Depth calibration**: routed Paraswap sell quotes at a ladder of sizes.
-  The engine interpolates the observed points directly, because real exit
-  liquidity cliffs (wstETH: ~0.3% slippage at $2m, >50% at $9m) cannot be
-  represented by a single-parameter curve.
+- **Depth calibration**: routed sell quotes (Paraswap on mainnet, KyberSwap
+  on Linea) at a ladder of USD sizes. The engine interpolates the observed
+  points directly, because real exit liquidity cliffs (wstETH: ~0.3%
+  slippage at $2m, >50% at $9m) cannot be represented by a single-parameter
+  curve.
 - **Debt denomination**: WETH-denominated debt is measured per account, and
   leveraged-staking loopers (collateral and debt both ETH-correlated) are
   excluded from USD-shock books rather than mismodeled as stable-debt
@@ -148,15 +151,16 @@ Ethereum state, using only keyless public sources and the standard library:
 - **Stress calibration**: realized volatility and a Student-t tail fitted
   from Kraken price history; stETH/ETH peg history from Coingecko.
 - **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
-  peg rule (no >=1% deviation sustained >=2 days) and its liquidation-capacity
-  requirement -- depth must clear the largest borrower within the liquidation
-  bonus -- evaluated as the engine's liquidator break-even condition.
+  peg rule (no >=1% deviation sustained >=2 days) and its requirement that
+  depth must clear the largest borrower within the liquidation bonus,
+  evaluated as the engine's liquidator break-even condition.
 
 Snapshots are committed JSON (`data/snapshots/`), so the report, tests, and
 CI run offline and deterministically. Refresh with:
 
 ```bash
-python -m aave_risk_engine.data.build_snapshot --asset wstETH
+python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH
+python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH
 ```
 
 The market report then compares governance dials against model output:
@@ -185,7 +189,7 @@ aave_risk_engine/
   engine.py              single-Spoke Monte Carlo engine
   hub.py                 multi-Spoke Hub allocator
   data/                  Aave V3 on-chain state, prices, depth, snapshots
-    aave_v3.py           reserve/caps/account readers (raw eth_call)
+    aave_v3.py           per-chain reserve/caps/account readers (raw eth_call)
     markets.py           price history, vol/tail calibration, ARFC peg rule
     depth.py             slippage-curve fit from aggregator quotes
     book.py              snapshot -> real PositionBook and calibrated config

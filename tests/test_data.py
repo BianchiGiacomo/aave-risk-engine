@@ -300,6 +300,20 @@ def test_real_book_runs_through_engine():
     assert doubled.cvar >= base.cvar
 
 
+def test_chain_configs_are_well_formed():
+    from aave_risk_engine.data.aave_v3 import CHAINS, TOKENS
+
+    assert "ethereum" in CHAINS and "linea" in CHAINS
+    for chain in CHAINS.values():
+        for address in (chain.addresses_provider, chain.pool, *chain.tokens.values()):
+            assert address.startswith("0x") and len(address) == 42
+        assert chain.rpc_endpoints and chain.log_endpoints
+        assert "WETH" in chain.tokens  # needed for the ETH-debt measurement
+        assert chain.paraswap_network is not None or chain.kyber_slug is not None
+    assert CHAINS["ethereum"].tokens is TOKENS
+    assert CHAINS["ethereum"].pool.lower() == "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2"
+
+
 def test_committed_snapshot_loads_offline():
     from aave_risk_engine.data.snapshot import default_snapshot_path
 

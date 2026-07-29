@@ -51,8 +51,8 @@ def arfc_clearance_test(
     """Can current depth clear the largest borrower within the bonus?
 
     The sale notional per account is the seized collateral,
-    min(collateral, debt * (1 + bonus)) -- full liquidation, which is the
-    conservative reading of "largest expected borrower".
+    min(collateral, debt * (1 + bonus)), that is, full liquidation, which is
+    the conservative reading of "largest expected borrower".
 
     Accounts are included regardless of debt denomination: a WETH-debt
     looper's collateral still hits this asset's depth curve when liquidated,

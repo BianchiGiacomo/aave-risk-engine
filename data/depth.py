@@ -38,10 +38,10 @@ def paraswap_sell_quotes(
     Paraswap rejects quotes above its max-price-impact guard with HTTP 400,
     but the rejection body still carries the best routed ``destAmount``.
     Those should be read as indicative routes beyond the router's normal
-    guard -- stress-depth estimates, not guaranteed executable liquidity --
-    but they are the only signal for the large-size region the clearance
-    test cares about, so they are kept. Sizes with no routed amount at all
-    are skipped.
+    guard (stress-depth estimates rather than guaranteed executable
+    liquidity), but they are the only signal for the large-size region the
+    clearance test cares about, so they are kept. Sizes with no routed
+    amount at all are skipped.
     """
     quotes = []
     for size in sizes_tokens:
@@ -68,6 +68,47 @@ def paraswap_sell_quotes(
         dest_raw = out.get("priceRoute", {}).get("destAmount")
         if dest_raw is not None:
             quotes.append((size, float(dest_raw) / 10**dest_decimals))
+        time.sleep(pause_s)
+    if len(quotes) < 2:
+        raise RuntimeError("fewer than two usable quotes; cannot calibrate depth")
+    return quotes
+
+
+def kyberswap_sell_quotes(
+    chain_slug: str,
+    src_token: str,
+    dest_token: str,
+    sizes_tokens: tuple[float, ...],
+    src_decimals: int = 18,
+    dest_decimals: int = 18,
+    pause_s: float = 1.0,
+    timeout: float = 30.0,
+) -> list[tuple[float, float]]:
+    """Routed sell quotes from the KyberSwap aggregator (keyless).
+
+    Used on chains Paraswap does not serve. Sizes with no route are skipped;
+    fewer than two usable quotes raises.
+    """
+    quotes = []
+    for size in sizes_tokens:
+        params = urllib.parse.urlencode(
+            {
+                "tokenIn": src_token,
+                "tokenOut": dest_token,
+                "amountIn": str(int(size * 10**src_decimals)),
+            }
+        )
+        url = f"https://aggregator-api.kyberswap.com/{chain_slug}/api/v1/routes?{params}"
+        req = urllib.request.Request(url, headers=_HEADERS)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                out = json.loads(resp.read())
+        except urllib.error.HTTPError:
+            time.sleep(pause_s)
+            continue
+        amount_out = out.get("data", {}).get("routeSummary", {}).get("amountOut")
+        if amount_out is not None:
+            quotes.append((size, float(amount_out) / 10**dest_decimals))
         time.sleep(pause_s)
     if len(quotes) < 2:
         raise RuntimeError("fewer than two usable quotes; cannot calibrate depth")

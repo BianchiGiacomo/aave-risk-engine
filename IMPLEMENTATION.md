@@ -14,9 +14,9 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `engine.py` | Single-Spoke Monte Carlo engine |
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
-| `data/aave_v3.py` | Aave V3 mainnet readers: reserves, caps, accounts, prices |
+| `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
 | `data/markets.py` | Price history, realized vol, t-tail fit, ARFC peg rule |
-| `data/depth.py` | Slippage-curve calibration from aggregator sell quotes |
+| `data/depth.py` | Slippage-curve calibration from Paraswap/KyberSwap sell quotes |
 | `data/snapshot.py` | Snapshot schema and JSON persistence |
 | `data/book.py` | Snapshot to real PositionBook and calibrated ScenarioConfig |
 | `data/clearance.py` | ARFC largest-borrower liquidation clearance test |

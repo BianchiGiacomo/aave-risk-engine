@@ -144,10 +144,12 @@ the standard library:
   points directly, because real exit liquidity cliffs (wstETH: ~0.3%
   slippage at $2m, >50% at $9m) cannot be represented by a single-parameter
   curve.
-- **Debt denomination**: WETH-denominated debt is measured per account, and
-  leveraged-staking loopers (collateral and debt both ETH-correlated) are
-  excluded from USD-shock books rather than mismodeled as stable-debt
-  borrowers.
+- **Debt denomination**: WETH-denominated debt is measured per account.
+  Leveraged-staking loopers (collateral and debt both ETH-correlated) are
+  excluded from the default USD-shock book, and modeled explicitly in the
+  combined book, where ETH-denominated debt scales with the scenario ETH
+  return and looper risk comes from the LST/ETH exchange rate and depth,
+  not the USD price level.
 - **Stress calibration**: realized volatility and a Student-t tail fitted
   from Kraken price history; stETH/ETH peg history from Coingecko.
 - **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)

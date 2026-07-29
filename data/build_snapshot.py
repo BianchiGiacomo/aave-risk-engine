@@ -152,6 +152,7 @@ def build_stress_calibration(
         calibration.peg_pass = peg["peg_pass"]
         calibration.peg_worst_deviation = peg["peg_worst_deviation"]
         calibration.peg_max_run_days = peg["peg_max_run_days"]
+        calibration.peg_daily_vol = markets.ratio_daily_vol(ratios)
     return calibration
 
 

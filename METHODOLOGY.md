@@ -78,15 +78,21 @@ rather than assumption:
   stress-depth, not guaranteed executable liquidity. Beyond the largest
   quoted size the interpolation is flat, which understates losses there,
   so ladders should extend past the sizes that matter.
-- **Debt denomination**: accounts whose debt is mostly WETH-denominated
-  (leveraged staking loops) are excluded from the USD-shock book. Their
-  debt leg falls with ETH-correlated collateral in a USD crash, so
-  stable-debt scenarios do not describe them; their residual risk is the
-  LST exchange rate, not the price level. The report states the excluded
-  volume explicitly.
+- **Debt denomination**: each account's WETH-denominated debt is measured
+  on-chain. In the default USD-shock book, accounts whose debt is mostly
+  WETH-denominated (leveraged staking loops) are excluded, because their
+  debt leg falls with ETH-correlated collateral in a USD crash. The
+  combined book instead models the split explicitly: the ETH-denominated
+  portion of scenario debt scales with the ETH return, so loopers are
+  stressed by what actually threatens them, the LST/underlying exchange
+  rate (the peg terms, with idiosyncratic peg volatility calibrated from
+  ratio history) and depth evaporation, while stable-debt accounts keep
+  the full USD price shock. The report shows both views.
 - **Return law**: annualized realized volatility from daily closes; the
   Student-t degrees of freedom are matched to sample excess kurtosis
-  (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy.
+  (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy. Assets with
+  no calibrated peg series (WETH, WBTC) get all peg-stress terms zeroed:
+  they are their own underlying, so exchange-rate stress does not apply.
 - **Exposure sweeps** on a real book scale debt and collateral together,
   preserving the observed health-factor distribution.
 

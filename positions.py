@@ -16,12 +16,19 @@ class PositionBook:
     `lt` optionally carries a per-position liquidation threshold (real Aave
     accounts hold mixed collateral, so each account has its own weighted
     average LT). When None, the market-wide RiskParams threshold applies.
+
+    `eth_debt_usd` optionally carries the portion of each position's debt
+    that is ETH-denominated, valued in USD at time zero. In a scenario that
+    portion scales with the ETH return, so a leveraged staking loop (LST
+    collateral, WETH debt) is exposed to the LST/ETH exchange rate rather
+    than the USD price level. When None, all debt is treated as USD-stable.
     """
 
     debt_usd: np.ndarray
     coll_units: np.ndarray
     hf0: np.ndarray
     lt: np.ndarray | None = None
+    eth_debt_usd: np.ndarray | None = None
 
     @property
     def total_debt(self) -> float:
@@ -47,6 +54,7 @@ def scale_book(book: PositionBook, target_debt_usd: float) -> PositionBook:
         coll_units=book.coll_units * factor,
         hf0=book.hf0.copy(),
         lt=None if book.lt is None else book.lt.copy(),
+        eth_debt_usd=None if book.eth_debt_usd is None else book.eth_debt_usd * factor,
     )
 
 

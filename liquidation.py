@@ -29,6 +29,7 @@ def process_chunk(
     delay_drawdown: float,
     depth_points: list[list[float]] | None = None,
     depth_haircut: np.ndarray | None = None,
+    eth_return: np.ndarray | None = None,
 ) -> ChunkResult:
     """Compute liquidation outcomes for a chunk of scenarios.
 
@@ -39,8 +40,18 @@ def process_chunk(
     With `depth_points` (and the scenario `depth_haircut`), slippage comes
     from interpolated real quotes evaluated at notional / (1 - haircut)
     instead of the analytic curve.
+
+    With `eth_return` and a book carrying `eth_debt_usd`, the ETH-denominated
+    portion of each debt scales with the scenario ETH return, so correlated
+    loops are stressed by the collateral's exchange rate and peg terms, not
+    by the USD price level.
     """
-    debt = book.debt_usd[None, :]
+    if book.eth_debt_usd is not None and eth_return is not None:
+        stable = (book.debt_usd - book.eth_debt_usd)[None, :]
+        floating = book.eth_debt_usd[None, :] * (1.0 + eth_return[:, None])
+        debt = np.maximum(stable + floating, 1e-9)
+    else:
+        debt = book.debt_usd[None, :]
     units = book.coll_units[None, :]
     price = coll_price[:, None]
 

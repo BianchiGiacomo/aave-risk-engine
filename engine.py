@@ -85,6 +85,7 @@ def evaluate_book(
             delay_drawdown,
             depth_points=depth_points,
             depth_haircut=scenarios.depth_haircut[start:end],
+            eth_return=scenarios.eth_return[start:end],
         )
         bad[start:end] = res.bad_debt
         slip[start:end] = res.slippage

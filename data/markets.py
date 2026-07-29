@@ -84,6 +84,15 @@ def fit_student_t_dof(
     return float(np.clip(4.0 + 6.0 / excess, lo, hi))
 
 
+def ratio_daily_vol(ratios: np.ndarray) -> float:
+    """Daily volatility of an LST/underlying ratio series (log changes)."""
+    ratios = np.asarray(ratios, dtype=float)
+    rets = np.diff(np.log(ratios))
+    if rets.size < 30:
+        raise ValueError("need at least 30 daily ratio changes")
+    return float(rets.std(ddof=1))
+
+
 def arfc_peg_check(
     ratios: np.ndarray,
     threshold: float = ARFC_PEG_THRESHOLD,

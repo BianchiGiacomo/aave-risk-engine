@@ -135,6 +135,31 @@ def main() -> None:
             f"| P(bad debt) {r.prob_bad_debt:.2%}"
         )
 
+    try:
+        full_book = build_real_book(
+            snapshot, min_target_share=args.min_target_share, model_eth_debt=True
+        )
+    except ValueError:
+        full_book = None
+    if full_book is not None and full_book.eth_debt_usd is not None:
+        eth_total = float(full_book.eth_debt_usd.sum())
+        combined = engine.run(book=full_book)
+        print("\nCombined book with ETH-denominated debt modeled")
+        print(
+            f"  full book: {full_book.debt_usd.size} accounts "
+            f"| debt {_fmt(full_book.total_debt)} "
+            f"(of which ETH-denominated {_fmt(eth_total)})"
+        )
+        print(
+            f"  P(bad debt) {combined.prob_bad_debt:.2%} | VaR99 {_fmt(combined.var)} "
+            f"| CVaR99 {_fmt(combined.cvar)}  (USD-debt book alone: {_fmt(base.cvar)})"
+        )
+        print(
+            "  note: ETH-denominated debt falls with the scenario ETH price, so"
+            " loopers are stressed by the peg/exchange-rate and depth terms"
+            " rather than the USD price level."
+        )
+
     rec = engine.recommend_cap(
         budget_usd=args.budget,
         cap_min=book.total_debt * 0.1,
@@ -144,6 +169,10 @@ def main() -> None:
     )
     safe = rec["recommended_cap"]
     print(f"\nModel-safe debt exposure (CVaR99 budget {_fmt(args.budget)})")
+    print(
+        "  scope: this cap recommendation applies to the USD-debt book; the"
+        " combined view above is diagnostic."
+    )
     print(f"  observed book debt : {_fmt(book.total_debt)}")
     print(f"  model safe exposure: {_fmt(safe)}")
     if safe == safe:  # not NaN

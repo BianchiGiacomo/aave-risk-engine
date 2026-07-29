@@ -89,6 +89,7 @@ class StressCalibration:
     peg_pass: bool | None = None
     peg_worst_deviation: float | None = None
     peg_max_run_days: float | None = None
+    peg_daily_vol: float | None = None
 
 
 @dataclass

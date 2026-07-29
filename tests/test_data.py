@@ -300,6 +300,101 @@ def test_real_book_runs_through_engine():
     assert doubled.cvar >= base.cvar
 
 
+def test_eth_debt_scales_with_scenario_return():
+    risk = RiskParams(ltv=0.70, liquidation_threshold=0.80, liquidation_bonus=0.05)
+    depth = np.array([1e12, 1e12])
+    # Two identical positions except for debt denomination. Collateral is
+    # ETH-correlated: a -40% ETH scenario cuts the collateral price 40%.
+    price = np.array([60.0, 100.0])
+    eth_ret = np.array([-0.40, 0.0])
+    debt = np.array([80.0])
+    units = np.array([1.0])
+    stable = PositionBook(debt, units, np.ones(1))
+    looper = PositionBook(debt, units, np.ones(1), eth_debt_usd=np.array([80.0]))
+
+    res_stable = process_chunk(stable, price, depth, risk, 0.0, eth_return=eth_ret)
+    res_looper = process_chunk(looper, price, depth, risk, 0.0, eth_return=eth_ret)
+    # Stable debt: HF = 60*0.8/80 = 0.6, liquidated. Looper: debt falls to
+    # 48, HF = 60*0.8/48 = 1.0, not liquidated.
+    assert res_stable.liquidated_usd[0] > 0
+    assert res_looper.liquidated_usd[0] == 0
+    # Flat ETH scenario: both books behave identically.
+    assert np.isclose(res_stable.liquidated_usd[1], res_looper.liquidated_usd[1])
+
+    # A pure exchange-rate shock (collateral down, ETH flat) hits the looper.
+    peg_price = np.array([88.0])
+    res_peg = process_chunk(
+        looper, peg_price, depth[:1], risk, 0.0, eth_return=np.array([0.0])
+    )
+    # HF = 88*0.8/80 = 0.88: liquidatable purely from the ratio move.
+    assert res_peg.liquidated_usd[0] > 0
+
+
+def test_scale_book_preserves_eth_debt_fraction():
+    book = PositionBook(
+        np.array([100.0, 50.0]),
+        np.array([1.0, 1.0]),
+        np.ones(2),
+        eth_debt_usd=np.array([100.0, 0.0]),
+    )
+    scaled = scale_book(book, 300.0)
+    assert np.isclose(scaled.eth_debt_usd[0] / scaled.debt_usd[0], 1.0)
+    assert np.isclose(scaled.eth_debt_usd[1], 0.0)
+
+
+def test_model_eth_debt_includes_loopers_with_split():
+    snap = _snapshot()
+    book = build_real_book(snap, model_eth_debt=True)
+    # The looper 0xff is included and carries its ETH-denominated portion.
+    assert book.debt_usd.size == 4
+    assert book.eth_debt_usd is not None
+    by_debt = dict(zip(book.debt_usd, book.eth_debt_usd))
+    assert np.isclose(by_debt[10_000_000.0], 9_000_000.0)
+    assert np.isclose(by_debt[20_000_000.0], 0.0)
+
+
+def test_combined_book_cvar_at_least_usd_only():
+    from aave_risk_engine.config import SimConfig
+    from aave_risk_engine.engine import RiskEngine
+
+    snap = _snapshot()
+    cfg = scenario_config_from_snapshot(snap)
+    cfg.sim = SimConfig(n_scenarios=4_000, seed=1, chunk_size=2_000)
+    engine = RiskEngine(cfg)
+    usd_only = engine.run(book=build_real_book(snap))
+    combined = engine.run(book=build_real_book(snap, model_eth_debt=True))
+    # Adding positions can only add nonnegative per-position bad debt.
+    assert combined.cvar >= usd_only.cvar
+
+
+def test_unpegged_asset_gets_zero_peg_stress():
+    snap = _snapshot()
+    # No peg series calibrated: the asset is its own underlying (e.g. WETH).
+    snap.stress.peg_pass = None
+    snap.stress.peg_daily_vol = None
+    cfg = scenario_config_from_snapshot(snap)
+    assert cfg.stress.base_peg_drop == 0.0
+    assert cfg.stress.peg_crash_beta == 0.0
+    assert cfg.stress.peg_idio_vol == 0.0
+    # Pegged asset keeps its peg stress terms.
+    pegged = scenario_config_from_snapshot(_snapshot())
+    assert pegged.stress.peg_crash_beta > 0
+
+
+def test_peg_vol_calibration_wires_into_config():
+    from aave_risk_engine.data.markets import ratio_daily_vol
+
+    rng = np.random.default_rng(2)
+    ratios = np.exp(np.cumsum(0.002 * rng.standard_normal(400)))
+    vol = ratio_daily_vol(ratios)
+    assert 0.0015 < vol < 0.0025
+
+    snap = _snapshot()
+    snap.stress.peg_daily_vol = 0.002
+    cfg = scenario_config_from_snapshot(snap)
+    assert np.isclose(cfg.stress.peg_idio_vol, 0.002 * np.sqrt(cfg.stress.horizon_days))
+
+
 def test_chain_configs_are_well_formed():
     from aave_risk_engine.data.aave_v3 import CHAINS, TOKENS
 

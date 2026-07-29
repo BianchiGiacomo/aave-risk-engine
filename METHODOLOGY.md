@@ -96,6 +96,37 @@ rather than assumption:
 - **Exposure sweeps** on a real book scale debt and collateral together,
   preserving the observed health-factor distribution.
 
+## Historical Episode Replay
+
+Past stress episodes are replayed as deterministic scenarios: every rolling
+stress-horizon window of the realized ETH price and stETH/ETH ratio paths
+becomes one scenario, evaluated against the current book and the current
+depth curve. This is scenario replay, not backtesting against the
+historical book, which would require archive-node state that keyless
+endpoints do not serve. It answers: what would those market paths do to
+the positions on the books now?
+
+Data handling for the daily price series (keyless DefiLlama marks):
+
+- gappy series are reindexed onto a full calendar grid by interpolation,
+  so an H-day window always spans H calendar days;
+- the LST/underlying ratio is capped at par, because minting enforces a
+  hard ceiling at 1.0 and prints above it are venue or timestamp
+  artifacts (the 2022 series prints up to 1.12 on chaotic days);
+- a three-point rolling median removes remaining single-mark spikes.
+
+Episodes are named after the historical event but carry only the
+collateral-relevant paths (ETH price, stETH/ETH ratio); liability-side
+effects such as the March 2023 USDC depeg itself are outside the replay.
+
+The replay separates the two loss channels cleanly: episodes whose
+loss-driving ETH crash windows had a tight peg (FTX 2022) stress only the
+USD-debt book, while peg windows (June 2022) liquidate loopers through
+the exchange-rate channel. It also
+exposes a limitation of the Monte Carlo peg coupling: realized peg drops
+do not co-occur with the worst ETH windows the way a contemporaneous
+crash beta assumes; peg stress can lead or lag the price move.
+
 ## ARFC Checks
 
 Two requirements of the Aave Risk Framework (governance ARFC, June 2026)

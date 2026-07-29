@@ -34,4 +34,4 @@ aave_risk_engine = "."
 "aave_risk_engine.tests" = "tests"
 
 [tool.setuptools.package-data]
-"aave_risk_engine.data" = ["snapshots/*.json"]
+"aave_risk_engine.data" = ["snapshots/*.json", "episodes/*.json"]

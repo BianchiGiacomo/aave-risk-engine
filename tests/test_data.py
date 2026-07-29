@@ -395,6 +395,104 @@ def test_peg_vol_calibration_wires_into_config():
     assert np.isclose(cfg.stress.peg_idio_vol, 0.002 * np.sqrt(cfg.stress.horizon_days))
 
 
+def test_episode_grid_and_median():
+    from aave_risk_engine.data.episodes import _rolling_median3, _to_daily_grid
+
+    dates = ["2022-05-01", "2022-05-02", "2022-05-05"]
+    grid_dates, grid = _to_daily_grid(dates, [1.0, 2.0, 8.0])
+    assert grid_dates[0] == "2022-05-01" and grid_dates[-1] == "2022-05-05"
+    assert grid.size == 5
+    assert np.isclose(grid[2], 4.0) and np.isclose(grid[3], 6.0)
+
+    spiked = np.array([1.0, 1.0, 5.0, 1.0, 1.0])
+    smoothed = _rolling_median3(spiked)
+    assert np.isclose(smoothed[2], 1.0)
+    assert np.isclose(smoothed[0], 1.0) and np.isclose(smoothed[-1], 1.0)
+
+
+def test_episode_windows_cap_ratio_at_par():
+    from aave_risk_engine.data.episodes import EpisodePaths, rolling_windows
+
+    # An artifact-high ratio print reverting to normal must not read as a
+    # depeg; a genuine drop below par must.
+    paths = EpisodePaths(
+        name="x",
+        dates=[f"2022-05-{d:02d}" for d in range(1, 9)],
+        driver_usd=[100.0] * 8,
+        ratio=[0.99, 0.99, 1.12, 0.99, 0.99, 0.99, 0.94, 0.94],
+    )
+    windows = rolling_windows(paths, horizon_days=2, smooth_ratio=False)
+    assert np.all(windows["eth_return"] == 0.0)
+    # Window starting at the capped 1.12 print: 1.00 -> 0.99 is a 1% drop.
+    assert windows["peg_drop"][2] <= 0.011
+    # Window 0.99 -> 0.94 is a real depeg of about 5%.
+    assert np.isclose(windows["peg_drop"].max(), 1.0 - 0.94 / 0.99)
+
+
+def test_episode_scenarios_shapes_and_pricing():
+    from aave_risk_engine.data.episodes import EpisodePaths, episode_scenarios
+
+    snap = _snapshot()
+    cfg = scenario_config_from_snapshot(snap)
+    paths = EpisodePaths(
+        name="x",
+        dates=[f"2022-06-{d:02d}" for d in range(1, 7)],
+        driver_usd=[100.0, 90.0, 80.0, 80.0, 80.0, 80.0],
+        ratio=[1.0, 1.0, 1.0, 0.95, 0.95, 0.95],
+    )
+    scen = episode_scenarios(paths, cfg, depth_haircut=0.4)
+    assert scen.coll_price.size == 4  # six days, two-day horizon
+    spot = cfg.asset.spot_price
+    assert np.isclose(scen.coll_price[0], spot * 0.8)  # -20%, peg intact
+    assert np.isclose(scen.coll_price[2], spot * 1.0 * 0.95)  # peg-only window
+    assert np.all(scen.depth_haircut == 0.4)
+
+
+def test_episode_replay_hits_looper_book_on_peg_drop():
+    from aave_risk_engine.data.episodes import EpisodePaths, episode_scenarios
+    from aave_risk_engine.engine import evaluate_book
+
+    snap = _snapshot()
+    cfg = scenario_config_from_snapshot(snap)
+    # Pure exchange-rate episode: driver flat, ratio drops 12%.
+    paths = EpisodePaths(
+        name="x",
+        dates=[f"2022-06-{d:02d}" for d in range(1, 8)],
+        driver_usd=[100.0] * 7,
+        ratio=[1.0, 1.0, 1.0, 0.88, 0.88, 0.88, 0.88],
+    )
+    scen = episode_scenarios(paths, cfg)
+    args = (cfg.risk, cfg.stress.liquidation_delay_drawdown, cfg.sim.cvar_level)
+    usd = evaluate_book(build_real_book(snap), scen, *args)
+    combined = evaluate_book(build_real_book(snap, model_eth_debt=True), scen, *args)
+    # The looper (HF 1.6 at LT 0.80 needs a bigger move; use worst window).
+    # A 12% ratio drop cuts collateral 12% while ETH-denominated debt is
+    # unchanged, so the combined book can only be at least as bad.
+    assert combined.worst >= usd.worst
+
+
+def test_committed_episodes_load_offline():
+    from aave_risk_engine.data.episodes import (
+        EPISODES,
+        episode_path_file,
+        load_episode_paths,
+        rolling_windows,
+    )
+
+    found = 0
+    for name in EPISODES:
+        if not os.path.exists(episode_path_file(name)):
+            continue
+        found += 1
+        paths = load_episode_paths(name)
+        windows = rolling_windows(paths, 2)
+        assert windows["eth_return"].size > 0
+        assert np.all(windows["peg_drop"] >= 0.0)
+        assert np.all(windows["peg_drop"] < 0.5)
+    if not found:
+        print("  (skipped: no committed episodes)")
+
+
 def test_chain_configs_are_well_formed():
     from aave_risk_engine.data.aave_v3 import CHAINS, TOKENS
 

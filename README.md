@@ -116,6 +116,7 @@ pip install -e ".[dev]"
 python -m aave_risk_engine.run_demo
 python -m aave_risk_engine.run_hub_demo
 python -m aave_risk_engine.run_market_report
+python -m aave_risk_engine.run_episode_replay
 python -m streamlit run aave_risk_engine/dashboard.py
 ```
 
@@ -157,8 +158,19 @@ the standard library:
   depth must clear the largest borrower within the liquidation bonus,
   evaluated as the engine's liquidator break-even condition.
 
-Snapshots are committed JSON (`data/snapshots/`), so the report, tests, and
-CI run offline and deterministically. Refresh with:
+- **Historical episode replay**: the realized ETH and stETH/ETH paths of
+  past stress episodes (Terra/Celsius depeg May-June 2022, FTX November
+  2022, the market window around the March 2023 USDC depeg) are rolled
+  through today's books and today's depth curve, window by window. The
+  June 2022 replay liquidates the current whale loopers through the
+  exchange-rate channel; in the FTX replay the peg stayed tight through
+  the loss-driving crash window, leaving loopers untouched. Episodes
+  supply only the ETH and stETH/ETH paths; liability-side effects such
+  as the USDC depeg itself are not modeled.
+
+Snapshots and episode paths are committed JSON (`data/snapshots/`,
+`data/episodes/`), so the reports, tests, and CI run offline and
+deterministically. Refresh with:
 
 ```bash
 python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH
@@ -197,11 +209,15 @@ aave_risk_engine/
     book.py              snapshot -> real PositionBook and calibrated config
     clearance.py         ARFC largest-borrower clearance test
     build_snapshot.py    live snapshot builder CLI
+    episodes.py          historical stress episodes and rolling-window replay
+    build_episodes.py    episode price-path fetcher CLI
     snapshots/           committed JSON snapshots (offline/deterministic)
+    episodes/            committed episode price paths
   dashboard.py           Streamlit UI
   run_demo.py            single-Spoke demo
   run_hub_demo.py        Hub allocation demo
   run_market_report.py   real-market report: caps vs model-safe exposure
+  run_episode_replay.py  historical stress paths through today's book
   tests/                 invariant/economics tests
 ```
 

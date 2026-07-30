@@ -20,6 +20,8 @@ This is not an automated risk agent and not a governance replacement. It is a co
 ## 60-Second Tour
 
 - Sizes a borrow cap / V4 Spoke credit line from 99% CVaR bad debt.
+- Models both V3 liquidation mechanics and V4's live design (repay to
+  target health factor, dynamic bonus) and compares them on real books.
 - Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
 - Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
 - Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.
@@ -117,6 +119,7 @@ python -m aave_risk_engine.run_demo
 python -m aave_risk_engine.run_hub_demo
 python -m aave_risk_engine.run_market_report
 python -m aave_risk_engine.run_episode_replay
+python -m aave_risk_engine.run_v4_comparison
 python -m streamlit run aave_risk_engine/dashboard.py
 ```
 
@@ -218,6 +221,7 @@ aave_risk_engine/
   run_hub_demo.py        Hub allocation demo
   run_market_report.py   real-market report: caps vs model-safe exposure
   run_episode_replay.py  historical stress paths through today's book
+  run_v4_comparison.py   V3 vs V4 liquidation mechanics on the same book
   tests/                 invariant/economics tests
 ```
 

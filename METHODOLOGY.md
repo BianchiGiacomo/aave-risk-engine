@@ -96,6 +96,38 @@ rather than assumption:
 - **Exposure sweeps** on a real book scale debt and collateral together,
   preserving the observed health-factor distribution.
 
+## V4 Liquidation Mechanics
+
+With V4 parameters set, liquidation follows the design live on mainnet
+since March 2026 instead of the V3 baseline:
+
+- **Repay to target**: the repayment R restores the position to the
+  Spoke's target health factor, solving
+  `(C - R(1+b)) LT = target (D - R)`. When the target is unreachable
+  (`target <= (1+b) LT`), the position is closed entirely. A close-factor
+  floor (0.60 volatile, 0.35 correlated at launch) sets the minimum
+  repayable fraction, and positions that would be left below the dust
+  threshold are closed in full.
+- **Dynamic bonus**: `liquidationBonusFactor * maxLiquidationBonus` just
+  below par (0.90 x 1.11x-V3 on Main Spoke, so about 6.0%), rising to the
+  full max bonus at or below `healthFactorForMaxBonus` (0.90 Main, 0.99
+  correlated). The anchors are the documented activation parameters; the
+  linear rise between them is this model's assumption, since the engine
+  overview specifies a Dutch-auction-style increase without a formula.
+- **Per-position stalls**: each position stalls at its own break-even
+  `s > b_i / (1 + b_i)`, so deep-in-default positions keep clearing at
+  slippage levels that stall near-par liquidations.
+
+On the real wstETH book this trades probability against severity, driven
+by liquidation sizing: repay-to-1.24 with a 60% floor sells much more
+collateral per event than a 50% close factor, pushing slippage past
+break-even more often (more scenarios with some bad debt), while deep
+positions carrying the full bonus clear at higher slippage and each
+event deleverages harder, thinning the tail. One caveat: the
+single-period model understates the benefit of high targets, because
+restoring HF to 1.0137 versus 1.24 changes vulnerability to follow-on
+shocks that a one-shot simulation does not see.
+
 ## Historical Episode Replay
 
 Past stress episodes are replayed as deterministic scenarios: every rolling

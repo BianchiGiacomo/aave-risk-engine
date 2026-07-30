@@ -164,6 +164,7 @@ class RiskEngine:
         caps_usd: np.ndarray,
         book_seed: int = 0,
         book: PositionBook | None = None,
+        risk: RiskParams | None = None,
     ) -> dict:
         caps_usd = np.asarray(caps_usd, dtype=float)
         mean = np.empty_like(caps_usd)
@@ -172,7 +173,7 @@ class RiskEngine:
         prob = np.empty_like(caps_usd)
         p99s = np.empty_like(caps_usd)
         for i, cap in enumerate(caps_usd):
-            r = self.run(total_debt_usd=float(cap), book_seed=book_seed, book=book)
+            r = self.run(total_debt_usd=float(cap), book_seed=book_seed, book=book, risk=risk)
             mean[i], cvar[i], var[i], prob[i] = r.mean, r.cvar, r.var, r.prob_bad_debt
             p99s[i] = np.quantile(r.slippage, 0.99)
         return {
@@ -192,11 +193,12 @@ class RiskEngine:
         n_grid: int = 40,
         book_seed: int = 0,
         book: PositionBook | None = None,
+        risk: RiskParams | None = None,
     ) -> dict:
         if cap_max is None:
             cap_max = self.config.positions.total_debt_usd * 2.0
         caps = np.linspace(cap_min, cap_max, n_grid)
-        sweep = self.cap_sweep(caps, book_seed=book_seed, book=book)
+        sweep = self.cap_sweep(caps, book_seed=book_seed, book=book, risk=risk)
         return {
             "sweep": sweep,
             "budget": budget_usd,

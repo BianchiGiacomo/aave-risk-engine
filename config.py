@@ -15,14 +15,62 @@ class AssetParams:
 
 
 @dataclass
+class V4Liquidation:
+    """Aave V4 dynamic liquidation mechanics (live on mainnet since 2026-03).
+
+    Parameter semantics follow the V4 liquidation engine overview and the
+    activation ARFC: repayment is sized to restore the position to the
+    Spoke's `target_health_factor`; the bonus is
+    `liquidation_bonus_factor * max_bonus` at a health factor just below
+    1.0, rising to the full `max_bonus` at or below `hf_max_bonus`
+    (healthFactorForMaxBonus). The rise between those two anchors is
+    modeled linearly, which is this model's assumption; the anchors are
+    the documented parameters. Positions whose remaining debt would fall
+    below `dust_threshold_usd` are closed in full.
+
+    Launch values: Main Spoke target 1.24, bonus factor 0.90,
+    healthFactorForMaxBonus 0.90, close-factor floor 0.60; Lido/correlated
+    Spoke target 1.0137, bonus factor 1.0, healthFactorForMaxBonus 0.99,
+    floor 0.35. `close_factor_floor` zero means pure repay-to-target.
+    """
+
+    target_health_factor: float = 1.24
+    max_bonus: float = 0.0666
+    liquidation_bonus_factor: float = 0.90
+    hf_max_bonus: float = 0.90
+    close_factor_floor: float = 0.60
+    dust_threshold_usd: float = 1_000.0
+
+    def __post_init__(self) -> None:
+        if self.target_health_factor <= 1:
+            raise ValueError("require target_health_factor > 1")
+        if not 0 < self.max_bonus < 1:
+            raise ValueError("require max_bonus in (0, 1)")
+        if not 0 < self.liquidation_bonus_factor <= 1:
+            raise ValueError("require liquidation_bonus_factor in (0, 1]")
+        if not 0 < self.hf_max_bonus < 1:
+            raise ValueError("require hf_max_bonus in (0, 1)")
+        if not 0 <= self.close_factor_floor <= 1:
+            raise ValueError("require close_factor_floor in [0, 1]")
+        if self.dust_threshold_usd < 0:
+            raise ValueError("require dust_threshold_usd >= 0")
+
+
+@dataclass
 class RiskParams:
-    """Aave-style market risk parameters."""
+    """Aave-style market risk parameters.
+
+    With `v4` set, liquidation sizing and bonuses follow the V4 dynamic
+    mechanics; `liquidation_bonus`, `close_factor`, and
+    `full_liquidation_hf` then only describe the V3 baseline.
+    """
 
     ltv: float = 0.80
     liquidation_threshold: float = 0.85
     liquidation_bonus: float = 0.05
     close_factor: float = 0.50
     full_liquidation_hf: float = 0.95
+    v4: V4Liquidation | None = None
 
     def __post_init__(self) -> None:
         if not 0 < self.ltv <= self.liquidation_threshold < 1:

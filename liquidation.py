@@ -60,13 +60,46 @@ def process_chunk(
     hf = coll_value * lt / debt
     liquidatable = hf < 1.0
 
-    close = np.where(hf < risk.full_liquidation_hf, 1.0, risk.close_factor)
-    repay = np.where(
-        liquidatable,
-        np.minimum(debt * close, coll_value / (1.0 + risk.liquidation_bonus)),
-        0.0,
-    )
-    seize = repay * (1.0 + risk.liquidation_bonus)
+    if risk.v4 is not None:
+        v4 = risk.v4
+        # Dynamic bonus: liquidation_bonus_factor * max_bonus just under
+        # par, rising linearly to the full max_bonus at or below
+        # hf_max_bonus (healthFactorForMaxBonus).
+        depth_into_default = np.clip((1.0 - hf) / (1.0 - v4.hf_max_bonus), 0.0, 1.0)
+        bonus = v4.max_bonus * (
+            v4.liquidation_bonus_factor
+            + (1.0 - v4.liquidation_bonus_factor) * depth_into_default
+        )
+        # Repay sized to restore the target health factor:
+        # (C - R(1+b)) * LT = target * (D - R). A non-positive denominator
+        # means no partial repayment can reach the target, so liquidate all.
+        target = v4.target_health_factor
+        denom = target - (1.0 + bonus) * lt
+        to_target = np.where(
+            denom > 1e-9,
+            (target * debt - coll_value * lt) / np.maximum(denom, 1e-9),
+            debt,
+        )
+        repay_sized = np.maximum(to_target, v4.close_factor_floor * debt)
+        repay = np.minimum(np.minimum(repay_sized, debt), coll_value / (1.0 + bonus))
+        if v4.dust_threshold_usd > 0:
+            # Positions that would be left with dust are closed in full
+            # (still capped by seizable collateral).
+            repay = np.where(
+                debt - repay < v4.dust_threshold_usd,
+                np.minimum(debt, coll_value / (1.0 + bonus)),
+                repay,
+            )
+        repay = np.where(liquidatable, repay, 0.0)
+    else:
+        bonus = risk.liquidation_bonus
+        close = np.where(hf < risk.full_liquidation_hf, 1.0, risk.close_factor)
+        repay = np.where(
+            liquidatable,
+            np.minimum(debt * close, coll_value / (1.0 + bonus)),
+            0.0,
+        )
+    seize = repay * (1.0 + bonus)
     liquidated_usd = seize.sum(axis=1)
 
     if depth_points is not None and depth_haircut is not None:
@@ -76,19 +109,20 @@ def process_chunk(
         q = liquidated_usd / np.sqrt(coll_price)
         s = np.where(liquidated_usd > 0, q / (depth_liquidity + q), 0.0)
 
-    stall_threshold = risk.liquidation_bonus / (1.0 + risk.liquidation_bonus)
-    stalled = s > stall_threshold
+    # A position's liquidation stalls when slippage exceeds its own
+    # liquidator break-even. Under V3 the bonus is one scalar, so the whole
+    # queue stalls together; under V4 positions deeper into default carry
+    # larger bonuses and keep clearing at slippage levels that stall
+    # near-par liquidations.
+    stalled_pos = s[:, None] > bonus / (1.0 + bonus)
 
-    bad_cleared = np.maximum(
-        0.0,
-        debt - coll_value / (1.0 + risk.liquidation_bonus),
-    )
+    bad_cleared = np.maximum(0.0, debt - coll_value / (1.0 + bonus))
     recovery_stalled = coll_value * ((1.0 - s) * (1.0 - delay_drawdown))[:, None]
     bad_stalled = np.maximum(0.0, debt - recovery_stalled)
 
     bad = np.where(
         liquidatable,
-        np.where(stalled[:, None], bad_stalled, bad_cleared),
+        np.where(stalled_pos, bad_stalled, bad_cleared),
         0.0,
     )
     bad_debt = bad.sum(axis=1)

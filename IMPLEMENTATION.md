@@ -25,6 +25,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `data/build_episodes.py` | Episode price-path fetcher CLI |
 | `run_market_report.py` | Real-market decision report CLI |
 | `run_episode_replay.py` | Historical stress paths through today's book |
+| `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
 | `dashboard.py` | Streamlit dashboard |
 | `dashboard_charts.py` | Plotly charts |
 | `run_demo.py` | Single-Spoke CLI demo |

@@ -12,6 +12,7 @@ from aave_risk_engine.config import (
     ScenarioConfig,
     SimConfig,
     StressConfig,
+    V4Liquidation,
 )
 from aave_risk_engine.engine import RiskEngine, RiskResult, _largest_cap_within_budget
 from aave_risk_engine.liquidation import process_chunk
@@ -106,6 +107,107 @@ def test_close_factor_sizes_liquidation_queue():
     )
     res_full = process_chunk(book, price, depth, full, delay_drawdown=0.0)
     assert np.isclose(res_full.liquidated_usd[0], 105.0)
+
+
+def _v4_risk(**overrides) -> RiskParams:
+    fields = dict(
+        target_health_factor=1.24,
+        max_bonus=0.0666,
+        liquidation_bonus_factor=0.90,
+        hf_max_bonus=0.90,
+        close_factor_floor=0.0,
+        dust_threshold_usd=0.0,
+    )
+    fields.update(overrides)
+    return RiskParams(ltv=0.70, liquidation_threshold=0.80, v4=V4Liquidation(**fields))
+
+
+def _single_position(debt: float, coll_value: float, risk: RiskParams):
+    book = PositionBook(np.array([debt]), np.array([coll_value]), np.ones(1))
+    return process_chunk(book, np.array([1.0]), np.array([1e15]), risk, delay_drawdown=0.0)
+
+
+def test_v4_repay_restores_target_hf():
+    risk = _v4_risk()
+    debt, coll = 100.0, 110.0  # HF = 0.88, deep enough for the full bonus
+    res = _single_position(debt, coll, risk)
+    bonus = 0.0666
+    repay = res.liquidated_usd[0] / (1.0 + bonus)
+    hf_after = (coll - res.liquidated_usd[0]) * 0.80 / (debt - repay)
+    assert np.isclose(hf_after, 1.24)
+    # Solvent position at this bonus: no bad debt when the queue clears.
+    assert res.bad_debt[0] == 0.0
+
+
+def test_v4_dynamic_bonus_scales_with_hf():
+    # Full liquidation isolates the bonus: seize = debt * (1 + bonus).
+    risk = _v4_risk(close_factor_floor=1.0)
+    barely = _single_position(100.0, 124.0, risk)  # HF 0.992
+    frac = (1.0 - 0.992) / (1.0 - 0.90)
+    bonus = 0.0666 * (0.90 + 0.10 * frac)
+    assert np.isclose(barely.liquidated_usd[0], 100.0 * (1.0 + bonus), rtol=1e-6)
+    deep = _single_position(100.0, 110.0, risk)  # HF 0.88, capped at max
+    assert np.isclose(deep.liquidated_usd[0], 100.0 * 1.0666, rtol=1e-6)
+
+
+def test_v4_close_factor_floor_binds_near_par():
+    # Correlated-Spoke config: near par, repay-to-target 1.0137 needs only
+    # ~9% of debt, so the 35% launch floor binds.
+    correlated = dict(
+        target_health_factor=1.0137, liquidation_bonus_factor=1.0, hf_max_bonus=0.99
+    )
+    debt, coll = 100.0, 124.9  # HF 0.9992
+    unfloored = _single_position(debt, coll, _v4_risk(**correlated, close_factor_floor=0.0))
+    floored = _single_position(debt, coll, _v4_risk(**correlated, close_factor_floor=0.35))
+    assert unfloored.liquidated_usd[0] < 0.35 * debt
+    assert floored.liquidated_usd[0] >= 0.35 * debt
+    assert floored.liquidated_usd[0] > unfloored.liquidated_usd[0]
+
+
+def test_v4_unreachable_target_liquidates_fully():
+    # target < (1 + bonus) * LT: no partial repayment can reach the target,
+    # so the whole position is closed and all collateral is seized.
+    risk = RiskParams(
+        ltv=0.90,
+        liquidation_threshold=0.99,
+        v4=V4Liquidation(
+            target_health_factor=1.02,
+            max_bonus=0.0666,
+            liquidation_bonus_factor=1.0,
+            hf_max_bonus=0.99,
+            close_factor_floor=0.0,
+            dust_threshold_usd=0.0,
+        ),
+    )
+    res = _single_position(100.0, 90.9, risk)  # HF 0.9
+    assert np.isclose(res.liquidated_usd[0], 90.9, rtol=1e-6)
+
+
+def test_v4_dust_forces_full_clearance():
+    # Repay-to-target would leave a sub-dust remnant, so the position is
+    # closed in full instead.
+    small = _single_position(100.0, 110.0, _v4_risk())
+    dusted = _single_position(100.0, 110.0, _v4_risk(dust_threshold_usd=1_000.0))
+    partial_repay = small.liquidated_usd[0] / 1.0666
+    assert partial_repay < 100.0  # target sizing alone is partial
+    # Full clearance: repay the whole debt, seize debt * (1 + bonus).
+    assert np.isclose(dusted.liquidated_usd[0], 100.0 * 1.0666, rtol=1e-6)
+    assert dusted.liquidated_usd[0] > small.liquidated_usd[0]
+
+
+def test_v4_config_validation():
+    for bad in (
+        dict(target_health_factor=1.0),
+        dict(liquidation_bonus_factor=0.0),
+        dict(hf_max_bonus=1.2),
+        dict(close_factor_floor=1.5),
+        dict(dust_threshold_usd=-1.0),
+    ):
+        try:
+            V4Liquidation(**bad)
+            assert False, f"expected ValueError for {bad}"
+        except ValueError:
+            pass
 
 
 def test_cvar_superlinear_in_cap():

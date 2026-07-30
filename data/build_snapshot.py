@@ -147,7 +147,14 @@ def build_stress_calibration(
         t_dof=markets.fit_student_t_dof(closes, lookback_days),
     )
     if peg_coin:
-        ratios = markets.coingecko_ratio_history(peg_coin, "eth", lookback_days)
+        try:
+            ratios = markets.defillama_ratio_history(peg_coin, "ethereum", lookback_days)
+            calibration.source = calibration.source.replace(
+                f"coingecko:{peg_coin}", f"defillama:{peg_coin}"
+            )
+        except Exception:  # noqa: BLE001 - fall back to the secondary source
+            ratios = markets.coingecko_ratio_history(peg_coin, "eth", lookback_days)
+        ratios = markets.clean_lst_ratio(ratios)
         peg = markets.arfc_peg_check(ratios)
         calibration.peg_pass = peg["peg_pass"]
         calibration.peg_worst_deviation = peg["peg_worst_deviation"]

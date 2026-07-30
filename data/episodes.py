@@ -29,6 +29,7 @@ import numpy as np
 from ..config import ScenarioConfig
 from ..slippage import calibrate_liquidity
 from ..stress import Scenarios
+from .markets import rolling_median3 as _rolling_median3
 
 _HEADERS = {"User-Agent": "aave-risk-engine/0.1"}
 
@@ -177,21 +178,6 @@ def _to_daily_grid(dates: list[str], values: list[float]) -> tuple[list[str], np
     return grid_dates, grid
 
 
-def _rolling_median3(values: np.ndarray) -> np.ndarray:
-    """Three-point rolling median, endpoints kept as-is.
-
-    Daily marks for two coins are not sampled at the same instant, so the
-    ratio of their prices carries single-day misalignment noise; the
-    committed stETH series even prints above 1.0 once. A short median
-    removes single-mark spikes in both directions without reshaping
-    sustained moves.
-    """
-    if values.size < 3:
-        return values.copy()
-    stacked = np.stack([values[:-2], values[1:-1], values[2:]])
-    out = values.copy()
-    out[1:-1] = np.median(stacked, axis=0)
-    return out
 
 
 def rolling_windows(paths: EpisodePaths, horizon_days: int, smooth_ratio: bool = True) -> dict:

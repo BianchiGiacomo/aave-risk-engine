@@ -128,3 +128,22 @@ measurement noise, and reaches the same verdict through a formal test:
 Linea WETH liquidation capacity cannot clear even its largest single
 borrower within the liquidation bonus, so shrinking cap headroom toward
 observed usage was the right risk call.
+
+## Addendum (July 30, 2026)
+
+A fresh snapshot twelve days later (block 31,568,531) shows:
+
+| Quantity | Jul 18 | Jul 30 |
+|---|---:|---:|
+| Max clearable within bonus | $32,500 | $41,770 |
+| Slippage at a $41k sale | 6.98% | 5.06% |
+| Largest borrower sale | $46,400 | $46,440 (still FAIL) |
+| WETH supplied | 4,970 | 4,831 |
+| Caps (supply / borrow) | 6,250 / 2,370 | unchanged |
+
+Our clearance measure moved from below LlamaRisk's ~$41,000 figure to
+almost exactly on it, consistent with a noisy but unbiased independent
+estimate of the same underlying quantity. The market itself drifted the
+way the Stewards intended: supply edged down and the borrow cap still
+binds. The clearance verdict is unchanged, since the largest borrower
+still cannot be liquidated within the bonus on instant on-chain depth.

@@ -398,6 +398,19 @@ def test_peg_vol_calibration_wires_into_config():
     assert np.isclose(cfg.stress.peg_idio_vol, 0.002 * np.sqrt(cfg.stress.horizon_days))
 
 
+def test_lst_ratio_cleaning():
+    from aave_risk_engine.data.markets import clean_lst_ratio
+
+    # Above-par prints are capped and single-mark spikes are removed;
+    # sustained depegs survive.
+    raw = np.array([0.99, 1.17, 0.99, 0.99, 0.76, 0.99, 0.96, 0.96, 0.96])
+    cleaned = clean_lst_ratio(raw)
+    assert cleaned.max() <= 1.0
+    assert np.isclose(cleaned[1], 0.99)  # capped then median-smoothed
+    assert np.isclose(cleaned[4], 0.99)  # single bad print removed
+    assert np.isclose(cleaned[7], 0.96)  # sustained move kept
+
+
 def test_episode_grid_and_median():
     from aave_risk_engine.data.episodes import _rolling_median3, _to_daily_grid
 

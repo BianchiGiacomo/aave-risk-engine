@@ -32,7 +32,6 @@ This is not an automated risk agent and not a governance replacement. It is a co
 
 ## Read Next
 
-- [Results walkthrough](docs/results.md)
 - [Case study: reproducing the July 2026 Linea cap reductions](docs/case_studies/2026-07-linea-cap-reductions.md)
 - [Methodology](METHODOLOGY.md)
 - [Implementation notes](IMPLEMENTATION.md)
@@ -62,6 +61,9 @@ Aave V4 has been live on Ethereum mainnet since March 2026 with governed Spoke a
 
 ## Results Preview
 
+The [results page](docs/results.md) covers the July 30 real-data analyses
+and includes a guide to the synthetic demo figures below.
+
 ### Single-Spoke Credit-Line Sizing
 
 The chart below is the core decision view. It sweeps the borrow cap / Spoke credit line and reports the resulting 99% CVaR bad debt. The recommended cap is the largest exposure that stays inside the chosen risk budget.
@@ -85,8 +87,6 @@ Below that line, slippage is a liquidator cost compensated by the bonus. Above i
 Most scenarios have no bad debt. The relevant risk is concentrated in the far right tail, which is why the engine uses CVaR rather than only VaR.
 
 ![Bad debt distribution](docs/assets/loss_distribution.png)
-
-For a fuller walkthrough, see [docs/results.md](docs/results.md).
 
 ### Hub Allocation Example
 

@@ -141,6 +141,18 @@ A fresh snapshot twelve days later (block 31,568,531) shows:
 | WETH supplied | 4,970 | 4,831 |
 | Caps (supply / borrow) | 6,250 / 2,370 | unchanged |
 
+![Linea WETH empirical depth](../assets/linea_weth_depth.png)
+
+The figure uses the July 30 KyberSwap quote ladder. The marker is
+LlamaRisk's approximately $41,000 reference size and the horizontal line
+is liquidator break-even at 5.66%.
+
+Rebuild it from the committed snapshot with:
+
+```bash
+python -m aave_risk_engine.run_market_report --snapshot aave_risk_engine\data\snapshots\aave_v3_linea_weth.json --budget 500000 --figure
+```
+
 Our clearance measure moved from below LlamaRisk's ~$41,000 figure to
 almost exactly on it, consistent with a noisy but unbiased independent
 estimate of the same underlying quantity. The market itself drifted the

@@ -46,6 +46,57 @@ def plot_slippage_curve(engine: RiskEngine, max_notional_usd: float | None = Non
     return fig
 
 
+def plot_empirical_depth_curve(
+    points: list[list[float]],
+    bonus_break_even: float,
+    marker_notional_usd: float | None = None,
+    marker_label: str | None = None,
+    quote_label: str = "aggregator quotes",
+    title: str = "Empirical market depth",
+):
+    """Plot observed aggregator depth points and a liquidation threshold."""
+    observed = np.asarray(points, dtype=float)
+    if observed.ndim != 2 or observed.shape[1] != 2 or observed.shape[0] < 2:
+        raise ValueError("need at least two [notional, slippage] points")
+    order = np.argsort(observed[:, 0])
+    notional = observed[order, 0]
+    slip = observed[order, 1]
+
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    ax.plot(
+        notional / 1e3,
+        100 * slip,
+        color="steelblue",
+        marker="o",
+        label=quote_label,
+    )
+    ax.axhline(
+        100 * bonus_break_even,
+        color="crimson",
+        ls=":",
+        label="liquidator break-even",
+    )
+    if marker_notional_usd is not None:
+        marker_slip = float(np.interp(marker_notional_usd, notional, slip))
+        ax.scatter(
+            [marker_notional_usd / 1e3],
+            [100 * marker_slip],
+            color="black",
+            zorder=3,
+            label=marker_label,
+        )
+    ax.set_xscale("log")
+    ax.set_xticks(notional / 1e3)
+    ax.set_xticklabels([f"{value / 1e3:,.0f}" for value in notional])
+    ax.set_xlabel("liquidation notional sold ($k)")
+    ax.set_ylabel("execution slippage (%)")
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
 def plot_loss_distribution(result: RiskResult):
     fig, ax = plt.subplots(figsize=(7, 4.2))
     losses = result.bad_debt[result.bad_debt > 0] / 1e6

@@ -23,7 +23,7 @@ dependencies = [
 dev = ["pytest>=8"]
 
 [project.urls]
-Homepage = "https://github.com/your-username/aave-risk-engine"
+Homepage = "https://github.com/BianchiGiacomo/aave-risk-engine"
 
 [tool.setuptools]
 packages = ["aave_risk_engine", "aave_risk_engine.data", "aave_risk_engine.tests"]

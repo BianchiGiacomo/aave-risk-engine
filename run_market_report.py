@@ -2,6 +2,7 @@
 
 Usage:
     python -m aave_risk_engine.run_market_report [--snapshot path] [--budget 5e6]
+        [--figure [path]]
 
 Loads a committed MarketSnapshot (build a fresh one with
 ``python -m aave_risk_engine.data.build_snapshot``), runs the risk engine on
@@ -15,7 +16,11 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import os
 
+import matplotlib.pyplot as plt
+
+from . import plotting
 from .config import SimConfig
 from .data import arfc_clearance_test, build_real_book, load_snapshot
 from .data.aave_v3 import CHAINS
@@ -30,6 +35,43 @@ def _fmt(x: float) -> str:
     return f"${x:,.0f}"
 
 
+def _write_depth_figure(snapshot, requested_path: str) -> str:
+    depth = snapshot.depth
+    if depth is None:
+        raise ValueError("snapshot has no depth calibration")
+
+    path = requested_path or os.path.join(
+        os.path.dirname(__file__),
+        "docs",
+        "assets",
+        f"{snapshot.chain}_{snapshot.reserve.symbol.lower()}_depth.png",
+    )
+    labels = {"kyberswap": "KyberSwap", "paraswap": "ParaSwap"}
+    source = labels.get(depth.source.lower(), depth.source)
+    is_linea_weth = (
+        snapshot.chain.lower() == "linea"
+        and snapshot.reserve.symbol.upper() == "WETH"
+    )
+    marker_notional = 41_000.0 if is_linea_weth else None
+    marker_label = "LlamaRisk reference ($41k)" if is_linea_weth else None
+    break_even = snapshot.reserve.liquidation_bonus / (
+        1.0 + snapshot.reserve.liquidation_bonus
+    )
+    fig = plotting.plot_empirical_depth_curve(
+        depth.points,
+        break_even,
+        marker_notional_usd=marker_notional,
+        marker_label=marker_label,
+        quote_label=f"{source} quotes",
+        title=f"{snapshot.chain.title()} {snapshot.reserve.symbol} empirical depth",
+    )
+    absolute_path = os.path.abspath(path)
+    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    fig.savefig(absolute_path, dpi=160)
+    plt.close(fig)
+    return absolute_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--snapshot", default=None, help="path to a MarketSnapshot JSON")
@@ -37,6 +79,17 @@ def main() -> None:
     parser.add_argument("--min-target-share", type=float, default=0.5)
     parser.add_argument("--n-scenarios", type=int, default=20_000)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--figure",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="PATH",
+        help=(
+            "write the empirical depth figure; defaults to "
+            "docs/assets/<chain>_<asset>_depth.png"
+        ),
+    )
     parser.add_argument(
         "--ordered",
         action="store_true",
@@ -228,6 +281,8 @@ def main() -> None:
         " loopers: their collateral still sells on this asset's depth curve"
         " when liquidated, so clearance is a pure market-depth question."
     )
+    if args.figure is not None:
+        print(f"\nwrote {_write_depth_figure(snapshot, args.figure)}")
 
 
 if __name__ == "__main__":

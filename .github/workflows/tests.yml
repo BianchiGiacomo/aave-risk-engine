@@ -28,3 +28,4 @@ jobs:
           python -m aave_risk_engine.tests.test_engine
           python -m aave_risk_engine.tests.test_hub
           python -m aave_risk_engine.tests.test_data
+          python -m aave_risk_engine.tests.test_multiperiod

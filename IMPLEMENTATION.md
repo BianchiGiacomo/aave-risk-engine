@@ -12,6 +12,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `liquidation.py` | Liquidation and bad-debt accounting |
 | `slippage.py` | Concentrated-liquidity slippage curve |
 | `engine.py` | Single-Spoke Monte Carlo engine |
+| `multiperiod.py` | Multi-period simulation with book-state evolution |
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
 | `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
@@ -26,6 +27,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_market_report.py` | Real-market decision report CLI |
 | `run_episode_replay.py` | Historical stress paths through today's book |
 | `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
+| `run_multiperiod.py` | Multi-period stress paths with re-liquidation |
 | `dashboard.py` | Streamlit dashboard |
 | `dashboard_charts.py` | Plotly charts |
 | `run_demo.py` | Single-Spoke CLI demo |
@@ -37,6 +39,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 python -m aave_risk_engine.tests.test_engine
 python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
+python -m aave_risk_engine.tests.test_multiperiod
 ```
 
 The tests check:

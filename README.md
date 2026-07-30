@@ -22,6 +22,9 @@ This is not an automated risk agent and not a governance replacement. It is a co
 - Sizes a borrow cap / V4 Spoke credit line from 99% CVaR bad debt.
 - Models both V3 liquidation mechanics and V4's live design (repay to
   target health factor, dynamic bonus) and compares them on real books.
+- Simulates multi-period stress paths with re-liquidation, waiting
+  stalls, and depth replenishment, quantifying how conservative the
+  single-shock convention is.
 - Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
 - Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
 - Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.
@@ -121,6 +124,7 @@ python -m aave_risk_engine.run_hub_demo
 python -m aave_risk_engine.run_market_report
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
+python -m aave_risk_engine.run_multiperiod
 python -m streamlit run aave_risk_engine/dashboard.py
 ```
 
@@ -130,6 +134,7 @@ Tests:
 python -m aave_risk_engine.tests.test_engine
 python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
+python -m aave_risk_engine.tests.test_multiperiod
 ```
 
 ## Real Market Data (Aave V3)
@@ -205,6 +210,7 @@ aave_risk_engine/
   liquidation.py         liquidation and bad-debt accounting
   slippage.py            concentrated-liquidity execution shortfall
   engine.py              single-Spoke Monte Carlo engine
+  multiperiod.py         multi-period simulation with book-state evolution
   hub.py                 multi-Spoke Hub allocator
   data/                  Aave V3 on-chain state, prices, depth, snapshots
     aave_v3.py           per-chain reserve/caps/account readers (raw eth_call)
@@ -223,6 +229,7 @@ aave_risk_engine/
   run_market_report.py   real-market report: caps vs model-safe exposure
   run_episode_replay.py  historical stress paths through today's book
   run_v4_comparison.py   V3 vs V4 liquidation mechanics on the same book
+  run_multiperiod.py     multi-period stress paths with re-liquidation
   tests/                 invariant/economics tests
 ```
 

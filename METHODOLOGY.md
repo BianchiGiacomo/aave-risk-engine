@@ -118,6 +118,37 @@ rather than assumption:
 - **Exposure sweeps** on a real book scale debt and collateral together,
   preserving the observed health-factor distribution.
 
+## Multi-Period Simulation
+
+The multi-period simulator divides the stress window into periods and
+evolves the book through them, removing three single-period conventions
+at once:
+
+- **Stalls wait**: a stalled liquidation is not marked to fire-sale value
+  immediately; it waits, and a price recovery can rescue it. Only
+  positions still under water at the end of the window are marked to
+  delayed executable value.
+- **Re-liquidation**: cleared repayments and seizures update the book, so
+  a position restored to the V4 target health factor can be liquidated
+  again if prices keep falling. This is where the target choice shows:
+  on the real book, restoring to 1.24 nearly eliminates repeat
+  liquidations while 1.0137 re-liquidates in about one path in nine.
+- **Depth replenishment**: depth consumed by cleared sales carries into
+  the next period scaled by `1 - replenish`. Configurations that clear
+  many small tranches are the most sensitive to slow replenishment.
+
+Per-step returns follow the configured law; peg and depth-haircut
+idiosyncratic terms follow random walks whose terminal variance matches
+the single-period calibration, and their crash-coupled terms respond to
+the running drawdown. With one period and identical shocks the simulator
+reproduces the single-period ordered engine exactly (tested).
+
+Multi-period losses over a window are much lower than a single shock of
+the same size, because intermediate liquidations deleverage the book
+along the path and stalled positions can recover. The single-shock
+convention is therefore conservative by construction; the simulator
+quantifies by how much.
+
 ## V4 Liquidation Mechanics
 
 With V4 parameters set, liquidation follows the design live on mainnet

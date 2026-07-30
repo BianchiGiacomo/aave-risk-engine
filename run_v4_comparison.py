@@ -87,30 +87,44 @@ def main() -> None:
         " bonus factor 1.0, hfForMaxBonus 0.99, floor 0.35."
     )
 
+    print(
+        "queue modes: aggregate applies one queue-average slippage to all"
+        " positions; ordered clears the queue sequentially in bonus-priority"
+        " order, each tranche at its marginal slippage on the depth curve."
+    )
+
     for book_label, book in (
         (f"USD-debt book ({_fmt(usd_book.total_debt)})", usd_book),
         (f"combined book ({_fmt(combined_book.total_debt)})", combined_book),
     ):
         print(f"\n{book_label}")
         for label, risk in variants.items():
-            r = engine.run(book=book, risk=risk)
-            print(
-                f"  {label:<21}: P(bad debt) {r.prob_bad_debt:6.2%} "
-                f"| mean {_fmt(r.mean):>8} | VaR99 {_fmt(r.var):>9} "
-                f"| CVaR99 {_fmt(r.cvar):>9}"
-            )
+            for mode_label, mode_risk in (
+                ("aggregate", risk),
+                ("ordered", replace(risk, ordered_queue=True)),
+            ):
+                r = engine.run(book=book, risk=mode_risk)
+                print(
+                    f"  {label:<21} {mode_label:<9}: P(bad debt) {r.prob_bad_debt:6.2%} "
+                    f"| mean {_fmt(r.mean):>8} | VaR99 {_fmt(r.var):>9} "
+                    f"| CVaR99 {_fmt(r.cvar):>9}"
+                )
 
     print(f"\nModel-safe exposure at CVaR99 budget {_fmt(args.budget)} (USD-debt book)")
     for label in ("V3 (on-chain params)", "V4 Main Spoke"):
-        rec = engine.recommend_cap(
-            budget_usd=args.budget,
-            cap_min=usd_book.total_debt * 0.1,
-            cap_max=usd_book.total_debt * 3.0,
-            n_grid=18,
-            book=usd_book,
-            risk=variants[label],
-        )
-        print(f"  {label:<21}: {_fmt(rec['recommended_cap'])}")
+        for mode_label, mode_risk in (
+            ("aggregate", variants[label]),
+            ("ordered", replace(variants[label], ordered_queue=True)),
+        ):
+            rec = engine.recommend_cap(
+                budget_usd=args.budget,
+                cap_min=usd_book.total_debt * 0.1,
+                cap_max=usd_book.total_debt * 3.0,
+                n_grid=18,
+                book=usd_book,
+                risk=mode_risk,
+            )
+            print(f"  {label:<21} {mode_label:<9}: {_fmt(rec['recommended_cap'])}")
 
 
 if __name__ == "__main__":

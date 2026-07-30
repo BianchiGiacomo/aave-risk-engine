@@ -40,6 +40,28 @@ s(Q) = q / (L + q),  q = Q / sqrt(P)
 
 Fractional slippage is increasing and concave; dollar shortfall `Q * s(Q)` is convex. That convexity makes tail loss grow faster than exposure once liquidation queues become large.
 
+## Queue Clearing
+
+Two clearing models are available:
+
+- **Aggregate** (default): one queue-average slippage for the whole
+  liquidation queue, compared per position against its own break-even
+  `bonus / (1 + bonus)`. Fast, but all-or-nothing: when the average
+  crosses break-even, the entire queue stalls at once.
+- **Ordered** (`ordered_queue`): the queue clears sequentially in
+  bonus-priority order (seize size breaking ties, mirroring liquidator
+  profit priority). Each tranche is assessed at its marginal slippage on
+  the cumulative proceeds curve; cleared tranches consume depth, stalled
+  tranches do not, and a stalled position is marked at the slippage its
+  own sale would have realized.
+
+On the real wstETH book the two agree on P(bad debt) and VaR99 but the
+aggregate model overstates CVaR99 by roughly a fifth across V3 and V4
+configurations, because in tail scenarios the front of the queue still
+clears within its bonus while the aggregate average stalls everything.
+Ordered clearing is still single-period: depth does not replenish between
+tranches, and no follow-on liquidations occur after the window.
+
 ## Return Laws
 
 The terminal collateral return can be:

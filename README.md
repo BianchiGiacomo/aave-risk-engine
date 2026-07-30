@@ -40,6 +40,7 @@ This is not an automated risk agent and not a governance replacement. It is a co
 borrower book + stressed collateral scenarios
   -> health factors and liquidation queue
   -> liquidator participation threshold: slippage <= bonus / (1 + bonus)
+     (queue-average, or sequential clearing in bonus-priority order)
   -> cleared liquidations: protocol loss is insolvency gap
   -> stalled liquidations: protocol marks collateral to delayed executable value
   -> bad-debt distribution

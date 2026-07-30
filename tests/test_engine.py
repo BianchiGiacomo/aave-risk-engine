@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from scipy.stats import kurtosis, skew
 
@@ -193,6 +195,75 @@ def test_v4_dust_forces_full_clearance():
     # Full clearance: repay the whole debt, seize debt * (1 + bonus).
     assert np.isclose(dusted.liquidated_usd[0], 100.0 * 1.0666, rtol=1e-6)
     assert dusted.liquidated_usd[0] > small.liquidated_usd[0]
+
+
+def test_ordered_queue_front_clears_where_aggregate_stalls_all():
+    # Two identical positions under V3. Depth is sized so one sale alone
+    # stays under break-even but the doubled queue average does not: the
+    # aggregate model stalls everything, the ordered model clears the
+    # front of the queue.
+    from aave_risk_engine.slippage import calibrate_liquidity
+
+    risk = RiskParams(ltv=0.70, liquidation_threshold=0.80, liquidation_bonus=0.05)
+    debt = np.array([100.0, 100.0])
+    units = np.array([110.0, 110.0])
+    book = PositionBook(debt, units, np.ones(2))
+    price = np.array([1.0])
+    # Break-even 4.76%: 4% at one seize (105), about 7.7% at both.
+    liquidity = calibrate_liquidity(1.0, 105.0, 0.04)
+    depth = np.array([liquidity])
+
+    aggregate = process_chunk(book, price, depth, risk, delay_drawdown=0.10)
+    ordered = process_chunk(
+        book, price, depth, replace(risk, ordered_queue=True), delay_drawdown=0.10
+    )
+    # Aggregate: both stall (queue-average slippage above break-even), so
+    # the queue is submitted but nothing clears.
+    assert aggregate.slippage[0] > 0.05 / 1.05
+    assert aggregate.bad_debt[0] > 0
+    assert np.isclose(aggregate.queued_usd[0], 210.0)
+    assert aggregate.liquidated_usd[0] == 0.0
+    # Ordered: the first tranche clears within its own marginal slippage
+    # and is solvent, so only the second (stalled) position contributes.
+    assert np.isclose(ordered.queued_usd[0], 210.0)
+    assert np.isclose(ordered.liquidated_usd[0], 105.0)
+    assert 0 < ordered.bad_debt[0] < aggregate.bad_debt[0]
+
+
+def test_ordered_queue_matches_aggregate_with_infinite_depth():
+    risk = RiskParams(ltv=0.70, liquidation_threshold=0.80, liquidation_bonus=0.05)
+    book = PositionBook(np.array([100.0, 80.0]), np.array([110.0, 90.0]), np.ones(2))
+    price = np.array([1.0])
+    depth = np.array([1e15])
+    aggregate = process_chunk(book, price, depth, risk, delay_drawdown=0.10)
+    ordered = process_chunk(
+        book, price, depth, replace(risk, ordered_queue=True), delay_drawdown=0.10
+    )
+    assert np.isclose(ordered.bad_debt[0], aggregate.bad_debt[0])
+    assert np.isclose(ordered.liquidated_usd[0], aggregate.liquidated_usd[0])
+
+
+def test_ordered_queue_prioritizes_high_bonus_under_v4():
+    # A deep position (full bonus) and a near-par position (smaller bonus)
+    # compete for depth that can absorb only the first sale. The deep
+    # position must clear first; the near-par one stalls behind it.
+    from aave_risk_engine.slippage import calibrate_liquidity
+
+    risk = _v4_risk(close_factor_floor=1.0)
+    risk = replace(risk, ordered_queue=True)
+    debt = np.array([100.0, 100.0])
+    units = np.array([124.0, 110.0])  # HF 0.992 (bonus ~6.05%) and 0.88 (6.66%)
+    book = PositionBook(debt, units, np.ones(2))
+    price = np.array([1.0])
+    # First sale (~106.7) at 5% slippage, below the deep break-even 6.24%;
+    # the queue-average of both would be far above every break-even.
+    liquidity = calibrate_liquidity(1.0, 106.7, 0.05)
+    res = process_chunk(book, price, np.array([liquidity]), risk, delay_drawdown=0.10)
+    # Exactly the deep position's seize clears.
+    assert np.isclose(res.liquidated_usd[0], 100.0 * 1.0666, rtol=1e-4)
+    # The near-par position stalls and is marked at its own marginal
+    # slippage, producing bad debt despite being barely under water.
+    assert res.bad_debt[0] > 0
 
 
 def test_v4_config_validation():

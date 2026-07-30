@@ -14,7 +14,12 @@ from .stress import Scenarios, sample_scenarios
 
 @dataclass
 class RiskResult:
-    """Outputs of a single Monte Carlo run."""
+    """Outputs of a single Monte Carlo run.
+
+    `liquidated_usd` is the volume that cleared within liquidator
+    break-even per scenario; `queued_usd` is the full liquidatable sale
+    volume submitted (the difference stalled).
+    """
 
     bad_debt: np.ndarray
     slippage: np.ndarray
@@ -22,6 +27,7 @@ class RiskResult:
     frac_liquidated: np.ndarray
     total_debt: float
     cvar_level: float
+    queued_usd: np.ndarray | None = None
 
     @property
     def mean(self) -> float:
@@ -73,6 +79,7 @@ def evaluate_book(
     bad = np.empty(n)
     slip = np.empty(n)
     liq = np.empty(n)
+    queued = np.empty(n)
     frac = np.empty(n)
 
     for start in range(0, n, chunk_size):
@@ -90,6 +97,7 @@ def evaluate_book(
         bad[start:end] = res.bad_debt
         slip[start:end] = res.slippage
         liq[start:end] = res.liquidated_usd
+        queued[start:end] = res.queued_usd
         frac[start:end] = res.frac_liquidated
 
     return RiskResult(
@@ -99,6 +107,7 @@ def evaluate_book(
         frac_liquidated=frac,
         total_debt=book.total_debt,
         cvar_level=cvar_level,
+        queued_usd=queued,
     )
 
 

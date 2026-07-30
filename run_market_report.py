@@ -13,6 +13,7 @@ largest-borrower clearance test.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime as dt
 
 from .config import SimConfig
@@ -36,6 +37,11 @@ def main() -> None:
     parser.add_argument("--min-target-share", type=float, default=0.5)
     parser.add_argument("--n-scenarios", type=int, default=20_000)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--ordered",
+        action="store_true",
+        help="clear the liquidation queue sequentially in bonus-priority order",
+    )
     args = parser.parse_args()
 
     snapshot = load_snapshot(args.snapshot)
@@ -109,6 +115,9 @@ def main() -> None:
 
     config = scenario_config_from_snapshot(snapshot)
     config.sim = SimConfig(n_scenarios=args.n_scenarios, seed=args.seed, chunk_size=2_000)
+    if args.ordered:
+        config.risk = dataclasses.replace(config.risk, ordered_queue=True)
+        print("queue model: ordered (sequential clearing in bonus-priority order)")
     engine = RiskEngine(config)
 
     base = engine.run(book=book)

@@ -245,7 +245,10 @@ def test_process_chunk_empirical_depth_stalls_beyond_cliff():
         book, price, np.array([0.0]), risk, 0.10,
         depth_points=points, depth_haircut=np.array([0.6]),
     )
-    assert np.isclose(quiet.liquidated_usd[0], 6_000_000.0)
+    # The whole queue is submitted but stalls above break-even: queued
+    # volume is the sale size, cleared volume is zero.
+    assert np.isclose(quiet.queued_usd[0], 6_000_000.0)
+    assert quiet.liquidated_usd[0] == 0.0
     assert 0.01 < quiet.slippage[0] < 0.60
     # Haircut scales effective size: $6m / (1 - 0.6) = $15m is past the last
     # point, where the curve saturates at the worst observed slippage.

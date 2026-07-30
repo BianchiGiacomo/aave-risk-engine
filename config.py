@@ -63,6 +63,11 @@ class RiskParams:
     With `v4` set, liquidation sizing and bonuses follow the V4 dynamic
     mechanics; `liquidation_bonus`, `close_factor`, and
     `full_liquidation_hf` then only describe the V3 baseline.
+
+    With `ordered_queue`, the liquidation queue clears sequentially in
+    bonus-priority order, each tranche assessed at its marginal slippage
+    on the cumulative depth curve; otherwise one queue-average slippage is
+    applied to every position (faster, coarser).
     """
 
     ltv: float = 0.80
@@ -71,6 +76,7 @@ class RiskParams:
     close_factor: float = 0.50
     full_liquidation_hf: float = 0.95
     v4: V4Liquidation | None = None
+    ordered_queue: bool = False
 
     def __post_init__(self) -> None:
         if not 0 < self.ltv <= self.liquidation_threshold < 1:

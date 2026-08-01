@@ -161,7 +161,8 @@ the standard library:
   return and looper risk comes from the LST/ETH exchange rate and depth,
   not the USD price level.
 - **Stress calibration**: realized volatility and a Student-t tail fitted
-  from Kraken price history; stETH/ETH peg history from Coingecko.
+  from Kraken price history; stETH/ETH peg history from DefiLlama, with a
+  Coingecko fallback.
 - **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
   peg rule (no >=1% deviation sustained >=2 days) and its requirement that
   depth must clear the largest borrower within the liquidation bonus,
@@ -193,12 +194,16 @@ depth.
 
 ## Dashboard
 
-The Streamlit dashboard has two tabs:
+The Streamlit dashboard opens on committed real-market snapshots for
+Ethereum wstETH and Linea WETH. It covers current-book CVaR and cap sizing,
+borrower concentration, empirical liquidation depth, ARFC clearance, V3 and
+V4 mechanics, historical episode replay, and multi-period simulation.
 
-- **Single Spoke:** reserve-style risk simulation, recommended max-safe cap, slippage/loss/cap/LT charts, and a worst-case scenario inspector.
-- **Hub allocation (V4):** editable Spoke table, Hub balance and CVaR budget, systemic return law, severity, credit lines, risk premia, and diversification gain.
-
-Demo tip: in the Hub tab, lower `LONGTAIL`'s `rho`. Its credit line should rise and the diversification gain should increase.
+Committed snapshots remain the deterministic default. An explicit live
+refresh reads keyless public sources into the current browser session and
+offers the resulting JSON for download without overwriting repository data.
+Synthetic single-Spoke and Hub allocation experiments remain available
+through `run_demo` and `run_hub_demo`.
 
 ## Repository Layout
 

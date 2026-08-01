@@ -5,7 +5,8 @@ Usage:
 
 Sources (all keyless): public JSON-RPC endpoints for Aave V3 state and
 borrower discovery, Paraswap or KyberSwap for routed sell quotes, Kraken
-for USD price history, Coingecko for LST/underlying peg history.
+for USD price history, and DefiLlama with a Coingecko fallback for
+LST/underlying peg history.
 """
 
 from __future__ import annotations
@@ -27,9 +28,9 @@ from .snapshot import (
     save_snapshot,
 )
 
-# Per-asset calibration defaults: (kraken pair for the USD vol driver,
-# coingecko id for the peg ratio or None when the asset is not pegged to a
-# more liquid underlying).
+# Per-asset calibration defaults: (Kraken pair for the USD vol driver,
+# market-data asset id for the peg ratio or None when the asset is not
+# pegged to a more liquid underlying).
 ASSET_CALIBRATION = {
     "wstETH": ("ETHUSD", "staked-ether"),
     "weETH": ("ETHUSD", "wrapped-eeth"),
@@ -195,6 +196,98 @@ def fetch_depth_quotes(
     raise RuntimeError(f"no aggregator configured for chain {chain.name}")
 
 
+def build_market_snapshot(
+    chain_name: str = "ethereum",
+    asset: str = "wstETH",
+    pair_dest: str | None = None,
+    blocks: int | None = None,
+    chunk_blocks: int | None = None,
+    top: int = 400,
+    min_debt_usd: float = 10_000.0,
+    ladder_usd: tuple[float, ...] | None = None,
+    lookback_days: int = 365,
+    kraken_pair: str | None = None,
+    peg_coin: str | None = None,
+    calibrate_peg: bool = True,
+    cache_path: str | None = None,
+    rpc_timeout: float = 30.0,
+    rpc_retries: int = 4,
+) -> MarketSnapshot:
+    """Build a live snapshot without persisting it.
+
+    The CLI saves the returned object. Interactive callers can instead keep
+    it in memory and offer the serialized JSON as a download.
+    """
+    if chain_name not in CHAINS:
+        raise ValueError(f"unknown chain {chain_name!r}; known: {sorted(CHAINS)}")
+    chain = CHAINS[chain_name]
+    if asset not in chain.tokens:
+        raise ValueError(f"unknown asset {asset!r} on {chain.name}; known: {sorted(chain.tokens)}")
+
+    address = chain.tokens[asset]
+    rpc = chain.make_rpc()
+    rpc.timeout = rpc_timeout
+    rpc.retries_per_endpoint = rpc_retries
+    scan_blocks = blocks or DEFAULT_SCAN_BLOCKS.get(chain.name, 100_000)
+    log_chunk = chunk_blocks or chain.log_chunk_blocks
+    dest_symbol = pair_dest or ("USDC" if asset == "WETH" else "WETH")
+    quote_ladder = ladder_usd or DEFAULT_LADDER_USD
+    default_pair, default_peg = ASSET_CALIBRATION.get(asset, ("ETHUSD", None))
+    resolved_pair = kraken_pair or default_pair
+    resolved_peg = (peg_coin or default_peg) if calibrate_peg else None
+
+    print(f"reading {asset} reserve state on {chain.name} ...")
+    reserve = build_reserve_state(rpc, chain, asset, address)
+    print(
+        f"  price ${reserve.price_usd:,.2f} | LT {reserve.liquidation_threshold:.2%} "
+        f"| bonus {reserve.liquidation_bonus:.2%} | supplied {reserve.total_supplied_tokens:,.0f}"
+    )
+    accounts = build_accounts(
+        rpc,
+        chain,
+        reserve,
+        scan_blocks,
+        log_chunk,
+        min_debt_usd,
+        top,
+        cache_path=cache_path,
+    )
+
+    print("calibrating stress from price history ...")
+    stress = None
+    try:
+        stress = build_stress_calibration(resolved_pair, resolved_peg, lookback_days)
+        print(f"  vol {stress.annual_vol:.1%} | t-dof {stress.t_dof} | peg pass {stress.peg_pass}")
+    except Exception as exc:  # noqa: BLE001 - preserve partial live snapshots
+        print(f"  WARNING: stress calibration failed ({exc}); snapshot will carry none")
+
+    print("quoting sell ladder for depth calibration ...")
+    fitted = None
+    try:
+        quotes = fetch_depth_quotes(rpc, chain, reserve, dest_symbol, quote_ladder)
+        points = depth.quotes_to_slippage_points(quotes, reserve.price_usd)
+        source = "paraswap" if chain.paraswap_network is not None else "kyberswap"
+        fitted = depth.fit_depth(points, reserve.price_usd, source, f"{asset}/{dest_symbol}")
+        print(f"  ref {fitted.ref_notional_usd / 1e6:,.2f}m @ {fitted.ref_slippage:.3%}")
+    except Exception as exc:  # noqa: BLE001 - preserve partial live snapshots
+        print(f"  WARNING: depth calibration failed ({exc}); snapshot will carry none")
+
+    return MarketSnapshot(
+        chain=chain.name,
+        block=rpc.block_number(),
+        timestamp=int(time.time()),
+        reserve=reserve,
+        accounts=accounts,
+        depth=fitted,
+        stress=stress,
+        notes=(
+            f"Borrowers discovered from Borrow events over the last {scan_blocks:,} blocks; "
+            "dormant borrowers outside that window are not sampled."
+        ),
+        scan_blocks=scan_blocks,
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chain", default="ethereum", choices=sorted(CHAINS))
@@ -208,78 +301,40 @@ def main() -> None:
     parser.add_argument("--lookback-days", type=int, default=365)
     parser.add_argument("--kraken-pair", default=None)
     parser.add_argument("--peg-coin", default=None, help="'none' to skip the peg check")
+    parser.add_argument("--rpc-timeout", type=float, default=30.0)
+    parser.add_argument("--rpc-retries", type=int, default=4)
+    parser.add_argument("--no-borrower-cache", action="store_true")
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
-    chain = CHAINS[args.chain]
-    if args.asset not in chain.tokens:
-        parser.error(f"unknown asset {args.asset!r} on {chain.name}; known: {sorted(chain.tokens)}")
-    address = chain.tokens[args.asset]
-    rpc = chain.make_rpc()
-
-    blocks = args.blocks or DEFAULT_SCAN_BLOCKS.get(chain.name, 100_000)
-    chunk_blocks = args.chunk_blocks or chain.log_chunk_blocks
-    dest_symbol = args.pair_dest or ("USDC" if args.asset == "WETH" else "WETH")
     ladder_usd = (
         tuple(float(x) for x in args.ladder_usd.split(","))
         if args.ladder_usd
-        else DEFAULT_LADDER_USD
+        else None
     )
-    default_pair, default_peg = ASSET_CALIBRATION.get(args.asset, ("ETHUSD", None))
-    kraken_pair = args.kraken_pair or default_pair
-    peg_coin = None if args.peg_coin == "none" else (args.peg_coin or default_peg)
-
-    print(f"reading {args.asset} reserve state on {chain.name} ...")
-    reserve = build_reserve_state(rpc, chain, args.asset, address)
-    print(
-        f"  price ${reserve.price_usd:,.2f} | LT {reserve.liquidation_threshold:.2%} "
-        f"| bonus {reserve.liquidation_bonus:.2%} | supplied {reserve.total_supplied_tokens:,.0f}"
-    )
-
-    cache_path = os.path.join(
-        os.path.dirname(__file__), "snapshots", f".borrowers_cache_{chain.name}.json"
-    )
-    accounts = build_accounts(
-        rpc, chain, reserve, blocks, chunk_blocks, args.min_debt, args.top,
-        cache_path=cache_path,
-    )
-
-    print("calibrating stress from price history ...")
-    stress = None
-    try:
-        stress = build_stress_calibration(kraken_pair, peg_coin, args.lookback_days)
-        print(f"  vol {stress.annual_vol:.1%} | t-dof {stress.t_dof} | peg pass {stress.peg_pass}")
-    except Exception as exc:  # noqa: BLE001 - degrade to model defaults
-        print(f"  WARNING: stress calibration failed ({exc}); snapshot will carry none")
-
-    print("quoting sell ladder for depth calibration ...")
-    fitted = None
-    try:
-        quotes = fetch_depth_quotes(rpc, chain, reserve, dest_symbol, ladder_usd)
-        points = depth.quotes_to_slippage_points(quotes, reserve.price_usd)
-        source = "paraswap" if chain.paraswap_network is not None else "kyberswap"
-        fitted = depth.fit_depth(
-            points, reserve.price_usd, source, f"{args.asset}/{dest_symbol}"
+    cache_path = None
+    if not args.no_borrower_cache:
+        cache_path = os.path.join(
+            os.path.dirname(__file__), "snapshots", f".borrowers_cache_{args.chain}.json"
         )
-        print(f"  ref {fitted.ref_notional_usd / 1e6:,.2f}m @ {fitted.ref_slippage:.3%}")
-    except Exception as exc:  # noqa: BLE001 - degrade to model defaults
-        print(f"  WARNING: depth calibration failed ({exc}); snapshot will carry none")
-
-    snapshot = MarketSnapshot(
-        chain=chain.name,
-        block=rpc.block_number(),
-        timestamp=int(time.time()),
-        reserve=reserve,
-        accounts=accounts,
-        depth=fitted,
-        stress=stress,
-        notes=(
-            f"Borrowers discovered from Borrow events over the last {blocks:,} blocks; "
-            "dormant borrowers outside that window are not sampled."
-        ),
-        scan_blocks=blocks,
+    snapshot = build_market_snapshot(
+        chain_name=args.chain,
+        asset=args.asset,
+        pair_dest=args.pair_dest,
+        blocks=args.blocks,
+        chunk_blocks=args.chunk_blocks,
+        top=args.top,
+        min_debt_usd=args.min_debt,
+        ladder_usd=ladder_usd,
+        lookback_days=args.lookback_days,
+        kraken_pair=args.kraken_pair,
+        peg_coin=None if args.peg_coin == "none" else args.peg_coin,
+        calibrate_peg=args.peg_coin != "none",
+        cache_path=cache_path,
+        rpc_timeout=args.rpc_timeout,
+        rpc_retries=args.rpc_retries,
     )
-    path = args.out or default_snapshot_path(args.asset, chain.name)
+    path = args.out or default_snapshot_path(args.asset, args.chain)
     save_snapshot(snapshot, path)
     print(f"wrote {path}")
 

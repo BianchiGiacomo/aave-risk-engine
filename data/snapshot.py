@@ -120,12 +120,22 @@ def default_snapshot_path(symbol: str = "wstETH", chain: str = "ethereum") -> st
 def save_snapshot(snapshot: MarketSnapshot, path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
-        json.dump(asdict(snapshot), fh, indent=1)
+        fh.write(snapshot_to_json(snapshot))
 
 
-def load_snapshot(path: str | None = None) -> MarketSnapshot:
-    with open(path or default_snapshot_path(), encoding="utf-8") as fh:
-        raw = json.load(fh)
+def snapshot_to_json(snapshot: MarketSnapshot) -> str:
+    """Serialize a snapshot for persistence or browser download."""
+    return json.dumps(asdict(snapshot), indent=1)
+
+
+def snapshot_from_json(payload: str | bytes) -> MarketSnapshot:
+    """Load a snapshot from an uploaded or in-memory JSON payload."""
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8")
+    return _snapshot_from_raw(json.loads(payload))
+
+
+def _snapshot_from_raw(raw: dict) -> MarketSnapshot:
     return MarketSnapshot(
         chain=raw["chain"],
         block=raw["block"],
@@ -137,3 +147,8 @@ def load_snapshot(path: str | None = None) -> MarketSnapshot:
         notes=raw.get("notes", ""),
         scan_blocks=raw.get("scan_blocks"),
     )
+
+
+def load_snapshot(path: str | None = None) -> MarketSnapshot:
+    with open(path or default_snapshot_path(), encoding="utf-8") as fh:
+        return _snapshot_from_raw(json.load(fh))

@@ -1,7 +1,7 @@
 """Price history, realized-volatility calibration, and the ARFC peg rule.
 
-Sources are keyless public APIs: Kraken for USD price history, Coingecko
-for LST/underlying ratio history.
+Sources are keyless public APIs: Kraken for USD price history and
+DefiLlama with a Coingecko fallback for LST/underlying ratio history.
 """
 
 from __future__ import annotations

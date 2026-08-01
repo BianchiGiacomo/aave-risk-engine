@@ -1,10 +1,13 @@
-"""Interactive Streamlit dashboard for the Aave risk engine."""
+"""Interactive real-market dashboard for the Aave risk engine."""
 
 from __future__ import annotations
 
+import datetime as dt
+import hashlib
 import os
+import subprocess
 import sys
-from dataclasses import replace
+import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -12,290 +15,492 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from aave_risk_engine.config import (
-    AssetParams,
-    LiquidityParams,
-    PositionConfig,
-    RiskParams,
-    ScenarioConfig,
-    SimConfig,
-    StressConfig,
-)
-from aave_risk_engine.engine import RiskEngine
-from aave_risk_engine.hub import Hub, Spoke
 from aave_risk_engine import dashboard_charts as charts
+from aave_risk_engine.dashboard_analysis import (
+    account_rows,
+    run_episode_analysis,
+    run_market_analysis,
+    run_multiperiod_analysis,
+    run_v4_analysis,
+)
+from aave_risk_engine.data import load_snapshot, snapshot_from_json, snapshot_to_json
 
 
-def _fmt_usd(x: float) -> str:
-    if not np.isfinite(x):
+_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOGO_PATH = os.path.join(_PACKAGE_DIR, "aave_logo.png")
+_MARKETS = {
+    "Ethereum wstETH": {
+        "path": os.path.join(_PACKAGE_DIR, "data", "snapshots", "aave_v3_ethereum_wsteth.json"),
+        "chain": "ethereum",
+        "asset": "wstETH",
+        "pair_dest": "WETH",
+        "blocks": 100_000,
+        "ladder_usd": (25e3, 100e3, 500e3, 2e6, 8e6, 25e6),
+        "budget": 5_000_000.0,
+    },
+    "Linea WETH": {
+        "path": os.path.join(_PACKAGE_DIR, "data", "snapshots", "aave_v3_linea_weth.json"),
+        "chain": "linea",
+        "asset": "WETH",
+        "pair_dest": "USDC",
+        "blocks": 1_200_000,
+        "ladder_usd": (5e3, 15e3, 41e3, 100e3, 300e3, 1e6),
+        "budget": 500_000.0,
+    },
+}
+_LIVE_REFRESH_TIMEOUT_S = 360
+
+
+def _fmt_usd(value: float) -> str:
+    if not np.isfinite(value):
         return "n/a"
-    for unit, div in (("bn", 1e9), ("m", 1e6), ("k", 1e3)):
-        if abs(x) >= div:
-            return f"${x / div:,.2f}{unit}"
-    return f"${x:,.0f}"
+    for unit, divisor in (("bn", 1e9), ("m", 1e6), ("k", 1e3)):
+        if abs(value) >= divisor:
+            return f"${value / divisor:,.2f}{unit}"
+    return f"${value:,.0f}"
 
 
-def _single_config(p: dict) -> ScenarioConfig:
-    return ScenarioConfig(
-        asset=AssetParams(name=p["asset"], spot_price=p["spot"]),
-        risk=RiskParams(
-            ltv=p["ltv"],
-            liquidation_threshold=p["lt"],
-            liquidation_bonus=p["bonus"],
-        ),
-        liquidity=LiquidityParams(
-            ref_notional_usd=p["depth"],
-            ref_slippage=p["ref_slip"],
-        ),
-        stress=StressConfig(
-            horizon_days=p["horizon"],
-            eth_annual_vol=p["vol"],
-            tail_dof=p["dof"],
-            return_model=p["return_model"],
-            jump_intensity=p["jump_intensity"],
-            jump_mean=p["jump_mean"],
-            jump_vol=p["jump_vol"],
-            peg_crash_beta=p["peg_beta"],
-            depth_crash_beta=p["depth_beta"],
-        ),
-        positions=PositionConfig(
-            total_debt_usd=p["exposure"],
-            hf0_median=p["hf0_med"],
-            hf0_sigma=p["hf0_sigma"],
-        ),
-        sim=SimConfig(n_scenarios=p["n_scen"], seed=p["seed"], chunk_size=2_000),
-    )
+def _snapshot_date(snapshot) -> str:
+    return dt.datetime.fromtimestamp(snapshot.timestamp, dt.timezone.utc).date().isoformat()
 
 
-def _single_sidebar() -> dict:
-    st.sidebar.title("Single-Spoke parameters")
-    st.sidebar.subheader("Market")
-    asset = st.sidebar.text_input("Collateral asset", "stETH")
-    spot = st.sidebar.number_input("Spot price ($)", 1.0, 1e6, 3000.0, step=100.0)
-    return_model = st.sidebar.selectbox("Return law", ["student_t", "jump_diffusion", "gaussian"])
-    vol = st.sidebar.slider("Annual volatility", 0.10, 2.00, 0.75, 0.05)
-    dof = st.sidebar.slider("Student-t dof", 2.5, 12.0, 3.0, 0.5)
-    horizon = st.sidebar.slider("Stress horizon (days)", 0.5, 10.0, 2.0, 0.5)
-
-    jump_intensity, jump_mean, jump_vol = 4.0, -0.15, 0.10
-    if return_model == "jump_diffusion":
-        jump_intensity = st.sidebar.slider("Jump intensity / year", 0.0, 20.0, 4.0, 0.5)
-        jump_mean = st.sidebar.slider("Mean log jump", -0.50, 0.0, -0.15, 0.01)
-        jump_vol = st.sidebar.slider("Jump vol", 0.0, 0.40, 0.10, 0.01)
-
-    st.sidebar.subheader("Risk")
-    lt = st.sidebar.slider("Liquidation threshold", 0.50, 0.95, 0.85, 0.01)
-    ltv = st.sidebar.slider("Origination LTV", 0.40, lt, min(0.80, lt - 0.05), 0.01)
-    bonus = st.sidebar.slider("Liquidation bonus", 0.01, 0.20, 0.05, 0.005)
-
-    st.sidebar.subheader("Liquidity and stress coupling")
-    depth = st.sidebar.number_input("Reference sell depth ($)", 1e6, 5e8, 25e6, step=5e6)
-    ref_slip = st.sidebar.slider("Reference slippage", 0.005, 0.10, 0.02, 0.005)
-    peg_beta = st.sidebar.slider("Peg-crash sensitivity", 0.0, 1.0, 0.25, 0.05)
-    depth_beta = st.sidebar.slider("Depth-crash sensitivity", 0.0, 3.0, 1.2, 0.1)
-
-    st.sidebar.subheader("Book and budget")
-    exposure = st.sidebar.number_input("Current exposure / debt ($)", 1e7, 2e9, 200e6, step=1e7)
-    hf0_med = st.sidebar.slider("Median origination HF", 1.05, 3.0, 1.6, 0.05)
-    hf0_sigma = st.sidebar.slider("HF dispersion", 0.10, 1.0, 0.45, 0.05)
-    budget = st.sidebar.number_input("CVaR budget ($)", 1e5, 1e8, 5e6, step=5e5)
-    cap_max = st.sidebar.number_input("Cap sweep max ($)", 5e7, 2e9, 400e6, step=5e7)
-
-    st.sidebar.subheader("Simulation")
-    n_scen = st.sidebar.select_slider("Scenarios", [5000, 10000, 20000, 40000], value=10000)
-    seed = int(st.sidebar.number_input("Seed", 0, 9999, 7, step=1))
-
-    return locals()
-
-
-def _run_single(p: dict) -> dict:
-    cfg = _single_config(p)
-    engine = RiskEngine(cfg)
-    base = engine.run()
-    rec = engine.recommend_cap(p["budget"], cap_min=2e7, cap_max=p["cap_max"], n_grid=18)
-    lt_sweep = engine.ltv_sweep(np.linspace(0.70, 0.92, 18))
-    return {"engine": engine, "base": base, "rec": rec, "lt_sweep": lt_sweep, "budget": p["budget"]}
-
-
-def single_spoke_tab() -> None:
-    st.caption("Single-market credit-line sizing. Parameters are in the sidebar.")
-    params = _single_sidebar()
-    if st.sidebar.button("Run simulation", type="primary"):
-        with st.spinner("Running single-Spoke simulation..."):
-            st.session_state["single_results"] = _run_single(params)
-
-    if "single_results" not in st.session_state:
-        st.info("Set parameters in the sidebar and press **Run simulation**.")
-        return
-
-    res = st.session_state["single_results"]
-    base = res["base"]
-    rec = res["rec"]
-    budget = res["budget"]
-    engine = res["engine"]
-
-    st.subheader("Headline risk")
-    cols = st.columns(5)
-    cols[0].metric("Exposure", _fmt_usd(base.total_debt))
-    cols[1].metric("P(bad debt)", f"{base.prob_bad_debt:.1%}")
-    cols[2].metric("VaR99", _fmt_usd(base.var))
-    cols[3].metric("CVaR99", _fmt_usd(base.cvar))
-    cols[4].metric("Worst", _fmt_usd(base.worst))
-
-    st.subheader("Decision")
-    d1, d2 = st.columns(2)
-    d1.metric("Risk budget", _fmt_usd(budget))
-    d2.metric("Recommended max-safe cap", _fmt_usd(rec["recommended_cap"]))
-
-    left, right = st.columns(2)
-    with left:
-        st.plotly_chart(charts.cap_budget_fig(rec["sweep"], budget, rec["recommended_cap"]), use_container_width=True)
-        st.plotly_chart(charts.slippage_curve_fig(engine), use_container_width=True)
-    with right:
-        st.plotly_chart(charts.loss_distribution_fig(base), use_container_width=True)
-        st.plotly_chart(charts.ltv_sweep_fig(res["lt_sweep"]), use_container_width=True)
-
-    st.subheader("Worst-case scenario inspector")
-    st.plotly_chart(charts.scenario_scatter_fig(engine, base), use_container_width=True)
-    sc = engine.scenarios
-    idx = int(np.argmax(base.bad_debt))
-    bonus = engine.config.risk.liquidation_bonus
-    stalled = base.slippage[idx] > bonus / (1.0 + bonus)
-    st.write(
-        f"Worst scenario: ETH return {100 * sc.eth_return[idx]:.1f}%, "
-        f"peg drop {100 * sc.peg_drop[idx]:.1f}%, "
-        f"depth haircut {100 * sc.depth_haircut[idx]:.1f}%, "
-        f"slippage {100 * base.slippage[idx]:.1f}%"
-        + (" (above liquidator break-even; stalled)" if stalled else "")
-        + f", bad debt {_fmt_usd(base.bad_debt[idx])}."
-    )
-
-
-_DEFAULT_SPOKES = pd.DataFrame([
-    {"spoke": "stETH", "spot $": 3000.0, "vol": 0.80, "rho": 0.95, "LT": 0.86, "LTV": 0.82, "bonus": 0.05, "depth $m": 25.0, "peg_beta": 0.25},
-    {"spoke": "WBTC", "spot $": 60000.0, "vol": 0.72, "rho": 0.85, "LT": 0.83, "LTV": 0.79, "bonus": 0.06, "depth $m": 45.0, "peg_beta": 0.00},
-    {"spoke": "LONGTAIL", "spot $": 5.0, "vol": 1.05, "rho": 0.45, "LT": 0.72, "LTV": 0.66, "bonus": 0.09, "depth $m": 6.0, "peg_beta": 0.00},
-])
-
-
-def _spokes_from_df(df: pd.DataFrame) -> list[Spoke]:
-    spokes = []
-    for _, row in df.iterrows():
-        name = str(row["spoke"]).strip()
-        if not name:
-            continue
-        base = ScenarioConfig()
-        peg_beta = float(row["peg_beta"])
-        cfg = replace(
-            base,
-            asset=replace(base.asset, name=name, spot_price=float(row["spot $"])),
-            risk=RiskParams(
-                ltv=float(row["LTV"]),
-                liquidation_threshold=float(row["LT"]),
-                liquidation_bonus=float(row["bonus"]),
-            ),
-            liquidity=LiquidityParams(ref_notional_usd=float(row["depth $m"]) * 1e6, ref_slippage=0.02),
-            stress=replace(
-                base.stress,
-                eth_annual_vol=float(row["vol"]),
-                peg_crash_beta=peg_beta,
-                base_peg_drop=0.001 if peg_beta > 0 else 0.0,
-            ),
-        )
-        spokes.append(Spoke(name=name, config=cfg, rho=float(np.clip(row["rho"], 0.0, 1.0))))
-    if not spokes:
-        raise ValueError("define at least one Spoke")
-    return spokes
-
-
-def hub_tab() -> None:
-    st.caption(
-        "Allocate one shared Hub balance across Spokes using one systemic factor "
-        "and greedy marginal-CVaR allocation."
-    )
-    c1, c2, c3 = st.columns(3)
-    hub_balance = c1.number_input("Hub balance ($)", 1e8, 5e9, 700e6, step=5e7)
-    budget = c2.number_input("Hub CVaR budget ($)", 1e5, 1e8, 8e6, step=5e5)
-    law = c3.selectbox("Systemic factor law", ["jump_diffusion", "student_t", "gaussian"])
-
-    c4, c5, c6 = st.columns(3)
-    severity = c4.slider(
-        "Systemic stress severity (x Spoke vol)",
-        0.5,
-        3.0,
-        1.0,
-        0.1,
-        help="The systemic factor is standardized; severity scales each Spoke's volatility.",
-    )
-    n_scen = c5.select_slider("Scenarios", [5000, 10000, 20000, 40000], value=10000)
-    seed = int(c6.number_input("Seed", 0, 9999, 7, step=1))
-
-    edited = st.data_editor(_DEFAULT_SPOKES, num_rows="dynamic", use_container_width=True, hide_index=True)
-    if st.button("Run Hub allocation", type="primary"):
+def _refresh_snapshot(market: dict):
+    """Build a live snapshot in a bounded child process."""
+    parent_dir = os.path.dirname(_PACKAGE_DIR)
+    with tempfile.TemporaryDirectory(prefix="aave_snapshot_") as temp_dir:
+        output_path = os.path.join(temp_dir, "snapshot.json")
+        command = [
+            sys.executable,
+            "-m",
+            "aave_risk_engine.data.build_snapshot",
+            "--chain",
+            market["chain"],
+            "--asset",
+            market["asset"],
+            "--pair-dest",
+            market["pair_dest"],
+            "--blocks",
+            str(market["blocks"]),
+            "--ladder-usd",
+            ",".join(str(value) for value in market["ladder_usd"]),
+            "--rpc-timeout",
+            "12",
+            "--rpc-retries",
+            "1",
+            "--no-borrower-cache",
+            "--out",
+            output_path,
+        ]
         try:
-            spokes = _spokes_from_df(edited)
-            market = replace(ScenarioConfig().stress, return_model=law)
-            hub = Hub(
-                spokes,
-                market,
-                hub_balance=hub_balance,
-                sim=SimConfig(n_scenarios=int(n_scen), seed=seed, chunk_size=5_000),
-                severity=severity,
+            completed = subprocess.run(
+                command,
+                cwd=parent_dir,
+                capture_output=True,
+                text=True,
+                timeout=_LIVE_REFRESH_TIMEOUT_S,
+                check=False,
             )
-            with st.spinner("Allocating Hub liquidity..."):
-                result = hub.allocate(budget_usd=budget, increment_usd=hub_balance / 40.0)
-            st.session_state["hub_results"] = (result, budget, hub_balance, {s.name: s.rho for s in spokes})
-        except Exception as exc:
-            st.error(f"Invalid Hub inputs: {exc}")
-            return
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"public-source refresh exceeded {_LIVE_REFRESH_TIMEOUT_S // 60} minutes"
+            ) from exc
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout).strip().splitlines()
+            message = detail[-1] if detail else f"builder exited {completed.returncode}"
+            raise RuntimeError(message)
+        return load_snapshot(output_path)
 
-    if "hub_results" not in st.session_state:
-        st.info("Set Hub inputs and press **Run Hub allocation**.")
-        return
 
-    result, budget, hub_balance, rhos = st.session_state["hub_results"]
-    st.subheader("Hub outcome")
-    cols = st.columns(4)
-    cols[0].metric("Credit extended", _fmt_usd(result.total_allocated), f"{result.total_allocated / hub_balance:.0%} of balance")
-    cols[1].metric("Hub CVaR99", _fmt_usd(result.hub_cvar), f"budget {_fmt_usd(budget)}")
-    cols[2].metric("Sum standalone CVaR", _fmt_usd(sum(result.standalone_cvar.values())))
-    cols[3].metric("Diversification gain", _fmt_usd(result.diversification_benefit))
+@st.cache_resource(show_spinner=False)
+def _cached_market_analysis(
+    payload: str,
+    scope: str,
+    min_target_share: float,
+    n_scenarios: int,
+    seed: int,
+    budget_usd: float,
+    ordered: bool,
+):
+    return run_market_analysis(
+        snapshot_from_json(payload),
+        scope,
+        min_target_share,
+        n_scenarios,
+        seed,
+        budget_usd,
+        ordered,
+    )
 
+
+@st.cache_resource(show_spinner=False)
+def _cached_v4_analysis(
+    payload: str,
+    scope: str,
+    min_target_share: float,
+    n_scenarios: int,
+    seed: int,
+):
+    return run_v4_analysis(
+        snapshot_from_json(payload), scope, min_target_share, n_scenarios, seed
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_episode_analysis(payload: str, scope: str, min_target_share: float):
+    return run_episode_analysis(snapshot_from_json(payload), scope, min_target_share)
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_multiperiod_analysis(
+    payload: str,
+    scope: str,
+    min_target_share: float,
+    n_paths: int,
+    seed: int,
+    n_periods: int,
+    total_days: float,
+    replenish: float,
+):
+    return run_multiperiod_analysis(
+        snapshot_from_json(payload),
+        scope,
+        min_target_share,
+        n_paths,
+        seed,
+        n_periods,
+        total_days,
+        replenish,
+    )
+
+
+def _active_snapshot(market_name: str, market: dict):
+    state_key = f"snapshot::{market_name}"
+    source_key = f"snapshot_source::{market_name}"
+    if state_key not in st.session_state:
+        st.session_state[state_key] = snapshot_to_json(load_snapshot(market["path"]))
+        st.session_state[source_key] = "Committed"
+
+    with st.sidebar.expander("Snapshot data", expanded=True):
+        source = st.session_state[source_key]
+        active = snapshot_from_json(st.session_state[state_key])
+        st.caption(
+            f"{source} | block {active.block:,} | {_snapshot_date(active)}"
+        )
+        st.caption("Live refresh is an explicit network action and may take up to six minutes.")
+        if st.button("Refresh from public sources", width="stretch"):
+            try:
+                with st.spinner("Reading Aave state, borrowers, prices, and routed depth..."):
+                    refreshed = _refresh_snapshot(market)
+                st.session_state[state_key] = snapshot_to_json(refreshed)
+                st.session_state[source_key] = "Live session"
+                st.success(f"Loaded block {refreshed.block:,}")
+            except Exception as exc:  # noqa: BLE001 - keep the committed fallback active
+                st.error(f"Refresh failed: {exc}")
+        if st.button("Restore committed snapshot", width="stretch"):
+            st.session_state[state_key] = snapshot_to_json(load_snapshot(market["path"]))
+            st.session_state[source_key] = "Committed"
+
+        payload = st.session_state[state_key]
+        snapshot = snapshot_from_json(payload)
+        file_name = (
+            f"aave_v3_{snapshot.chain}_{snapshot.reserve.symbol.lower()}_"
+            f"block_{snapshot.block}.json"
+        )
+        st.download_button(
+            "Download active snapshot",
+            data=payload,
+            file_name=file_name,
+            mime="application/json",
+            width="stretch",
+        )
+    return snapshot_from_json(st.session_state[state_key]), st.session_state[state_key]
+
+
+def _display_metrics(analysis, snapshot, scope: str) -> None:
+    result = analysis["result"]
+    book = analysis["book"]
+    recommendation = analysis["recommendation"]["recommended_cap"]
+    eth_debt = float(book.eth_debt_usd.sum()) if book.eth_debt_usd is not None else 0.0
+
+    reserve = snapshot.reserve
+    cap_usage = (
+        reserve.total_supplied_tokens / reserve.supply_cap_tokens
+        if reserve.supply_cap_tokens > 0
+        else float("nan")
+    )
+    first = st.columns(3)
+    first[0].metric("On-chain supplied", _fmt_usd(reserve.supplied_usd))
+    first[1].metric("Supply cap usage", f"{cap_usage:.0%}" if np.isfinite(cap_usage) else "n/a")
+    first[2].metric("Book exposure", _fmt_usd(book.total_debt))
+    second = st.columns(3)
+    second[0].metric("P(bad debt)", f"{result.prob_bad_debt:.2%}")
+    second[1].metric("CVaR99", _fmt_usd(result.cvar))
+    second[2].metric("Model-safe exposure", _fmt_usd(recommendation))
+    third = st.columns(3)
+    third[0].metric("Accounts", f"{book.debt_usd.size:,}")
+    third[1].metric("Median health factor", f"{float(np.median(book.hf0)):.2f}")
+    third[2].metric(
+        "ETH-denominated debt" if scope == "Combined" else "ETH-debt loopers",
+        _fmt_usd(eth_debt) if scope == "Combined" else "Excluded",
+    )
+
+
+def _overview_tab(analysis, snapshot, min_target_share: float, budget_usd: float) -> None:
+    _display_metrics(analysis, snapshot, "Combined" if analysis["book"].eth_debt_usd is not None else "USD debt")
+    recommendation = analysis["recommendation"]
     left, right = st.columns(2)
     with left:
-        st.plotly_chart(charts.hub_allocation_fig(result), use_container_width=True)
-    with right:
-        st.plotly_chart(charts.hub_premium_fig(result), use_container_width=True)
-
-    table = pd.DataFrame([
-        {
-            "spoke": name,
-            "rho": rhos.get(name, np.nan),
-            "credit line $m": result.allocation[name] / 1e6,
-            "standalone CVaR $m": result.standalone_cvar[name] / 1e6,
-            "risk premium $k/$1m": result.marginal_cvar[name] * 1e6 / 1e3,
-        }
-        for name in result.allocation
-    ])
-    st.dataframe(table, use_container_width=True, hide_index=True)
-
-    with st.expander("How to read this"):
-        st.markdown(
-            "Credit lines are the decision. The risk premium is the forward "
-            "marginal Hub-CVaR per extra dollar; with a greedy discrete allocator "
-            "it is approximately equalized across funded Spokes. Diversification "
-            "gain is sum of standalone CVaRs minus Hub CVaR."
+        st.plotly_chart(
+            charts.cap_budget_fig(recommendation["sweep"], budget_usd, recommendation["recommended_cap"]),
+            width="stretch",
         )
+    with right:
+        st.plotly_chart(charts.loss_distribution_fig(analysis["result"]), width="stretch")
+
+    rows = account_rows(snapshot, min_target_share)
+    if rows:
+        st.plotly_chart(charts.concentration_fig(rows), width="stretch")
+        top = pd.DataFrame(rows[:10]).copy()
+        top["Debt"] = top["Debt"].map(_fmt_usd)
+        top["Collateral"] = top["Collateral"].map(_fmt_usd)
+        top["Target share"] = top["Target share"].map(lambda value: f"{value:.0%}")
+        top["ETH debt share"] = top["ETH debt share"].map(lambda value: f"{value:.0%}")
+        top["Health factor"] = top["Health factor"].map(lambda value: f"{value:.2f}")
+        st.dataframe(top, width="stretch", hide_index=True)
+
+
+def _clearance_tab(analysis, snapshot) -> None:
+    clearance = analysis["clearance"]
+    if clearance is None:
+        st.warning("The active snapshot has no depth calibration.")
+        return
+    metrics = st.columns(4)
+    metrics[0].metric("Largest borrower sale", _fmt_usd(clearance.largest_borrower_usd))
+    metrics[1].metric("Max clearable", _fmt_usd(clearance.max_clearable_usd_quiet))
+    metrics[2].metric("Quiet slippage", f"{clearance.slippage_quiet:.2%}")
+    metrics[3].metric("50% haircut clearable", _fmt_usd(clearance.max_clearable_usd_stressed))
+    if clearance.passes_quiet:
+        st.success("ARFC largest-borrower clearance: PASS at quiet depth")
+    else:
+        st.error("ARFC largest-borrower clearance: FAIL at quiet depth")
+    st.plotly_chart(charts.empirical_depth_fig(snapshot, clearance), width="stretch")
+    if snapshot.reserve.symbol.lower() == "wsteth":
+        st.caption(
+            "Strict instant routed depth does not credit the wstETH redemption queue or CEX liquidity."
+        )
+
+
+def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: int, seed: int) -> None:
+    state_key = "dashboard_v4_result"
+    if st.button("Run V3 / V4 comparison", type="primary"):
+        with st.spinner("Running matched scenarios across mechanics and queue modes..."):
+            st.session_state[state_key] = (
+                context_key,
+                _cached_v4_analysis(payload, scope, share, n_scen, seed),
+            )
+    stored = st.session_state.get(state_key)
+    if not stored or stored[0] != context_key:
+        st.info("Run the comparison for the active snapshot and book.")
+        return
+    rows = stored[1]
+    st.plotly_chart(charts.mechanics_cvar_fig(rows), width="stretch")
+    table = pd.DataFrame(rows).copy()
+    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.2%}")
+    for column in ("Mean bad debt", "VaR99", "CVaR99"):
+        table[column] = table[column].map(_fmt_usd)
+    st.dataframe(table, width="stretch", hide_index=True)
+    st.caption(
+        "V4 bonus interpolation between documented anchors is a modeling assumption."
+    )
+
+
+def _episode_tab(payload: str, context_key: str, snapshot, scope: str, share: float) -> None:
+    if snapshot.reserve.symbol.lower() != "wsteth":
+        st.info("Historical peg replay is available for the wstETH/ETH market.")
+        return
+    state_key = "dashboard_episode_result"
+    if st.button("Run historical replay", type="primary"):
+        with st.spinner("Applying committed historical paths to the active book..."):
+            st.session_state[state_key] = (
+                context_key,
+                _cached_episode_analysis(payload, scope, share),
+            )
+    stored = st.session_state.get(state_key)
+    if not stored or stored[0] != context_key:
+        st.info("Run the replay for the active snapshot and book.")
+        return
+    rows = stored[1]
+    st.plotly_chart(charts.episode_loss_fig(rows), width="stretch")
+    table = pd.DataFrame(rows).copy()
+    table["Worst bad debt"] = table["Worst bad debt"].map(_fmt_usd)
+    table["ETH return"] = table["ETH return"].map(lambda value: f"{value:+.1%}")
+    table["Peg drop"] = table["Peg drop"].map(lambda value: f"{value:.2%}")
+    st.dataframe(table, width="stretch", hide_index=True)
+    st.caption("Historical paths are replayed on today's book; this is not archive backtesting.")
+
+
+def _multiperiod_tab(
+    payload: str,
+    base_context: str,
+    scope: str,
+    share: float,
+    default_paths: int,
+    seed: int,
+) -> None:
+    controls = st.columns(4)
+    periods = int(controls[0].number_input("Periods", 1, 24, 8, 1))
+    days = float(controls[1].number_input("Window (days)", 1.0, 14.0, 4.0, 0.5))
+    replenish = float(controls[2].slider("Depth replenishment", 0.0, 1.0, 1.0, 0.1))
+    paths = int(
+        controls[3].select_slider(
+            "Paths", [5_000, 10_000, 20_000], value=min(default_paths, 20_000)
+        )
+    )
+    context_key = f"{base_context}|{periods}|{days}|{replenish}|{paths}"
+    state_key = "dashboard_multiperiod_result"
+    if st.button("Run multi-period comparison", type="primary"):
+        with st.spinner("Evolving books across stress paths..."):
+            st.session_state[state_key] = (
+                context_key,
+                _cached_multiperiod_analysis(
+                    payload, scope, share, paths, seed, periods, days, replenish
+                ),
+            )
+    stored = st.session_state.get(state_key)
+    if not stored or stored[0] != context_key:
+        st.info("Run the evolving-path comparison with the selected controls.")
+        return
+    rows = stored[1]
+    st.plotly_chart(charts.multiperiod_cvar_fig(rows), width="stretch")
+    table = pd.DataFrame(rows).copy()
+    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.2%}")
+    table["P(reliquidation)"] = table["P(reliquidation)"].map(lambda value: f"{value:.2%}")
+    table["Events per path"] = table["Events per path"].map(lambda value: f"{value:.2f}")
+    for column in ("Mean bad debt", "CVaR99"):
+        table[column] = table[column].map(_fmt_usd)
+    st.dataframe(table, width="stretch", hide_index=True)
+
+
+def _data_tab(snapshot, payload: str, source: str) -> None:
+    reserve = snapshot.reserve
+    reserve_table = pd.DataFrame(
+        [
+            {
+                "Source": source,
+                "Chain": snapshot.chain,
+                "Asset": reserve.symbol,
+                "Block": f"{snapshot.block:,}",
+                "Date": _snapshot_date(snapshot),
+                "Oracle price": _fmt_usd(reserve.price_usd),
+                "Supply cap": f"{reserve.supply_cap_tokens:,.0f}",
+                "Supplied": f"{reserve.total_supplied_tokens:,.0f}",
+                "Borrow cap": f"{reserve.borrow_cap_tokens:,.0f}",
+                "Borrowed": f"{reserve.total_debt_tokens:,.0f}",
+                "LT": f"{reserve.liquidation_threshold:.2%}",
+                "Bonus": f"{reserve.liquidation_bonus:.2%}",
+            }
+        ]
+    )
+    st.dataframe(reserve_table, width="stretch", hide_index=True)
+    source_rows = []
+    if snapshot.stress is not None:
+        source_rows.append({"Input": "Stress calibration", "Source": snapshot.stress.source})
+    if snapshot.depth is not None:
+        source_rows.append(
+            {
+                "Input": "Depth calibration",
+                "Source": f"{snapshot.depth.source} {snapshot.depth.pair}",
+            }
+        )
+    source_rows.append(
+        {
+            "Input": "Borrower discovery",
+            "Source": f"Borrow events over {snapshot.scan_blocks or 0:,} blocks",
+        }
+    )
+    st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
+    st.download_button(
+        "Download snapshot JSON",
+        data=payload,
+        file_name=f"aave_v3_{snapshot.chain}_{reserve.symbol.lower()}_block_{snapshot.block}.json",
+        mime="application/json",
+    )
+    st.caption(
+        "Dormant borrowers outside the scan window may be missed. Real books use an effective single-asset mapping."
+    )
 
 
 def main() -> None:
-    st.set_page_config(page_title="Aave Risk-Budgeting Engine", layout="wide")
-    st.title("Aave Risk-Budgeting Engine")
-    tab_single, tab_hub = st.tabs(["Single Spoke", "Hub allocation (V4)"])
-    with tab_single:
-        single_spoke_tab()
-    with tab_hub:
-        hub_tab()
+    st.set_page_config(page_title="Aave Market Risk", layout="wide")
+    st.logo(_LOGO_PATH, size="large", icon_image=_LOGO_PATH)
+    st.markdown(
+        """
+        <style>
+        .block-container {padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1480px;}
+        [data-testid="stMetricValue"] {font-size: 1.55rem;}
+        [data-testid="stMetricLabel"] {font-size: 0.86rem;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.sidebar.title("Market controls")
+    market_name = st.sidebar.selectbox("Real market", list(_MARKETS))
+    market = _MARKETS[market_name]
+    scope = st.sidebar.selectbox("Borrower book", ["USD debt", "Combined"])
+    queue = st.sidebar.selectbox("Queue clearing", ["Aggregate", "Ordered"])
+    share = float(st.sidebar.slider("Minimum target share", 0.5, 0.9, 0.5, 0.1))
+    scenarios = int(
+        st.sidebar.select_slider("Scenarios", [5_000, 10_000, 20_000, 40_000], value=20_000)
+    )
+    seed = int(st.sidebar.number_input("Seed", 0, 9_999, 7, 1))
+    budget = float(
+        st.sidebar.number_input(
+            "CVaR99 budget ($)",
+            min_value=100_000.0,
+            max_value=100_000_000.0,
+            value=market["budget"],
+            step=100_000.0,
+            key=f"budget::{market_name}",
+        )
+    )
+    snapshot, payload = _active_snapshot(market_name, market)
+    source = st.session_state[f"snapshot_source::{market_name}"]
+
+    st.title("Aave Market Risk")
+    st.caption(
+        f"{market_name} | {source.lower()} snapshot | block {snapshot.block:,} | "
+        f"{_snapshot_date(snapshot)} | {scope.lower()} book"
+    )
+    try:
+        with st.spinner("Running current-book risk analysis..."):
+            analysis = _cached_market_analysis(
+                payload,
+                scope,
+                share,
+                scenarios,
+                seed,
+                budget,
+                queue == "Ordered",
+            )
+    except Exception as exc:  # noqa: BLE001 - render snapshot controls after invalid live data
+        st.error(f"The active snapshot cannot be analyzed: {exc}")
+        return
+
+    snapshot_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+    context = f"{snapshot_id}|{scope}|{share}|{scenarios}|{seed}|{queue}"
+    tabs = st.tabs(["Overview", "Clearance", "V3 / V4", "Episodes", "Multi-period", "Data"])
+    with tabs[0]:
+        _overview_tab(analysis, snapshot, share, budget)
+    with tabs[1]:
+        _clearance_tab(analysis, snapshot)
+    with tabs[2]:
+        _v4_tab(payload, context, scope, share, scenarios, seed)
+    with tabs[3]:
+        _episode_tab(payload, context, snapshot, scope, share)
+    with tabs[4]:
+        _multiperiod_tab(payload, context, scope, share, scenarios, seed)
+    with tabs[5]:
+        _data_tab(snapshot, payload, source)
 
 
 if __name__ == "__main__":

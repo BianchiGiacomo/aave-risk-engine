@@ -15,6 +15,8 @@ from .snapshot import (
     default_snapshot_path,
     load_snapshot,
     save_snapshot,
+    snapshot_from_json,
+    snapshot_to_json,
 )
 
 __all__ = [
@@ -30,4 +32,6 @@ __all__ = [
     "load_snapshot",
     "save_snapshot",
     "scale_book",
+    "snapshot_from_json",
+    "snapshot_to_json",
 ]

@@ -6,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from aave_risk_engine.engine import RiskEngine, RiskResult
-from aave_risk_engine.slippage import calibrate_liquidity, slippage
+from aave_risk_engine.slippage import calibrate_liquidity, empirical_slippage, slippage
 
 _RED = "#d62728"
 _BLUE = "#1f77b4"
@@ -106,6 +106,154 @@ def scenario_scatter_fig(engine: RiskEngine, result: RiskResult, max_points: int
         title="Losses by ETH return and depth haircut",
         xaxis_title="ETH return (%)",
         yaxis_title="bad debt ($m)",
+    )
+    return fig
+
+
+def empirical_depth_fig(snapshot, clearance) -> go.Figure:
+    """Observed quote ladder with clearance and borrower reference sizes."""
+    points = np.asarray(snapshot.depth.points, dtype=float)
+    order = np.argsort(points[:, 0])
+    notional = points[order, 0]
+    slip = points[order, 1]
+    max_x = max(float(notional.max()), clearance.largest_borrower_usd)
+    scale, unit = (1e6, "$m") if max_x >= 2e6 else (1e3, "$k")
+    largest_slip = float(empirical_slippage(clearance.largest_borrower_usd, points.tolist()))
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=notional / scale,
+            y=100 * slip,
+            mode="lines+markers",
+            name=f"{snapshot.depth.source} quotes",
+            line=dict(color=_BLUE, width=2),
+            marker=dict(size=8),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[clearance.largest_borrower_usd / scale],
+            y=[100 * largest_slip],
+            mode="markers",
+            name="largest borrower",
+            marker=dict(color="#111111", size=11, symbol="diamond"),
+        )
+    )
+    fig.add_hline(
+        y=100 * clearance.breakeven_slippage,
+        line=dict(color=_RED, dash="dot"),
+        annotation_text="break-even",
+    )
+    fig.add_vline(
+        x=clearance.max_clearable_usd_quiet / scale,
+        line=dict(color=_GREEN, dash="dash"),
+        annotation_text="max clearable",
+    )
+    fig.update_xaxes(type="log")
+    fig.update_layout(
+        title=f"{snapshot.chain.title()} {snapshot.reserve.symbol} liquidation depth",
+        xaxis_title=f"notional sold ({unit})",
+        yaxis_title="slippage (%)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=45, r=20, t=85, b=45),
+    )
+    return fig
+
+
+def concentration_fig(rows: list[dict], limit: int = 10) -> go.Figure:
+    top = rows[:limit][::-1]
+    labels = [row["Account"][:8] + "..." + row["Account"][-4:] for row in top]
+    debt = [row["Debt"] / 1e6 for row in top]
+    colors = [100 * row["ETH debt share"] for row in top]
+    fig = go.Figure(
+        go.Bar(
+            x=debt,
+            y=labels,
+            orientation="h",
+            marker=dict(color=colors, colorscale="Bluered", colorbar=dict(title="ETH debt %")),
+            text=[f"${value:,.1f}m" for value in debt],
+            textposition="outside",
+        )
+    )
+    fig.update_layout(
+        title="Largest target-dominant accounts",
+        xaxis_title="debt ($m)",
+        yaxis_title="",
+        showlegend=False,
+        margin=dict(l=85, r=35, t=55, b=45),
+    )
+    return fig
+
+
+def mechanics_cvar_fig(rows: list[dict]) -> go.Figure:
+    fig = go.Figure()
+    for queue, color in (("Aggregate", _BLUE), ("Ordered", _GREEN)):
+        selected = [row for row in rows if row["Queue"] == queue]
+        fig.add_trace(
+            go.Bar(
+                name=queue,
+                x=[row["Mechanics"] for row in selected],
+                y=[row["CVaR99"] / 1e6 for row in selected],
+                marker_color=color,
+                text=[_fmt_usd(row["CVaR99"]) for row in selected],
+                textposition="outside",
+            )
+        )
+    fig.update_layout(
+        title="CVaR99 by liquidation mechanics",
+        yaxis_title="CVaR99 ($m)",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=45, r=20, t=85, b=65),
+    )
+    return fig
+
+
+def episode_loss_fig(rows: list[dict]) -> go.Figure:
+    fig = go.Figure()
+    for depth, color in (("Quiet", _BLUE), ("50% haircut", _RED)):
+        selected = [row for row in rows if row["Depth"] == depth]
+        fig.add_trace(
+            go.Bar(
+                name=depth,
+                x=[row["Episode"] for row in selected],
+                y=[row["Worst bad debt"] / 1e6 for row in selected],
+                marker_color=color,
+                text=[_fmt_usd(row["Worst bad debt"]) for row in selected],
+                textposition="outside",
+            )
+        )
+    fig.update_layout(
+        title="Worst historical replay loss",
+        yaxis_title="bad debt ($m)",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=45, r=20, t=85, b=65),
+    )
+    return fig
+
+
+def multiperiod_cvar_fig(rows: list[dict]) -> go.Figure:
+    fig = go.Figure()
+    for path, color in (("Single shock", _RED), ("Multi-period", _GREEN)):
+        selected = [row for row in rows if row["Path"] == path]
+        fig.add_trace(
+            go.Bar(
+                name=path,
+                x=[row["Mechanics"] for row in selected],
+                y=[row["CVaR99"] / 1e6 for row in selected],
+                marker_color=color,
+                text=[_fmt_usd(row["CVaR99"]) for row in selected],
+                textposition="outside",
+            )
+        )
+    fig.update_layout(
+        title="Single shock versus evolving path",
+        yaxis_title="CVaR99 ($m)",
+        barmode="group",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=45, r=20, t=85, b=65),
     )
     return fig
 

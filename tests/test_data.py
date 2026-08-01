@@ -25,6 +25,8 @@ from aave_risk_engine.data.snapshot import (
     StressCalibration,
     load_snapshot,
     save_snapshot,
+    snapshot_from_json,
+    snapshot_to_json,
 )
 from aave_risk_engine.liquidation import process_chunk
 from aave_risk_engine.positions import PositionBook, scale_book
@@ -105,6 +107,15 @@ def test_snapshot_roundtrip():
     assert loaded.accounts == snap.accounts
     assert loaded.depth == snap.depth
     assert loaded.stress == snap.stress
+
+
+def test_snapshot_json_payload_roundtrip():
+    snap = _snapshot()
+    payload = snapshot_to_json(snap)
+    loaded = snapshot_from_json(payload.encode("utf-8"))
+    assert loaded.block == snap.block
+    assert loaded.reserve.symbol == "wstETH"
+    assert loaded.accounts[0].address == "0xaa"
 
 
 def test_build_real_book_filters_and_per_position_lt():

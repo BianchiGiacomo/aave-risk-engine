@@ -134,10 +134,17 @@ def main() -> None:
             )
     if snapshot.depth is not None:
         d = snapshot.depth
-        print(
-            f"depth [{d.source} {d.pair}]: {_fmt(d.ref_notional_usd)} sells at "
-            f"{d.ref_slippage:.2%} slippage"
-        )
+        if d.points:
+            largest_quote = max(d.points, key=lambda point: point[0])
+            print(
+                f"depth [{d.source} {d.pair}]: empirical ladder to "
+                f"{_fmt(largest_quote[0])} at {largest_quote[1]:.2%} slippage"
+            )
+        else:
+            print(
+                f"depth [{d.source} {d.pair}]: fitted curve at "
+                f"{_fmt(d.ref_notional_usd)} gives {d.ref_slippage:.2%} slippage"
+            )
 
     print("\nSupply side")
     print(f"  supply cap : {reserve.supply_cap_tokens:>14,.0f} {reserve.symbol}  {_fmt(reserve.supply_cap_usd)}")
@@ -252,22 +259,29 @@ def main() -> None:
     print("\nARFC clearance test (largest borrower within liquidation bonus)")
     print(f"  liquidator break-even slippage : {clearance.breakeven_slippage:.2%}")
     print(f"  largest borrower sale          : {_fmt(clearance.largest_borrower_usd)}")
-    print(f"  top-5 borrower sales           : {_fmt(clearance.top5_borrowers_usd)}")
-    ladder_top = max(n for n, _ in snapshot.depth.points)
-    if clearance.largest_borrower_usd > ladder_top:
-        print(
-            f"  caution: the sale exceeds the quote ladder top ({_fmt(ladder_top)}); "
-            "slippage beyond it is held flat at the worst observed quote, "
-            "which understates losses out there"
-        )
+    print(f"  largest borrower account       : {clearance.largest_account}")
     print(
-        f"  quiet depth    : slippage {clearance.slippage_quiet:.2%} "
+        "  target collateral / debt       : "
+        f"{_fmt(clearance.largest_target_collateral_usd)} / "
+        f"{_fmt(clearance.largest_debt_usd)}"
+    )
+    print(f"  ETH-denominated debt share     : {clearance.largest_eth_debt_share:.2%}")
+    print(f"  top-5 borrower sales           : {_fmt(clearance.top5_borrowers_usd)}")
+    if clearance.slippage_quiet_is_lower_bound:
+        print(
+            f"  caution: the sale exceeds the quote ladder top ({_fmt(clearance.max_quoted_usd)}); "
+            "the displayed slippage is the last observed value and only a lower bound"
+        )
+    quiet_prefix = ">= " if clearance.slippage_quiet_is_lower_bound else ""
+    stressed_prefix = ">= " if clearance.slippage_stressed_is_lower_bound else ""
+    print(
+        f"  quiet depth    : slippage {quiet_prefix}{clearance.slippage_quiet:.2%} "
         f"| max clearable {_fmt(clearance.max_clearable_usd_quiet)} "
         f"-> {'PASS' if clearance.passes_quiet else 'FAIL'}"
     )
     print(
         f"  stressed depth ({clearance.depth_haircut_stressed:.0%} haircut)"
-        f" : slippage {clearance.slippage_stressed:.2%} "
+        f" : slippage {stressed_prefix}{clearance.slippage_stressed:.2%} "
         f"| max clearable {_fmt(clearance.max_clearable_usd_stressed)} "
         f"-> {'PASS' if clearance.passes_stressed else 'FAIL'}"
     )

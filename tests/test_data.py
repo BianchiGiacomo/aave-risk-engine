@@ -8,6 +8,16 @@ import tempfile
 import numpy as np
 
 from aave_risk_engine.config import RiskParams
+from aave_risk_engine.dashboard_charts import (
+    empirical_depth_fig,
+    loss_distribution_fig,
+    scenario_scatter_fig,
+    slippage_curve_fig,
+)
+from aave_risk_engine.dashboard_analysis import (
+    account_rows,
+    run_liquidation_threshold_sensitivity,
+)
 from aave_risk_engine.data.aave_v3 import _addr_arg, _word_to_address, _words
 from aave_risk_engine.data.book import build_real_book, scenario_config_from_snapshot
 from aave_risk_engine.data.clearance import arfc_clearance_test, max_clearable_notional
@@ -28,6 +38,7 @@ from aave_risk_engine.data.snapshot import (
     snapshot_from_json,
     snapshot_to_json,
 )
+from aave_risk_engine.engine import RiskResult
 from aave_risk_engine.liquidation import process_chunk
 from aave_risk_engine.positions import PositionBook, scale_book
 from aave_risk_engine.slippage import (
@@ -131,6 +142,89 @@ def test_build_real_book_filters_and_per_position_lt():
     # Allowing ETH-denominated debt readmits the looper.
     loose = build_real_book(_snapshot(), max_eth_debt_share=1.0)
     assert loose.debt_usd.size == 4
+
+
+def test_dashboard_account_rows_match_selected_book():
+    combined_rows = account_rows(_snapshot(), min_target_share=0.5)
+    usd_rows = [row for row in combined_rows if row["ETH debt share"] <= 0.5]
+    assert [row["Account"] for row in usd_rows] == ["0xaa", "0xbb", "0xee"]
+    assert [row["Account"] for row in combined_rows] == ["0xaa", "0xff", "0xbb", "0xee"]
+
+
+def test_dashboard_loss_chart_scales_single_small_loss():
+    losses = np.zeros(20_000)
+    losses[123] = 8_689.56
+    result = RiskResult(
+        bad_debt=losses,
+        slippage=np.zeros_like(losses),
+        liquidated_usd=np.zeros_like(losses),
+        frac_liquidated=np.zeros_like(losses),
+        total_debt=83_620.0,
+        cvar_level=0.99,
+    )
+    figure = loss_distribution_fig(result)
+    assert figure.layout.xaxis.title.text == "bad debt ($k)"
+    assert figure.data[0].type == "scatter"
+    assert np.isclose(figure.data[0].x[0], 8.68956)
+
+
+def test_dashboard_sensitivity_charts_use_real_scenarios_and_depth():
+    from aave_risk_engine.config import SimConfig
+    from aave_risk_engine.engine import RiskEngine
+
+    snap = _snapshot()
+    snap.depth.points = [
+        [120_000.0, 0.0001], [2_330_000.0, 0.0034], [9_340_000.0, 0.5455]
+    ]
+    cfg = scenario_config_from_snapshot(snap)
+    cfg.sim = SimConfig(n_scenarios=2_000, seed=7, chunk_size=1_000)
+    engine = RiskEngine(cfg)
+    result = engine.run(book=build_real_book(snap))
+
+    slippage_figure = slippage_curve_fig(engine, stress_haircut=0.5)
+    assert slippage_figure.layout.xaxis.type == "log"
+    assert [trace.name for trace in slippage_figure.data] == [
+        "quiet depth",
+        "50% depth haircut",
+    ]
+    assert np.allclose(
+        np.asarray(slippage_figure.data[1].x),
+        np.asarray(slippage_figure.data[0].x) * 0.5,
+    )
+
+    scenario_figure = scenario_scatter_fig(engine, result)
+    assert "Scenario attribution" in scenario_figure.layout.title.text
+    assert any("peg drop" in trace.hovertemplate for trace in scenario_figure.data)
+
+
+def test_real_book_liquidation_threshold_transition_sensitivity():
+    from aave_risk_engine.config import SimConfig
+    from aave_risk_engine.engine import RiskEngine
+
+    snap = _snapshot()
+    sweep = run_liquidation_threshold_sensitivity(
+        snap,
+        scope="USD debt",
+        min_target_share=0.5,
+        n_scenarios=2_000,
+        seed=7,
+        ordered=False,
+        n_grid=5,
+    )
+    assert sweep["thresholds"].size == 5
+    assert np.any(np.isclose(sweep["thresholds"], 0.81))
+    assert sweep["cvar"].shape == sweep["thresholds"].shape
+    assert sweep["prob"].shape == sweep["thresholds"].shape
+    assert sweep["underwater_accounts"].shape == sweep["thresholds"].shape
+    assert sweep["prob"][0] >= sweep["prob"][-1]
+    current_index = int(
+        np.flatnonzero(np.isclose(sweep["thresholds"], sweep["current_threshold"]))[0]
+    )
+    cfg = scenario_config_from_snapshot(snap)
+    cfg.sim = SimConfig(n_scenarios=2_000, seed=7, chunk_size=2_000)
+    baseline = RiskEngine(cfg).run(book=build_real_book(snap))
+    assert np.isclose(sweep["cvar"][current_index], baseline.cvar)
+    assert np.isclose(sweep["prob"][current_index], baseline.prob_bad_debt)
 
 
 def test_scale_book_preserves_health_factors():
@@ -281,6 +375,8 @@ def test_clearance_empirical_branch_uses_observed_cliff():
     # Largest sale ($21.2m of wstETH) is far beyond the cliff: FAIL.
     assert not res.passes_quiet
     assert not res.passes_stressed
+    assert not res.slippage_quiet_is_lower_bound
+    assert res.slippage_stressed_is_lower_bound
 
 
 def test_clearance_math_and_verdicts():
@@ -288,6 +384,9 @@ def test_clearance_math_and_verdicts():
     res = arfc_clearance_test(snap, stressed_haircut=0.5)
     # Largest sale: 0xaa full liquidation sells debt * (1 + bonus).
     assert np.isclose(res.largest_borrower_usd, 20_000_000.0 * 1.06)
+    assert res.largest_account == "0xaa"
+    assert np.isclose(res.largest_debt_usd, 20_000_000.0)
+    assert np.isclose(res.largest_target_collateral_usd, 38_000_000.0)
     assert np.isclose(res.breakeven_slippage, 0.06 / 1.06)
     # At the break-even boundary the max-clearable formula is exact.
     l0 = calibrate_liquidity(2_000.0, 25_000_000.0, 0.02)
@@ -296,6 +395,23 @@ def test_clearance_math_and_verdicts():
     assert res.max_clearable_usd_stressed < res.max_clearable_usd_quiet
     assert res.passes_quiet  # ~$21m sale, break-even allows ~$73m quiet
     assert res.passes_stressed
+
+
+def test_clearance_chart_marks_unquoted_whale_without_fake_slippage_point():
+    snap = _snapshot()
+    snap.depth.points = [
+        [120_000.0, 0.0001], [2_330_000.0, 0.0034], [9_340_000.0, 0.5455]
+    ]
+    res = arfc_clearance_test(snap, stressed_haircut=0.5)
+    figure = empirical_depth_fig(snap, res)
+    assert figure.layout.xaxis.type == "log"
+    assert figure.layout.xaxis.title.text.endswith("log scale)")
+    assert figure.layout.xaxis.range[1] < 4
+    names = [trace.name for trace in figure.data]
+    assert f"{snap.depth.source} quotes" in names
+    assert "outside quoted range" in names
+    assert "max clearable" in names
+    assert "largest borrower sale" in names
 
 
 def test_real_book_runs_through_engine():

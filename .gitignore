@@ -9,6 +9,7 @@ build/
 dist/
 *.egg-info/
 .streamlit/
+.runtime/
 figures/*.png
 !figures/.gitkeep
 data/snapshots/.borrowers_cache*.json

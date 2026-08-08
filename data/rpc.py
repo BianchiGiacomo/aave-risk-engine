@@ -9,6 +9,7 @@ from dataclasses import dataclass
 
 # Keyless public endpoints for state reads (eth_call and friends).
 DEFAULT_ENDPOINTS: tuple[str, ...] = (
+    "https://rpc.mevblocker.io",
     "https://eth.drpc.org",
     "https://ethereum-rpc.publicnode.com",
     "https://1rpc.io/eth",

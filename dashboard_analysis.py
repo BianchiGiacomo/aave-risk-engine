@@ -31,6 +31,19 @@ def _book(snapshot, scope: str, min_target_share: float):
     )
 
 
+def _selected_accounts(snapshot, scope: str, min_target_share: float):
+    selected = [
+        account
+        for account in snapshot.accounts
+        if account.debt_usd >= 10_000
+        and account.collateral_usd > 0
+        and account.target_share >= min_target_share
+        and (scope == "Combined" or account.eth_debt_share <= 0.5)
+        and 0 < account.avg_liquidation_threshold < 1
+    ]
+    return sorted(selected, key=lambda account: account.debt_usd, reverse=True)
+
+
 def _config(snapshot, n_scenarios: int, seed: int):
     return replace(
         scenario_config_from_snapshot(snapshot),
@@ -64,6 +77,76 @@ def _variants(config, ordered: bool = False):
                 close_factor_floor=0.35,
             ),
         ),
+    }
+
+
+def run_liquidation_threshold_sensitivity(
+    snapshot,
+    scope: str,
+    min_target_share: float,
+    n_scenarios: int,
+    seed: int,
+    ordered: bool,
+    n_grid: int = 11,
+) -> dict:
+    """Reprice the current book under counterfactual target-asset LTs.
+
+    Each account's weighted-average LT moves by its target collateral share
+    times the change in the reserve LT. This is a current-book transition
+    sensitivity, not a model of borrower behavior after a parameter change.
+    """
+    if n_grid < 2:
+        raise ValueError("n_grid must be at least two")
+    config = _config(snapshot, n_scenarios, seed)
+    if ordered:
+        config = replace(config, risk=replace(config.risk, ordered_queue=True))
+    book = _book(snapshot, scope, min_target_share)
+    accounts = _selected_accounts(snapshot, scope, min_target_share)
+    if len(accounts) != book.debt_usd.size:
+        raise RuntimeError("account selection does not match the position book")
+
+    current = float(snapshot.reserve.liquidation_threshold)
+    lower = max(0.50, current - 0.10)
+    upper = min(0.95, current + 0.10)
+    thresholds = np.unique(np.append(np.linspace(lower, upper, n_grid), current))
+    shares = np.clip(np.array([account.target_share for account in accounts]), 0.0, 1.0)
+    engine = RiskEngine(config)
+    mean = np.empty(thresholds.size)
+    cvar = np.empty(thresholds.size)
+    prob = np.empty(thresholds.size)
+    underwater = np.empty(thresholds.size, dtype=int)
+
+    for index, threshold in enumerate(thresholds):
+        account_lts = np.clip(
+            book.lt + shares * (float(threshold) - current),
+            1e-6,
+            0.999,
+        )
+        hf0 = (
+            book.coll_units
+            * config.asset.spot_price
+            * account_lts
+            / book.debt_usd
+        )
+        adjusted_book = replace(book, lt=account_lts, hf0=hf0)
+        risk = replace(
+            config.risk,
+            liquidation_threshold=float(threshold),
+            ltv=min(config.risk.ltv, float(threshold)),
+        )
+        result = engine.run(book=adjusted_book, risk=risk)
+        mean[index] = result.mean
+        cvar[index] = result.cvar
+        prob[index] = result.prob_bad_debt
+        underwater[index] = int(np.count_nonzero(hf0 < 1.0))
+
+    return {
+        "thresholds": thresholds,
+        "current_threshold": current,
+        "mean": mean,
+        "cvar": cvar,
+        "prob": prob,
+        "underwater_accounts": underwater,
     }
 
 
@@ -230,10 +313,15 @@ def run_multiperiod_analysis(
 
 
 def account_rows(snapshot, min_target_share: float) -> list[dict]:
-    """Return target-dominant borrower records for concentration display."""
+    """Return target-dominant borrower records for dashboard display."""
     rows = []
     for account in snapshot.accounts:
-        if account.debt_usd < 10_000 or account.target_share < min_target_share:
+        if (
+            account.debt_usd < 10_000
+            or account.collateral_usd <= 0
+            or account.target_share < min_target_share
+            or not 0 < account.avg_liquidation_threshold < 1
+        ):
             continue
         rows.append(
             {

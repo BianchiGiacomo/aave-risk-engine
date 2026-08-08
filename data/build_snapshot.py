@@ -268,7 +268,11 @@ def build_market_snapshot(
         points = depth.quotes_to_slippage_points(quotes, reserve.price_usd)
         source = "paraswap" if chain.paraswap_network is not None else "kyberswap"
         fitted = depth.fit_depth(points, reserve.price_usd, source, f"{asset}/{dest_symbol}")
-        print(f"  ref {fitted.ref_notional_usd / 1e6:,.2f}m @ {fitted.ref_slippage:.3%}")
+        largest_quote = max(fitted.points, key=lambda point: point[0])
+        print(
+            f"  empirical max {largest_quote[0] / 1e6:,.2f}m "
+            f"@ {largest_quote[1]:.3%}"
+        )
     except Exception as exc:  # noqa: BLE001 - preserve partial live snapshots
         print(f"  WARNING: depth calibration failed ({exc}); snapshot will carry none")
 

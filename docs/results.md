@@ -46,7 +46,11 @@ Model-safe debt exposure (CVaR99 budget $5.00m)
 
 ARFC clearance test (largest borrower within liquidation bonus)
   largest borrower sale          : $307.60m
-  quiet depth    : slippage 75.74% | max clearable $2.60m -> FAIL
+  largest borrower account       : 0x893aa69fbaa1ee81b536f0fbe3a3453e86290080
+  target collateral / debt       : $320.36m / $290.19m
+  ETH-denominated debt share     : 100.00%
+  caution: the sale exceeds the quote ladder top ($25.00m)
+  quiet depth    : slippage >= 75.74% | max clearable $2.60m -> FAIL
 ```
 
 The USD debt book is benign under this calibration. Its current exposure has
@@ -59,6 +63,10 @@ The strict ARFC clearance test fails because the largest borrower sale is
 about 308 million dollars against 2.6 million dollars of instant clearable
 depth. This is an instant routed on-chain test. A wstETH liquidator can also
 use the redemption queue over days, which the strict test does not credit.
+The 75.74% figure is the last observed Paraswap ladder point and only a lower
+bound for the 307.60 million dollar sale, not an extrapolated whale quote.
+Large Paraswap ladder points are indicative best routes and not guaranteed
+execution.
 The main conclusion is therefore about concentration versus immediate exit
 capacity, not total eventual recovery capacity.
 

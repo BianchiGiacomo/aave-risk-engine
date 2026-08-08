@@ -21,11 +21,18 @@ from .snapshot import MarketSnapshot
 class ClearanceResult:
     """Outcome of the clearance test under quiet and stressed depth."""
 
+    largest_account: str
     largest_borrower_usd: float
+    largest_debt_usd: float
+    largest_target_collateral_usd: float
+    largest_eth_debt_share: float
     top5_borrowers_usd: float
     breakeven_slippage: float
     slippage_quiet: float
     slippage_stressed: float
+    slippage_quiet_is_lower_bound: bool
+    slippage_stressed_is_lower_bound: bool
+    max_quoted_usd: float
     max_clearable_usd_quiet: float
     max_clearable_usd_stressed: float
     passes_quiet: bool
@@ -75,12 +82,16 @@ def arfc_clearance_test(
         raise ValueError("no accounts pass the target-share filter")
 
     # Only the target-asset collateral is sold on this asset's depth curve.
-    sale = sorted(
-        (min(a.target_collateral_usd, a.debt_usd * (1.0 + bonus)) for a in accounts),
+    sales = sorted(
+        (
+            (min(a.target_collateral_usd, a.debt_usd * (1.0 + bonus)), a)
+            for a in accounts
+        ),
+        key=lambda item: item[0],
         reverse=True,
     )
-    largest = sale[0]
-    top5 = float(sum(sale[:5]))
+    largest, largest_account = sales[0]
+    top5 = float(sum(notional for notional, _ in sales[:5]))
     breakeven = bonus / (1.0 + bonus)
 
     points = snapshot.depth.points
@@ -91,6 +102,9 @@ def arfc_clearance_test(
         s_stressed = float(empirical_slippage(largest / (1.0 - stressed_haircut), points))
         clearable_quiet = max_notional_within(points, breakeven)
         clearable_stressed = clearable_quiet * (1.0 - stressed_haircut)
+        max_quoted = max(float(point[0]) for point in points)
+        quiet_is_lower_bound = largest > max_quoted
+        stressed_is_lower_bound = largest / (1.0 - stressed_haircut) > max_quoted
     else:
         liquidity = calibrate_liquidity(
             price, snapshot.depth.ref_notional_usd, snapshot.depth.ref_slippage
@@ -100,16 +114,26 @@ def arfc_clearance_test(
         s_stressed = float(slippage(largest, l_stressed, price))
         clearable_quiet = max_clearable_notional(liquidity, price, bonus)
         clearable_stressed = max_clearable_notional(l_stressed, price, bonus)
+        max_quoted = float("nan")
+        quiet_is_lower_bound = False
+        stressed_is_lower_bound = False
 
     return ClearanceResult(
+        largest_account=largest_account.address,
         largest_borrower_usd=largest,
+        largest_debt_usd=largest_account.debt_usd,
+        largest_target_collateral_usd=largest_account.target_collateral_usd,
+        largest_eth_debt_share=largest_account.eth_debt_share,
         top5_borrowers_usd=top5,
         breakeven_slippage=breakeven,
         slippage_quiet=s_quiet,
         slippage_stressed=s_stressed,
+        slippage_quiet_is_lower_bound=quiet_is_lower_bound,
+        slippage_stressed_is_lower_bound=stressed_is_lower_bound,
+        max_quoted_usd=max_quoted,
         max_clearable_usd_quiet=clearable_quiet,
         max_clearable_usd_stressed=clearable_stressed,
-        passes_quiet=s_quiet <= breakeven,
-        passes_stressed=s_stressed <= breakeven,
+        passes_quiet=largest <= clearable_quiet,
+        passes_stressed=largest <= clearable_stressed,
         depth_haircut_stressed=stressed_haircut,
     )

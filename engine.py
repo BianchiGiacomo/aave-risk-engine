@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -38,15 +39,45 @@ class RiskResult:
         return float((self.bad_debt > 0).mean())
 
     @property
+    def positive_loss_count(self) -> int:
+        return int(np.count_nonzero(self.bad_debt > 0))
+
+    @property
+    def conditional_mean_bad_debt(self) -> float | None:
+        positive = self.bad_debt[self.bad_debt > 0]
+        return float(positive.mean()) if positive.size else None
+
+    @property
+    def cvar_tail_count(self) -> int:
+        tail_mass = max(0.0, (1.0 - self.cvar_level) * self.bad_debt.size)
+        return max(1, int(np.ceil(tail_mass - 1e-12)))
+
+    def prob_bad_debt_interval(self, z: float = 1.959963984540054) -> tuple[float, float]:
+        """Wilson score interval for the positive-loss probability."""
+        n = self.bad_debt.size
+        if n == 0:
+            return float("nan"), float("nan")
+        p = self.positive_loss_count / n
+        z2 = z * z
+        denominator = 1.0 + z2 / n
+        center = (p + z2 / (2.0 * n)) / denominator
+        radius = (
+            z
+            * math.sqrt(p * (1.0 - p) / n + z2 / (4.0 * n * n))
+            / denominator
+        )
+        low = 0.0 if self.positive_loss_count == 0 else max(0.0, center - radius)
+        high = 1.0 if self.positive_loss_count == n else min(1.0, center + radius)
+        return low, high
+
+    @property
     def var(self) -> float:
         return float(np.quantile(self.bad_debt, self.cvar_level))
 
     @property
     def cvar(self) -> float:
         losses = np.sort(self.bad_debt)
-        tail_mass = max(0.0, (1.0 - self.cvar_level) * losses.size)
-        tail_n = max(1, int(np.ceil(tail_mass - 1e-12)))
-        return float(losses[-tail_n:].mean())
+        return float(losses[-self.cvar_tail_count :].mean())
 
     @property
     def worst(self) -> float:
@@ -62,6 +93,18 @@ class RiskResult:
             "worst_case": self.worst,
             "mean_slippage": float(self.slippage.mean()),
             "p99_slippage": float(np.quantile(self.slippage, 0.99)),
+        }
+
+    def diagnostics(self) -> dict:
+        """Publication diagnostics extending the stable numeric summary."""
+        probability_low, probability_high = self.prob_bad_debt_interval()
+        return {
+            **self.summary(),
+            "prob_bad_debt_ci95": [probability_low, probability_high],
+            "positive_loss_draws": self.positive_loss_count,
+            "conditional_mean_bad_debt": self.conditional_mean_bad_debt,
+            "cvar_tail_draws": self.cvar_tail_count,
+            "tail_metrics_low_sample": self.positive_loss_count < 30,
         }
 
 

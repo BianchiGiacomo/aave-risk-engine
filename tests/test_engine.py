@@ -74,6 +74,27 @@ def test_cvar_uses_worst_tail_not_all_var_ties():
     assert np.isclose(r.cvar, 10.0)
 
 
+def test_rare_loss_diagnostics_separate_frequency_and_severity():
+    losses = np.r_[np.zeros(999), 100.0]
+    r = RiskResult(
+        losses,
+        np.zeros_like(losses),
+        np.zeros_like(losses),
+        np.zeros_like(losses),
+        total_debt=1.0,
+        cvar_level=0.99,
+    )
+    low, high = r.prob_bad_debt_interval()
+    diagnostics = r.diagnostics()
+    assert r.positive_loss_count == 1
+    assert r.cvar_tail_count == 10
+    assert np.isclose(r.conditional_mean_bad_debt, 100.0)
+    assert low < r.prob_bad_debt < high
+    assert np.isclose(r.prob_bad_debt * r.conditional_mean_bad_debt, r.mean)
+    assert diagnostics["positive_loss_draws"] == 1
+    assert diagnostics["tail_metrics_low_sample"] is True
+
+
 def test_origination_ltv_sets_minimum_health_factor():
     pos = PositionConfig(n_borrowers=16, hf0_median=1.05, hf0_sigma=0.0, hf0_floor=1.0)
     asset = AssetParams(spot_price=1.0)

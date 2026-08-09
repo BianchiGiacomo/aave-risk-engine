@@ -137,9 +137,16 @@ def slippage_curve_fig(
         )
         x_min = max(float(stressed_notional.min()) / scale * 0.8, 1e-9)
         x_max = float(quiet_notional.max()) / scale * 1.25
-        fig.update_xaxes(type="log", range=[np.log10(x_min), np.log10(x_max)])
+        tick_values = quiet_notional / scale
+        fig.update_xaxes(
+            type="log",
+            range=[np.log10(x_min), np.log10(x_max)],
+            tickmode="array",
+            tickvals=tick_values,
+            ticktext=[f"{value:g}" for value in tick_values],
+        )
         x_title = f"notional sold ({unit}, log scale)"
-        title = "Empirical liquidation slippage"
+        title = "Empirical depth with modeled stress haircut"
     else:
         l0 = calibrate_liquidity(
             cfg.asset.spot_price,
@@ -208,7 +215,7 @@ def ltv_sweep_fig(sweep: dict) -> go.Figure:
         annotation_text="current LT",
     )
     fig.update_layout(
-        title="Current-book liquidation-threshold sensitivity",
+        title="Fixed-book LT transition sensitivity",
         xaxis_title="liquidation threshold (%)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
@@ -422,7 +429,7 @@ def concentration_fig(rows: list[dict], limit: int = 10) -> go.Figure:
     return fig
 
 
-def mechanics_cvar_fig(rows: list[dict]) -> go.Figure:
+def mechanics_cvar_fig(rows: list[dict], scope: str) -> go.Figure:
     fig = go.Figure()
     for queue, color in (("Aggregate", _BLUE), ("Ordered", _GREEN)):
         selected = [row for row in rows if row["Queue"] == queue]
@@ -437,7 +444,7 @@ def mechanics_cvar_fig(rows: list[dict]) -> go.Figure:
             )
         )
     fig.update_layout(
-        title="CVaR99 by liquidation mechanics",
+        title=f"CVaR99 by liquidation mechanics | {scope} book",
         yaxis_title="CVaR99 ($m)",
         barmode="group",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
@@ -446,7 +453,7 @@ def mechanics_cvar_fig(rows: list[dict]) -> go.Figure:
     return fig
 
 
-def episode_loss_fig(rows: list[dict]) -> go.Figure:
+def episode_loss_fig(rows: list[dict], scope: str) -> go.Figure:
     fig = go.Figure()
     for depth, color in (("Quiet", _BLUE), ("50% haircut", _RED)):
         selected = [row for row in rows if row["Depth"] == depth]
@@ -461,7 +468,7 @@ def episode_loss_fig(rows: list[dict]) -> go.Figure:
             )
         )
     fig.update_layout(
-        title="Worst historical replay loss",
+        title=f"Worst historical replay loss | {scope} book",
         yaxis_title="bad debt ($m)",
         barmode="group",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
@@ -470,9 +477,9 @@ def episode_loss_fig(rows: list[dict]) -> go.Figure:
     return fig
 
 
-def multiperiod_cvar_fig(rows: list[dict]) -> go.Figure:
+def multiperiod_cvar_fig(rows: list[dict], scope: str) -> go.Figure:
     fig = go.Figure()
-    for path, color in (("Single shock", _RED), ("Multi-period", _GREEN)):
+    for path, color in (("Single-shock", _RED), ("Multi-period", _GREEN)):
         selected = [row for row in rows if row["Path"] == path]
         fig.add_trace(
             go.Bar(
@@ -485,7 +492,7 @@ def multiperiod_cvar_fig(rows: list[dict]) -> go.Figure:
             )
         )
     fig.update_layout(
-        title="Single shock versus evolving path",
+        title=f"Single-shock versus evolving path | {scope} book",
         yaxis_title="CVaR99 ($m)",
         barmode="group",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),

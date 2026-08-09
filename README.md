@@ -192,6 +192,18 @@ current cap and usage, tail risk of the real book, the model-safe exposure
 for a chosen CVaR budget, and the clearance test under quiet and stressed
 depth.
 
+For an auditable publication run, export the snapshot hash, calibrated
+parameters, seed, loss diagnostics, cap sweep, and clearance result:
+
+```bash
+python -m aave_risk_engine.run_market_report --manifest market-report.json
+```
+
+The report decomposes rare losses into event probability, expected loss, and
+severity conditional on loss. It also prints a 95% Wilson interval for the
+event probability and warns when CVaR and conditional severity rely on fewer
+than 30 positive-loss draws.
+
 ## Dashboard
 
 The Streamlit dashboard opens on committed real-market snapshots for

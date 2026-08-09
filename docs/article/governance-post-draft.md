@@ -72,13 +72,23 @@ contains the cap and quote reconciliation.
 The July 30 Ethereum snapshot at block 25,645,558 separates USD debt from
 ETH-denominated leveraged staking loops.
 
-The USD-debt book is benign under the standard two-day calibration:
+The USD-debt book has a rare but severe simulated loss channel under the
+standard two-day calibration:
 
 ```text
-debt          : $142.35m
-P(bad debt)   : 0.03%
-CVaR99        : $360.66k
+debt                : $142.35m
+positive-loss draws : 5 / 20,000
+P(bad debt)         : 0.025% (95% Wilson CI 0.011% to 0.059%)
+expected loss       : $3.61k
+loss severity       : $14.43m conditional on positive loss
+CVaR99              : $360.66k
 ```
+
+This Monte Carlo result is exploratory: five positive draws identify a rare
+but potentially material loss channel, not precise probability, severity, or
+CVaR estimates. Expected loss is small because the event is infrequent, while
+conditional severity is material. The article's main claim below rests on the
+deterministic account and depth comparison rather than those estimates.
 
 The combined book exposes a different tail:
 
@@ -125,10 +135,10 @@ million across V3, V4 Main, V4 correlated, aggregate, and ordered variants.
 The whale dominated every mechanics choice.
 
 The multi-period simulator gives another regime distinction. On the current
-combined book, a four-day single shock produced $124.05 million of CVaR99,
-versus $53.90 million when positions evolved and depth replenished through
-eight half-day periods. The single-shock convention was 2.3 times the evolving
-path result. In the July 16 regime, restoring health factor to 1.24 produced
+combined book, a four-day single-shock convention produced $124.05 million of
+CVaR99, versus $53.90 million when positions evolved and depth replenished
+through eight half-day periods. The single-shock convention was 2.3 times the
+evolving-path result. In the July 16 regime, restoring health factor to 1.24 produced
 repeat liquidation in 0.02% of paths, versus 11.24% when restoring only to
 1.0137. Target health factor therefore matters most when the liquidation can
 clear in the first place.
@@ -164,6 +174,7 @@ Feedback would be particularly useful on three questions:
 
 ```bash
 python -m aave_risk_engine.run_market_report
+python -m aave_risk_engine.run_market_report --manifest market-report.json
 python -m aave_risk_engine.run_market_report --snapshot aave_risk_engine/data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison

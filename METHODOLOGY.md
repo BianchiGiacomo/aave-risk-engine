@@ -143,18 +143,46 @@ the single-period calibration, and their crash-coupled terms respond to
 the running drawdown. With one period and identical shocks the simulator
 reproduces the single-period ordered engine exactly (tested).
 
-Multi-period losses over a window are much lower than a single shock of
-the same size, because intermediate liquidations deleverage the book
+Multi-period losses over a window are much lower than the corresponding
+single-shock estimate over the same horizon, because intermediate liquidations
+deleverage the book
 along the path and stalled positions can recover. The single-shock
 convention is therefore conservative by construction; the simulator
 quantifies by how much.
+
+## Rare-Event Reporting
+
+CVaR99 remains the risk-budget convention: it averages the worst 1% of all
+draws, including zero-loss draws when bad debt occurs in less than 1% of the
+simulation. In a sparse-loss run this is a valid unconditional risk measure,
+but it is not event severity. Linea makes the distinction concrete: one
+$8.69k loss in 20,000 draws produces CVaR99 of $43 because the other 199 draws
+in the worst 1% are zero. No simulated scenario loses $43, so the value is
+mathematically correct as an unconditional budget statistic but easy to
+misread as an attainable loss. The market report therefore also exposes:
+
+```text
+expected loss = P(loss) * E[loss | loss > 0]
+```
+
+It prints the positive-loss count, both factors in that decomposition, and a
+95% Wilson interval for `P(loss)`. CVaR and conditional severity are flagged as
+low-sample estimates below 30 positive draws. The Wilson interval does not
+solve severity uncertainty, and repeated seeds are a variance diagnostic, not
+a substitute for additional or better-targeted tail samples. Publication-grade
+work on basis-point loss probabilities should use a validated stratified or
+importance-sampling estimator.
+
+`run_market_report --manifest PATH` writes a JSON record containing the exact
+snapshot SHA-256, block, seed, calibrated parameters, results, cap sweep, and
+clearance test.
 
 ## V4 Liquidation Mechanics
 
 With V4 parameters set, liquidation follows the design live on mainnet
 since March 2026 instead of the V3 baseline:
 
-- **Repay to target**: the repayment R restores the position to the
+- **Repay-to-target**: the repayment R restores the position to the
   Spoke's target health factor, solving
   `(C - R(1+b)) LT = target (D - R)`. When the target is unreachable
   (`target <= (1+b) LT`), the position is closed entirely. A close-factor

@@ -211,6 +211,7 @@ def run_v4_analysis(
                     "Mechanics": mechanics,
                     "Queue": queue,
                     "P(bad debt)": result.prob_bad_debt,
+                    "Positive-loss draws": result.positive_loss_count,
                     "Mean bad debt": result.mean,
                     "VaR99": result.var,
                     "CVaR99": result.cvar,
@@ -248,14 +249,15 @@ def run_episode_analysis(
                 depth_points=config.liquidity.depth_points,
             )
             index = int(np.argmax(result.bad_debt))
+            has_loss = result.worst > 0
             rows.append(
                 {
                     "Episode": name,
                     "Depth": depth_label,
                     "Worst bad debt": result.worst,
-                    "Window": windows["start_dates"][index] if result.worst > 0 else "none",
-                    "ETH return": float(windows["eth_return"][index]),
-                    "Peg drop": float(windows["peg_drop"][index]),
+                    "Window": windows["start_dates"][index] if has_loss else "n/a",
+                    "ETH return": float(windows["eth_return"][index]) if has_loss else None,
+                    "Peg drop": float(windows["peg_drop"][index]) if has_loss else None,
                 }
             )
     return rows
@@ -291,21 +293,23 @@ def run_multiperiod_analysis(
             [
                 {
                     "Mechanics": mechanics,
-                    "Path": "Single shock",
+                    "Path": "Single-shock",
                     "P(bad debt)": single.prob_bad_debt,
+                    "Positive-loss paths": single.positive_loss_count,
                     "Mean bad debt": single.mean,
                     "CVaR99": single.cvar,
-                    "P(reliquidation)": 0.0,
-                    "Events per path": 0.0,
+                    "P(reliquidation)": None,
+                    "Cleared events per path": None,
                 },
                 {
                     "Mechanics": mechanics,
                     "Path": "Multi-period",
                     "P(bad debt)": multi.prob_bad_debt,
+                    "Positive-loss paths": int(np.count_nonzero(multi.bad_debt > 0)),
                     "Mean bad debt": multi.mean,
                     "CVaR99": multi.cvar,
                     "P(reliquidation)": multi.prob_reliquidation,
-                    "Events per path": multi.mean_events,
+                    "Cleared events per path": multi.mean_events,
                 },
             ]
         )

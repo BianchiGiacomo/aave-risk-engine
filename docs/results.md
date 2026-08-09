@@ -22,7 +22,7 @@ offline.
 Command:
 
 ```bash
-python -m aave_risk_engine.run_market_report
+python -m aave_risk_engine.run_market_report --manifest market-report.json
 ```
 
 Trimmed output from the July 30 mainnet snapshot at block 25,645,558:
@@ -31,9 +31,13 @@ Trimmed output from the July 30 mainnet snapshot at block 25,645,558:
 USD-debt book entering the engine: 36 accounts | debt $142.35m | collateral $374.77m | median HF 1.85
 
 Tail risk at observed book exposure
-  P(bad debt) : 0.03%
-  VaR99       : $0
-  CVaR99      : $360.66k
+  positive draws: 5 / 20,000
+  P(bad debt)  : 0.025% (95% Wilson CI 0.011% to 0.059%)
+  expected loss: $3.61k
+  loss severity: $14.43m conditional on positive loss
+  VaR99        : $0
+  CVaR99       : $360.66k (worst 200 draws)
+  WARNING: fewer than 30 positive-loss draws; CVaR and conditional severity are low-sample estimates
 
 Combined book with ETH-denominated debt modeled
   full book: 40 accounts | debt $449.92m (of which ETH-denominated $307.37m)
@@ -53,8 +57,12 @@ ARFC clearance test (largest borrower within liquidation bonus)
   quiet depth    : slippage >= 75.74% | max clearable $2.60m -> FAIL
 ```
 
-The USD debt book is benign under this calibration. Its current exposure has
-200% model exposure headroom before the 5 million dollar CVaR budget binds.
+The USD debt book appears benign under this exploratory calibration. Its
+current exposure has 200% model exposure headroom before the 5 million dollar
+CVaR budget binds, but five positive draws are not enough to treat the precise
+CVaR or conditional severity as publication-grade estimates. The Wilson
+interval quantifies probability uncertainty; targeted rare-event sampling is
+needed to tighten tail severity.
 The combined book tells a different story. Rare peg and depth stress reaches
 large ETH debt loopers, producing a 20.95 million dollar CVaR despite only a
 0.11% bad debt probability.
@@ -86,6 +94,15 @@ Trimmed output from the July 30 Linea snapshot at block 31,568,531:
 ```text
 Aave V3 WETH market report (linea) | block 31,568,531 (2026-07-30)
 
+Tail risk at observed book exposure
+  positive draws: 1 / 20,000
+  P(bad debt)  : 0.005% (95% Wilson CI 0.001% to 0.028%)
+  expected loss: $0.43
+  loss severity: $8.69k conditional on positive loss
+  VaR99        : $0
+  CVaR99       : $43 (worst 200 draws)
+  WARNING: fewer than 30 positive-loss draws; CVaR and conditional severity are low-sample estimates
+
 ARFC clearance test (largest borrower within liquidation bonus)
   liquidator break-even slippage : 5.66%
   largest borrower sale          : $46.44k
@@ -98,6 +115,11 @@ The independent clearance estimate moved from 32.5 thousand dollars on July
 LlamaRisk's approximately 41 thousand dollar estimate, while the formal
 clearance verdict remains FAIL because the largest borrower sale is about
 46.4 thousand dollars.
+
+The Linea run also illustrates why sparse-loss reporting needs both frequency
+and conditional severity. Its only positive draw loses $8.69k, while CVaR99 is
+$43 because the other 199 draws in the worst 1% are zero. No simulated outcome
+loses $43: it is an unconditional risk-budget statistic, not event severity.
 
 ## 3. Historical Episode Replay
 

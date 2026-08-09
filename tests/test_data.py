@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
+from types import SimpleNamespace
 
 import numpy as np
 
 from aave_risk_engine.config import RiskParams
 from aave_risk_engine.dashboard_charts import (
     empirical_depth_fig,
+    episode_loss_fig,
     loss_distribution_fig,
+    mechanics_cvar_fig,
+    multiperiod_cvar_fig,
     scenario_scatter_fig,
     slippage_curve_fig,
 )
 from aave_risk_engine.dashboard_analysis import (
     account_rows,
+    run_episode_analysis,
     run_liquidation_threshold_sensitivity,
+    run_multiperiod_analysis,
+    run_v4_analysis,
 )
 from aave_risk_engine.data.aave_v3 import _addr_arg, _word_to_address, _words
 from aave_risk_engine.data.book import build_real_book, scenario_config_from_snapshot
@@ -183,6 +191,8 @@ def test_dashboard_sensitivity_charts_use_real_scenarios_and_depth():
 
     slippage_figure = slippage_curve_fig(engine, stress_haircut=0.5)
     assert slippage_figure.layout.xaxis.type == "log"
+    assert slippage_figure.layout.xaxis.tickmode == "array"
+    assert "modeled stress haircut" in slippage_figure.layout.title.text
     assert [trace.name for trace in slippage_figure.data] == [
         "quiet depth",
         "50% depth haircut",
@@ -195,6 +205,108 @@ def test_dashboard_sensitivity_charts_use_real_scenarios_and_depth():
     scenario_figure = scenario_scatter_fig(engine, result)
     assert "Scenario attribution" in scenario_figure.layout.title.text
     assert any("peg drop" in trace.hovertemplate for trace in scenario_figure.data)
+
+
+def test_dashboard_advanced_tabs_expose_scope_and_sparse_event_counts():
+    snap = _snapshot()
+    v4_rows = run_v4_analysis(snap, "USD debt", 0.5, 2_000, 7)
+    assert len(v4_rows) == 6
+    assert all("Positive-loss draws" in row for row in v4_rows)
+    assert "USD-debt book" in mechanics_cvar_fig(
+        v4_rows, "USD-debt"
+    ).layout.title.text
+
+    multi_rows = run_multiperiod_analysis(
+        snap,
+        "USD debt",
+        0.5,
+        n_paths=200,
+        seed=7,
+        n_periods=2,
+        total_days=2.0,
+        replenish=1.0,
+    )
+    single_rows = [row for row in multi_rows if row["Path"] == "Single-shock"]
+    evolving_rows = [row for row in multi_rows if row["Path"] == "Multi-period"]
+    assert all(row["P(reliquidation)"] is None for row in single_rows)
+    assert all(row["Cleared events per path"] is None for row in single_rows)
+    assert all("Positive-loss paths" in row for row in evolving_rows)
+    assert "USD-debt book" in multiperiod_cvar_fig(
+        multi_rows, "USD-debt"
+    ).layout.title.text
+
+
+def test_zero_loss_episode_rows_do_not_report_arbitrary_market_drivers():
+    snap = load_snapshot()
+    usd_rows = run_episode_analysis(snap, "USD debt", 0.5)
+    assert all(row["Worst bad debt"] == 0.0 for row in usd_rows)
+    assert all(row["Window"] == "n/a" for row in usd_rows)
+    assert all(row["ETH return"] is None for row in usd_rows)
+    assert all(row["Peg drop"] is None for row in usd_rows)
+    assert "USD-debt book" in episode_loss_fig(
+        usd_rows, "USD-debt"
+    ).layout.title.text
+
+    combined_rows = run_episode_analysis(snap, "Combined", 0.5)
+    loss_rows = [row for row in combined_rows if row["Worst bad debt"] > 0]
+    assert loss_rows
+    assert all(row["Window"] != "n/a" for row in loss_rows)
+    assert all(row["ETH return"] is not None for row in loss_rows)
+    assert all(row["Peg drop"] is not None for row in loss_rows)
+
+
+def test_market_report_manifest_records_snapshot_and_tail_diagnostics():
+    from aave_risk_engine.config import SimConfig
+    from aave_risk_engine.data.clearance import arfc_clearance_test
+    from aave_risk_engine.engine import RiskEngine
+    from aave_risk_engine.run_market_report import _write_manifest
+
+    snap = _snapshot()
+    cfg = scenario_config_from_snapshot(snap)
+    cfg.sim = SimConfig(n_scenarios=2_000, seed=7, chunk_size=1_000)
+    book = build_real_book(snap)
+    engine = RiskEngine(cfg)
+    result = engine.run(book=book)
+    recommendation = engine.recommend_cap(
+        5e6,
+        cap_min=book.total_debt * 0.5,
+        cap_max=book.total_debt * 1.5,
+        n_grid=3,
+        book=book,
+    )
+    args = SimpleNamespace(
+        n_scenarios=2_000,
+        seed=7,
+        budget=5e6,
+        min_target_share=0.5,
+        ordered=False,
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        snapshot_path = os.path.join(tmp, "snapshot.json")
+        manifest_path = os.path.join(tmp, "manifest.json")
+        save_snapshot(snap, snapshot_path)
+        _write_manifest(
+            manifest_path,
+            snapshot_path,
+            snap,
+            cfg,
+            args,
+            book,
+            result,
+            None,
+            None,
+            [],
+            recommendation,
+            arfc_clearance_test(snap),
+        )
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+
+    assert manifest["snapshot"]["block"] == snap.block
+    assert len(manifest["snapshot"]["sha256"]) == 64
+    metrics = manifest["books"]["usd_debt"]["metrics"]
+    assert metrics["positive_loss_draws"] == result.positive_loss_count
+    assert metrics["prob_bad_debt_ci95"][0] <= result.prob_bad_debt
 
 
 def test_real_book_liquidation_threshold_transition_sensitivity():

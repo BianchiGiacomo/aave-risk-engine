@@ -24,7 +24,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `data/build_snapshot.py` | Live snapshot builder CLI |
 | `data/episodes.py` | Historical episodes: paths, cleaning, rolling-window scenarios |
 | `data/build_episodes.py` | Episode price-path fetcher CLI |
-| `run_market_report.py` | Real-market decision report CLI |
+| `run_market_report.py` | Real-market decision report and reproducibility-manifest CLI |
 | `run_episode_replay.py` | Historical stress paths through today's book |
 | `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
 | `run_multiperiod.py` | Multi-period stress paths with re-liquidation |

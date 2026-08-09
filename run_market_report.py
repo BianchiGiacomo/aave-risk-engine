@@ -16,13 +16,22 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import hashlib
+import json
+import math
 import os
+import sys
 
 import matplotlib.pyplot as plt
 
 from . import plotting
 from .config import SimConfig
-from .data import arfc_clearance_test, build_real_book, load_snapshot
+from .data import (
+    arfc_clearance_test,
+    build_real_book,
+    default_snapshot_path,
+    load_snapshot,
+)
 from .data.aave_v3 import CHAINS
 from .data.book import scenario_config_from_snapshot
 from .engine import RiskEngine
@@ -32,7 +41,137 @@ def _fmt(x: float) -> str:
     for unit, div in (("bn", 1e9), ("m", 1e6), ("k", 1e3)):
         if abs(x) >= div:
             return f"${x / div:,.2f}{unit}"
-    return f"${x:,.0f}"
+    return f"${x:,.2f}" if 0 < abs(x) < 1 else f"${x:,.0f}"
+
+
+def _print_tail_diagnostics(result) -> None:
+    probability_low, probability_high = result.prob_bad_debt_interval()
+    conditional = result.conditional_mean_bad_debt
+    conditional_text = _fmt(conditional) if conditional is not None else "n/a"
+    print(
+        f"  positive draws: {result.positive_loss_count:,} / "
+        f"{result.bad_debt.size:,}"
+    )
+    print(
+        f"  P(bad debt)  : {result.prob_bad_debt:.3%} "
+        f"(95% Wilson CI {probability_low:.3%} to {probability_high:.3%})"
+    )
+    print(f"  expected loss: {_fmt(result.mean)}")
+    print(f"  loss severity: {conditional_text} conditional on positive loss")
+    print(f"  VaR99        : {_fmt(result.var)}")
+    print(
+        f"  CVaR99       : {_fmt(result.cvar)} "
+        f"(worst {result.cvar_tail_count:,} draws)"
+    )
+    if result.positive_loss_count < 30:
+        print(
+            "  WARNING: fewer than 30 positive-loss draws; CVaR and conditional "
+            "severity are low-sample estimates"
+        )
+
+
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _json_safe(value):
+    if dataclasses.is_dataclass(value):
+        return _json_safe(dataclasses.asdict(value))
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "tolist"):
+        return _json_safe(value.tolist())
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _write_manifest(
+    path: str,
+    snapshot_path: str,
+    snapshot,
+    config,
+    args,
+    book,
+    base,
+    combined_book,
+    combined,
+    share_sensitivity: list[dict],
+    recommendation: dict,
+    clearance,
+) -> str:
+    project_dir = os.path.dirname(__file__)
+    sweep = recommendation["sweep"]
+    books = {
+        "usd_debt": {
+            "accounts": int(book.debt_usd.size),
+            "debt_usd": book.total_debt,
+            "metrics": base.diagnostics(),
+        }
+    }
+    if combined is not None and combined_book is not None:
+        books["combined"] = {
+            "accounts": int(combined_book.debt_usd.size),
+            "debt_usd": combined_book.total_debt,
+            "eth_debt_usd": float(combined_book.eth_debt_usd.sum()),
+            "metrics": combined.diagnostics(),
+        }
+    parameters = dataclasses.asdict(config)
+    parameters.pop("positions", None)
+    manifest = {
+        "schema_version": 1,
+        "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "command": [
+            "python",
+            "-m",
+            "aave_risk_engine.run_market_report",
+            *sys.argv[1:],
+        ],
+        "snapshot": {
+            "file": os.path.relpath(snapshot_path, project_dir).replace("\\", "/"),
+            "sha256": _sha256(snapshot_path),
+            "chain": snapshot.chain,
+            "block": snapshot.block,
+            "timestamp": snapshot.timestamp,
+            "asset": snapshot.reserve.symbol,
+        },
+        "run": {
+            "n_scenarios": args.n_scenarios,
+            "seed": args.seed,
+            "cvar_level": config.sim.cvar_level,
+            "budget_usd": args.budget,
+            "min_target_share": args.min_target_share,
+            "queue": "ordered" if args.ordered else "aggregate",
+            "estimator": "plain_monte_carlo",
+        },
+        "parameters": parameters,
+        "books": books,
+        "target_share_sensitivity": share_sensitivity,
+        "cap_recommendation": {
+            "budget_usd": recommendation["budget"],
+            "recommended_debt_exposure_usd": recommendation["recommended_cap"],
+            "sweep": {
+                "debt_exposure_usd": sweep["caps"],
+                "expected_bad_debt_usd": sweep["mean"],
+                "cvar_usd": sweep["cvar"],
+                "var_usd": sweep["var"],
+                "prob_bad_debt": sweep["prob"],
+            },
+        },
+        "clearance": clearance,
+    }
+    absolute_path = os.path.abspath(path)
+    os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
+    with open(absolute_path, "w", encoding="utf-8") as fh:
+        json.dump(_json_safe(manifest), fh, indent=2, allow_nan=False)
+        fh.write("\n")
+    return absolute_path
 
 
 def _write_depth_figure(snapshot, requested_path: str) -> str:
@@ -80,6 +219,12 @@ def main() -> None:
     parser.add_argument("--n-scenarios", type=int, default=20_000)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument(
+        "--manifest",
+        default=None,
+        metavar="PATH",
+        help="write a JSON reproducibility manifest with results and parameters",
+    )
+    parser.add_argument(
         "--figure",
         nargs="?",
         const="",
@@ -97,7 +242,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    snapshot = load_snapshot(args.snapshot)
+    snapshot_path = os.path.abspath(args.snapshot or default_snapshot_path())
+    snapshot = load_snapshot(snapshot_path)
     reserve = snapshot.reserve
     date = dt.datetime.fromtimestamp(snapshot.timestamp, dt.timezone.utc).date()
 
@@ -182,28 +328,39 @@ def main() -> None:
 
     base = engine.run(book=book)
     print("\nTail risk at observed book exposure")
-    print(f"  P(bad debt) : {base.prob_bad_debt:.2%}")
-    print(f"  VaR99       : {_fmt(base.var)}")
-    print(f"  CVaR99      : {_fmt(base.cvar)}")
+    _print_tail_diagnostics(base)
 
     # The effective single-asset mapping attributes each account's whole
     # collateral to the target asset; show how much the conclusion depends
     # on how strictly the book is filtered to target-dominated accounts.
     print("\nSensitivity to the target-share filter (single-asset mapping)")
     shares = sorted({args.min_target_share, 0.7, 0.9})
+    share_sensitivity = []
     for share in shares:
         try:
             b = build_real_book(snapshot, min_target_share=share)
         except ValueError:
             print(f"  share >= {share:.0%}: no accounts pass")
+            share_sensitivity.append(
+                {"min_target_share": share, "accounts": 0, "metrics": None}
+            )
             continue
         r = engine.run(book=b)
+        share_sensitivity.append(
+            {
+                "min_target_share": share,
+                "accounts": int(b.debt_usd.size),
+                "debt_usd": b.total_debt,
+                "metrics": r.diagnostics(),
+            }
+        )
         print(
             f"  share >= {share:.0%}: {b.debt_usd.size:>3} accounts "
             f"| debt {_fmt(b.total_debt):>9} | CVaR99 {_fmt(r.cvar):>9} "
             f"| P(bad debt) {r.prob_bad_debt:.2%}"
         )
 
+    combined = None
     try:
         full_book = build_real_book(
             snapshot, min_target_share=args.min_target_share, model_eth_debt=True
@@ -221,7 +378,9 @@ def main() -> None:
         )
         print(
             f"  P(bad debt) {combined.prob_bad_debt:.2%} | VaR99 {_fmt(combined.var)} "
-            f"| CVaR99 {_fmt(combined.cvar)}  (USD-debt book alone: {_fmt(base.cvar)})"
+            f"| CVaR99 {_fmt(combined.cvar)} | positive draws "
+            f"{combined.positive_loss_count:,}/{combined.bad_debt.size:,} "
+            f"(USD-debt book alone: {_fmt(base.cvar)})"
         )
         print(
             "  note: ETH-denominated debt falls with the scenario ETH price, so"
@@ -252,51 +411,86 @@ def main() -> None:
     implied = reserve.supply_cap_usd * reserve.ltv
     print(f"  for reference, supply cap x LTV allows up to {_fmt(implied)} debt against {reserve.symbol}")
 
+    clearance = None
     if snapshot.depth is None:
         print("\nARFC clearance test skipped: snapshot has no depth calibration")
-        return
-    clearance = arfc_clearance_test(snapshot, min_target_share=args.min_target_share)
-    print("\nARFC clearance test (largest borrower within liquidation bonus)")
-    print(f"  liquidator break-even slippage : {clearance.breakeven_slippage:.2%}")
-    print(f"  largest borrower sale          : {_fmt(clearance.largest_borrower_usd)}")
-    print(f"  largest borrower account       : {clearance.largest_account}")
-    print(
-        "  target collateral / debt       : "
-        f"{_fmt(clearance.largest_target_collateral_usd)} / "
-        f"{_fmt(clearance.largest_debt_usd)}"
-    )
-    print(f"  ETH-denominated debt share     : {clearance.largest_eth_debt_share:.2%}")
-    print(f"  top-5 borrower sales           : {_fmt(clearance.top5_borrowers_usd)}")
-    if clearance.slippage_quiet_is_lower_bound:
-        print(
-            f"  caution: the sale exceeds the quote ladder top ({_fmt(clearance.max_quoted_usd)}); "
-            "the displayed slippage is the last observed value and only a lower bound"
+    else:
+        clearance = arfc_clearance_test(
+            snapshot, min_target_share=args.min_target_share
         )
-    quiet_prefix = ">= " if clearance.slippage_quiet_is_lower_bound else ""
-    stressed_prefix = ">= " if clearance.slippage_stressed_is_lower_bound else ""
-    print(
-        f"  quiet depth    : slippage {quiet_prefix}{clearance.slippage_quiet:.2%} "
-        f"| max clearable {_fmt(clearance.max_clearable_usd_quiet)} "
-        f"-> {'PASS' if clearance.passes_quiet else 'FAIL'}"
-    )
-    print(
-        f"  stressed depth ({clearance.depth_haircut_stressed:.0%} haircut)"
-        f" : slippage {stressed_prefix}{clearance.slippage_stressed:.2%} "
-        f"| max clearable {_fmt(clearance.max_clearable_usd_stressed)} "
-        f"-> {'PASS' if clearance.passes_stressed else 'FAIL'}"
-    )
-    print(
-        "  note: this measures instant routed on-chain exits only. For LSTs,"
-        " liquidators can also exit via the redemption queue over days, which"
-        " this strict reading of the ARFC requirement does not credit."
-    )
-    print(
-        "  note: unlike the USD-shock book, this test includes ETH-debt"
-        " loopers: their collateral still sells on this asset's depth curve"
-        " when liquidated, so clearance is a pure market-depth question."
-    )
-    if args.figure is not None:
-        print(f"\nwrote {_write_depth_figure(snapshot, args.figure)}")
+        print("\nARFC clearance test (largest borrower within liquidation bonus)")
+        print(
+            f"  liquidator break-even slippage : "
+            f"{clearance.breakeven_slippage:.2%}"
+        )
+        print(
+            f"  largest borrower sale          : "
+            f"{_fmt(clearance.largest_borrower_usd)}"
+        )
+        print(f"  largest borrower account       : {clearance.largest_account}")
+        print(
+            "  target collateral / debt       : "
+            f"{_fmt(clearance.largest_target_collateral_usd)} / "
+            f"{_fmt(clearance.largest_debt_usd)}"
+        )
+        print(
+            f"  ETH-denominated debt share     : "
+            f"{clearance.largest_eth_debt_share:.2%}"
+        )
+        print(f"  top-5 borrower sales           : {_fmt(clearance.top5_borrowers_usd)}")
+        if clearance.slippage_quiet_is_lower_bound:
+            print(
+                f"  caution: the sale exceeds the quote ladder top "
+                f"({_fmt(clearance.max_quoted_usd)}); the displayed slippage is "
+                "the last observed value and only a lower bound"
+            )
+        quiet_prefix = ">= " if clearance.slippage_quiet_is_lower_bound else ""
+        stressed_prefix = ">= " if clearance.slippage_stressed_is_lower_bound else ""
+        print(
+            f"  quiet depth    : slippage {quiet_prefix}{clearance.slippage_quiet:.2%} "
+            f"| max clearable {_fmt(clearance.max_clearable_usd_quiet)} "
+            f"-> {'PASS' if clearance.passes_quiet else 'FAIL'}"
+        )
+        print(
+            f"  stressed depth ({clearance.depth_haircut_stressed:.0%} haircut)"
+            f" : slippage {stressed_prefix}{clearance.slippage_stressed:.2%} "
+            f"| max clearable {_fmt(clearance.max_clearable_usd_stressed)} "
+            f"-> {'PASS' if clearance.passes_stressed else 'FAIL'}"
+        )
+        print(
+            "  note: this measures instant routed on-chain exits only and excludes"
+            " CEX or OTC liquidity."
+        )
+        if reserve.symbol.lower() not in {"weth", "wbtc", "usdc", "usdt"}:
+            print(
+                "  note: LST liquidators can also exit via a redemption queue over"
+                " days, which this strict reading of the ARFC requirement does not"
+                " credit."
+            )
+        print(
+            "  note: unlike the USD-shock book, this test includes ETH-debt"
+            " loopers: their collateral still sells on this asset's depth curve"
+            " when liquidated, so clearance is a pure market-depth question."
+        )
+        if args.figure is not None:
+            print(f"\nwrote {_write_depth_figure(snapshot, args.figure)}")
+
+    if args.manifest:
+        manifest_path = _write_manifest(
+            args.manifest,
+            snapshot_path,
+            snapshot,
+            config,
+            args,
+            book,
+            base,
+            full_book,
+            combined,
+            share_sensitivity,
+            rec,
+            clearance,
+        )
+        print(f"\nwrote {manifest_path}")
 
 
 if __name__ == "__main__":

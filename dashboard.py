@@ -259,26 +259,39 @@ def _display_metrics(analysis, snapshot, scope: str) -> None:
     first[0].metric("On-chain collateral", _fmt_usd(reserve.supplied_usd))
     first[1].metric("Supply cap usage", f"{cap_usage:.0%}" if np.isfinite(cap_usage) else "n/a")
     first[2].metric("Modeled debt exposure", _fmt_usd(book.total_debt))
-    second = st.columns(3)
+    second = st.columns(4)
     second[0].metric("P(bad debt)", f"{result.prob_bad_debt:.3%}")
-    second[1].metric("CVaR99", _fmt_usd(result.cvar))
+    second[1].metric("Expected bad debt", _fmt_usd(result.mean))
+    second[2].metric("CVaR99", _fmt_usd(result.cvar))
     sweep = analysis["recommendation"]["sweep"]
     reaches_sweep_limit = bool(
         np.isclose(recommendation, sweep["caps"][-1])
         and sweep["cvar"][-1] <= analysis["recommendation"]["budget"]
     )
-    second[2].metric(
+    second[3].metric(
         "Safe within sweep" if reaches_sweep_limit else "Model-safe exposure",
         _fmt_usd(recommendation),
     )
-    loss_count = int(np.count_nonzero(result.bad_debt > 0))
+    loss_count = result.positive_loss_count
     third = st.columns(4)
     third[0].metric("Accounts", f"{book.debt_usd.size:,}")
     third[1].metric("Median health factor", f"{float(np.median(book.hf0)):.2f}")
     third[2].metric("Positive-loss draws", f"{loss_count:,} / {result.bad_debt.size:,}")
+    conditional = result.conditional_mean_bad_debt
     third[3].metric(
-        "ETH-denominated debt" if scope == "Combined" else "ETH-debt loopers",
-        _fmt_usd(eth_debt) if scope == "Combined" else "Excluded",
+        "Severity if loss",
+        _fmt_usd(conditional) if conditional is not None else "n/a",
+    )
+    probability_low, probability_high = result.prob_bad_debt_interval()
+    st.caption(
+        f"P(bad debt) 95% Wilson interval: {probability_low:.3%} to "
+        f"{probability_high:.3%}. Expected bad debt equals event probability "
+        "times mean severity conditional on a positive loss."
+    )
+    st.caption(
+        f"ETH-denominated debt modeled: {_fmt_usd(eth_debt)}."
+        if scope == "Combined"
+        else "ETH-debt-dominant loopers are excluded from this book."
     )
 
 
@@ -290,12 +303,13 @@ def _overview_tab(
     scope: str,
 ) -> None:
     _display_metrics(analysis, snapshot, scope)
-    loss_count = int(np.count_nonzero(analysis["result"].bad_debt > 0))
+    loss_count = analysis["result"].positive_loss_count
     if loss_count < 30:
         st.warning(
             f"Only {loss_count:,} positive-loss draws were observed. "
-            "Treat rare-event probability and CVaR as statistically noisy; "
-            "increase Scenarios and compare seeds before publishing."
+            "Treat CVaR and conditional severity as low-sample estimates. "
+            "The Wilson interval above quantifies probability uncertainty; "
+            "publication-grade tail severity requires targeted rare-event sampling."
         )
     recommendation = analysis["recommendation"]
     left, right = st.columns(2)
@@ -632,14 +646,29 @@ def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: in
         st.info("Run the comparison for the active snapshot and book.")
         return
     rows = stored[1]
-    st.plotly_chart(charts.mechanics_cvar_fig(rows), width="stretch")
+    scope_label = "USD-debt" if scope == "USD debt" else scope
+    st.markdown(
+        f"**Active borrower book:** {scope_label} | {n_scen:,} matched scenarios"
+    )
+    if min(row["Positive-loss draws"] for row in rows) < 30:
+        st.warning(
+            "Fewer than 30 positive-loss draws support at least one row. "
+            "The mechanics use common random scenarios, but CVaR levels and "
+            "small differences remain low-sample estimates."
+        )
+    st.plotly_chart(
+        charts.mechanics_cvar_fig(rows, scope_label), width="stretch"
+    )
     table = pd.DataFrame(rows).copy()
-    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.2%}")
+    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.3%}")
     for column in ("Mean bad debt", "VaR99", "CVaR99"):
         table[column] = table[column].map(_fmt_usd)
+    table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
-        "V4 bonus interpolation between documented anchors is a modeling assumption."
+        "Aggregate clearing applies one queue-average slippage; ordered clearing "
+        "lets eligible front tranches consume depth sequentially. V4 bonus "
+        "interpolation between documented anchors is a modeling assumption."
     )
 
 
@@ -659,13 +688,34 @@ def _episode_tab(payload: str, context_key: str, snapshot, scope: str, share: fl
         st.info("Run the replay for the active snapshot and book.")
         return
     rows = stored[1]
-    st.plotly_chart(charts.episode_loss_fig(rows), width="stretch")
+    scope_label = "USD-debt" if scope == "USD debt" else scope
+    st.markdown(f"**Active borrower book:** {scope_label}")
+    if max(row["Worst bad debt"] for row in rows) > 0:
+        st.plotly_chart(
+            charts.episode_loss_fig(rows, scope_label), width="stretch"
+        )
+    else:
+        message = "No replayed episode produces bad debt in the active book."
+        if scope == "USD debt":
+            message += (
+                " The June 2022 peg-loss channel belongs to ETH-debt loopers, "
+                "which are excluded from this scope."
+            )
+        st.info(message)
     table = pd.DataFrame(rows).copy()
     table["Worst bad debt"] = table["Worst bad debt"].map(_fmt_usd)
-    table["ETH return"] = table["ETH return"].map(lambda value: f"{value:+.1%}")
-    table["Peg drop"] = table["Peg drop"].map(lambda value: f"{value:.2%}")
+    table["ETH return"] = table["ETH return"].map(
+        lambda value: "n/a" if pd.isna(value) else f"{value:+.1%}"
+    )
+    table["Peg drop"] = table["Peg drop"].map(
+        lambda value: "n/a" if pd.isna(value) else f"{value:.2%}"
+    )
     st.dataframe(table, width="stretch", hide_index=True)
-    st.caption("Historical paths are replayed on today's book; this is not archive backtesting.")
+    st.caption(
+        "Historical paths are replayed on today's book; this is not archive "
+        "backtesting. A 50% depth haircut can match quiet depth when both sales "
+        "already stall beyond the observed quote ladder."
+    )
 
 
 def _multiperiod_tab(
@@ -700,14 +750,36 @@ def _multiperiod_tab(
         st.info("Run the evolving-path comparison with the selected controls.")
         return
     rows = stored[1]
-    st.plotly_chart(charts.multiperiod_cvar_fig(rows), width="stretch")
+    scope_label = "USD-debt" if scope == "USD debt" else scope
+    st.markdown(
+        f"**Active borrower book:** {scope_label} | {paths:,} simulated paths"
+    )
+    if min(row["Positive-loss paths"] for row in rows) < 30:
+        st.warning(
+            "Fewer than 30 positive-loss paths support at least one row. "
+            "Treat rare-event CVaR differences as low-sample estimates."
+        )
+    st.plotly_chart(
+        charts.multiperiod_cvar_fig(rows, scope_label), width="stretch"
+    )
     table = pd.DataFrame(rows).copy()
-    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.2%}")
-    table["P(reliquidation)"] = table["P(reliquidation)"].map(lambda value: f"{value:.2%}")
-    table["Events per path"] = table["Events per path"].map(lambda value: f"{value:.2f}")
+    table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.3%}")
+    table["P(reliquidation)"] = table["P(reliquidation)"].map(
+        lambda value: "n/a" if pd.isna(value) else f"{value:.3%}"
+    )
+    table["Cleared events per path"] = table["Cleared events per path"].map(
+        lambda value: "n/a" if pd.isna(value) else f"{value:.4f}"
+    )
     for column in ("Mean bad debt", "CVaR99"):
         table[column] = table[column].map(_fmt_usd)
+    table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
+    st.caption(
+        "Single-shock marks stalled liquidations immediately. Multi-period lets "
+        "stalls wait, permits recovery, and deleverages positions that clear. "
+        "Only cleared tranches count as events, so stalled-loss paths can coexist "
+        "with a very low cleared-event rate."
+    )
 
 
 def _data_tab(snapshot, payload: str, source: str) -> None:

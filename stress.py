@@ -61,6 +61,54 @@ def sample_log_returns(
     raise ValueError(f"unknown return_model: {model!r}")
 
 
+def sample_log_return_paths(
+    stress: StressConfig,
+    total_years: float,
+    n_periods: int,
+    n: int,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """Draw return increments whose sum preserves the terminal return law.
+
+    Gaussian and jump-diffusion laws already have coherent independent
+    increments. Student-t paths use one chi-square variance mixture per path:
+    conditional increments are Gaussian, while their sum has the same
+    Student-t marginal as a direct terminal draw. Independent Student-t
+    increments would incorrectly thin the terminal tail as periods increase.
+    """
+    if total_years <= 0:
+        raise ValueError("total_years must be positive")
+    if n_periods < 1:
+        raise ValueError("n_periods must be at least one")
+    if n < 1:
+        raise ValueError("n must be at least one")
+
+    dt = total_years / n_periods
+    model = stress.return_model
+    mu = stress.eth_annual_drift
+    vol = stress.eth_annual_vol
+
+    if model == "gaussian":
+        drift = (mu - 0.5 * vol**2) * dt
+        return drift + vol * np.sqrt(dt) * rng.standard_normal((n_periods, n))
+
+    if model == "student_t":
+        dof = stress.tail_dof
+        mixture = rng.chisquare(dof, n)
+        numerator = dof - 2.0 if dof > 2.0 else dof
+        scale = np.sqrt(numerator / np.maximum(mixture, 1e-12))
+        drift = (mu - 0.5 * vol**2) * dt
+        innovations = rng.standard_normal((n_periods, n)) * scale[None, :]
+        return drift + vol * np.sqrt(dt) * innovations
+
+    if model == "jump_diffusion":
+        return np.stack(
+            [sample_log_returns(stress, dt, n, rng) for _ in range(n_periods)]
+        )
+
+    raise ValueError(f"unknown return_model: {model!r}")
+
+
 def sample_scenarios(
     stress: StressConfig,
     asset: AssetParams,

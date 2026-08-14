@@ -274,7 +274,7 @@ def main() -> None:
         )
         if s.peg_pass is not None:
             print(
-                f"ARFC peg rule (>=1% for >=2d): {'PASS' if s.peg_pass else 'FAIL'} "
+                f"ARFC peg rule (>1% for >=2d): {'PASS' if s.peg_pass else 'FAIL'} "
                 f"| worst deviation {s.peg_worst_deviation:.2%} "
                 f"| longest breach {s.peg_max_run_days:.0f}d"
             )

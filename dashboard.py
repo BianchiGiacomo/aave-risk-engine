@@ -31,7 +31,7 @@ _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 _LOGO_PATH = os.path.join(_PACKAGE_DIR, "aave_logo.png")
 _RUNTIME_DIR = os.path.join(_PACKAGE_DIR, ".runtime")
 _MARKETS = {
-    "Ethereum wstETH": {
+    "Aave V3 Ethereum Core: wstETH reserve": {
         "path": os.path.join(_PACKAGE_DIR, "data", "snapshots", "aave_v3_ethereum_wsteth.json"),
         "chain": "ethereum",
         "asset": "wstETH",
@@ -40,7 +40,7 @@ _MARKETS = {
         "ladder_usd": (25e3, 100e3, 500e3, 2e6, 8e6, 25e6),
         "budget": 5_000_000.0,
     },
-    "Linea WETH": {
+    "Aave V3 Linea: WETH reserve": {
         "path": os.path.join(_PACKAGE_DIR, "data", "snapshots", "aave_v3_linea_weth.json"),
         "chain": "linea",
         "asset": "WETH",
@@ -566,9 +566,12 @@ def _sensitivities_tab(
             )
             st.dataframe(table, width="stretch", hide_index=True)
         st.caption(
-            "This is an immediate current-book transition test. Each account's "
-            "weighted LT moves with its target collateral share; borrower deleveraging "
-            "and future origination responses are not modeled."
+            "This is a V3 current-book or forced V4 migration test. Each account's "
+            "weighted LT moves with its target collateral share, so its HF changes "
+            "immediately. A normal V4 dynamic-config update instead leaves an existing "
+            "position on its prior configuration until it takes a risk-increasing "
+            "action, unless governance forces migration. Borrower responses and future "
+            "origination are not modeled."
         )
 
 
@@ -610,6 +613,13 @@ def _clearance_tab(analysis, snapshot) -> None:
         "does not exceed the liquidator break-even threshold. The 50% depth result "
         "assumes clearable capacity scales linearly with remaining depth."
     )
+    st.caption(
+        "Splitting the same immediate total across transactions does not improve this "
+        "strict test: without replenishment, later sales continue from the depth already "
+        "consumed. Splitting helps only across time if liquidity replenishes, the peg or "
+        "price recovers, or a liquidator holds or redeems the collateral. Those time-to-exit "
+        "channels are outside this instant-clearance test."
+    )
     if snapshot.depth.source.lower() == "paraswap":
         st.caption(
             "Large Paraswap points may come from price-impact rejection responses. "
@@ -636,7 +646,7 @@ def _clearance_tab(analysis, snapshot) -> None:
 def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: int, seed: int) -> None:
     state_key = "dashboard_v4_result"
     if st.button("Run V3 / V4 comparison", type="primary"):
-        with st.spinner("Running matched scenarios across mechanics and queue modes..."):
+        with st.spinner("Running matched scenarios across mechanics with ordered clearing..."):
             st.session_state[state_key] = (
                 context_key,
                 _cached_v4_analysis(payload, scope, share, n_scen, seed),
@@ -648,7 +658,7 @@ def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: in
     rows = stored[1]
     scope_label = "USD-debt" if scope == "USD debt" else scope
     st.markdown(
-        f"**Active borrower book:** {scope_label} | {n_scen:,} matched scenarios"
+        f"**Active borrower book:** {scope_label} | {n_scen:,} matched scenarios | ordered clearing"
     )
     if min(row["Positive-loss draws"] for row in rows) < 30:
         st.warning(
@@ -666,9 +676,18 @@ def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: in
     table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
-        "Aggregate clearing applies one queue-average slippage; ordered clearing "
-        "lets eligible front tranches consume depth sequentially. V4 bonus "
-        "interpolation between documented anchors is a modeling assumption."
+        "This is a mechanics counterfactual, not a measurement of a live V4 market. "
+        "The V3 row uses the selected V3 reserve, borrower book, and on-chain risk "
+        "parameters. Both V4 rows apply documented Main and Correlated Spoke "
+        "liquidation configurations to that same V3 book, with scenarios, depth, "
+        "liquidation trigger, and ordered execution held fixed."
+    )
+    st.caption(
+        "Repay-to-target and the close-factor floor are separate V4 sizing rules. "
+        "The model first computes the repayment needed to restore target HF, then "
+        "applies the floor as a minimum repayment fraction. Dynamic bonus and dust "
+        "handling also differ from V3. Bonus interpolation between documented "
+        "anchors is a modeling assumption."
     )
 
 
@@ -713,8 +732,11 @@ def _episode_tab(payload: str, context_key: str, snapshot, scope: str, share: fl
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
         "Historical paths are replayed on today's book; this is not archive "
-        "backtesting. A 50% depth haircut can match quiet depth when both sales "
-        "already stall beyond the observed quote ladder."
+        "backtesting. ETH returns and stETH/ETH peg moves are historical, but "
+        "liquidity is not: both rows use today's depth curve, either unchanged or "
+        "with an assumed flat 50% haircut because historical routed depth is unavailable. "
+        "A 50% haircut can match quiet depth when both sales already stall beyond "
+        "the observed quote ladder."
     )
 
 
@@ -775,10 +797,17 @@ def _multiperiod_tab(
     table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
-        "Single-shock marks stalled liquidations immediately. Multi-period lets "
-        "stalls wait, permits recovery, and deleverages positions that clear. "
-        "Only cleared tranches count as events, so stalled-loss paths can coexist "
-        "with a very low cleared-event rate."
+        "Both rows now share the exact same terminal return, peg drop, and depth "
+        "haircut on every matched path. Single-shock marks terminal stalls "
+        "immediately. Multi-period follows the route to that endpoint: cleared "
+        "positions update debt and collateral, while stalls wait and may recover."
+    )
+    st.caption(
+        "Repeated liquidation does not reset market conditions. Price, peg, and "
+        "depth stress evolve cumulatively. A position cleared toward its target HF "
+        "can fall below HF 1 again after a later adverse step. Only consumed depth "
+        "replenishes according to the selected control; at 100%, consumed capacity "
+        "is restored before the next step, but the prevailing depth haircut remains."
     )
 
 
@@ -847,8 +876,11 @@ def main() -> None:
     st.sidebar.title("Market controls")
     market_name = st.sidebar.selectbox("Real market", list(_MARKETS))
     market = _MARKETS[market_name]
+    #st.sidebar.caption(
+    #    "Each selection is a target reserve inside an Aave V3 deployment, not an "
+    #    "isolated two-asset market. Account totals may include other collateral and debt."
+    #)
     scope = st.sidebar.selectbox("Borrower book", ["USD debt", "Combined"])
-    queue = st.sidebar.selectbox("Queue clearing", ["Aggregate", "Ordered"])
     share = float(st.sidebar.slider("Minimum target share", 0.5, 0.9, 0.5, 0.1))
     scenarios = int(
         st.sidebar.select_slider(
@@ -885,14 +917,14 @@ def main() -> None:
                 scenarios,
                 seed,
                 budget,
-                queue == "Ordered",
+                True,
             )
     except Exception as exc:  # noqa: BLE001 - render snapshot controls after invalid live data
         st.error(f"The active snapshot cannot be analyzed: {exc}")
         return
 
     snapshot_id = hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
-    context = f"{snapshot_id}|{scope}|{share}|{scenarios}|{seed}|{queue}"
+    context = f"{snapshot_id}|{scope}|{share}|{scenarios}|{seed}|Ordered"
     tabs = st.tabs(
         [
             "Overview",
@@ -916,7 +948,7 @@ def main() -> None:
             share,
             scenarios,
             seed,
-            queue == "Ordered",
+            True,
         )
     with tabs[2]:
         _clearance_tab(analysis, snapshot)

@@ -134,14 +134,15 @@ By July 30, the combined-book CVaR was approximately $20.5 million to $21.0
 million across V3, V4 Main, V4 correlated, aggregate, and ordered variants.
 The whale dominated every mechanics choice.
 
-The multi-period simulator gives another regime distinction. On the current
-combined book, a four-day single-shock convention produced $124.05 million of
-CVaR99, versus $53.90 million when positions evolved and depth replenished
-through eight half-day periods. The single-shock convention was 2.3 times the
-evolving-path result. In the July 16 regime, restoring health factor to 1.24 produced
-repeat liquidation in 0.02% of paths, versus 11.24% when restoring only to
-1.0137. Target health factor therefore matters most when the liquidation can
-clear in the first place.
+The multi-period simulator gives another regime distinction. Each one-shot
+and evolving row now shares exactly the same terminal scenario. On the current
+combined book, V3 CVaR99 was $119.58 million under terminal-only liquidation
+and $119.55 million when the book evolved through eight half-day periods. The
+whale never meaningfully deleveraged, so path mechanics did not help. On the
+archived July 16 book, restoring health factor to 1.24 produced repeat
+liquidation in 0.17% of paths, versus 10.72% when restoring only to 1.0137.
+Target health factor matters most when liquidation can clear in the first
+place.
 
 ## Limitations And Next Questions
 

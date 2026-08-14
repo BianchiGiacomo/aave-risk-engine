@@ -210,11 +210,11 @@ def test_dashboard_sensitivity_charts_use_real_scenarios_and_depth():
 def test_dashboard_advanced_tabs_expose_scope_and_sparse_event_counts():
     snap = _snapshot()
     v4_rows = run_v4_analysis(snap, "USD debt", 0.5, 2_000, 7)
-    assert len(v4_rows) == 6
+    assert len(v4_rows) == 3
     assert all("Positive-loss draws" in row for row in v4_rows)
-    assert "USD-debt book" in mechanics_cvar_fig(
-        v4_rows, "USD-debt"
-    ).layout.title.text
+    mechanics_title = mechanics_cvar_fig(v4_rows, "USD-debt").layout.title.text
+    assert "USD-debt book" in mechanics_title
+    assert "ordered clearing" in mechanics_title
 
     multi_rows = run_multiperiod_analysis(
         snap,
@@ -413,6 +413,21 @@ def test_arfc_peg_check_windows():
     assert not out["peg_pass"]
     assert np.isclose(out["peg_max_run_days"], 3.0)
     assert np.isclose(out["peg_worst_deviation"], 0.015)
+
+
+def test_arfc_peg_check_threshold_is_strict():
+    # The framework wording is "greater than 1%", so a sustained deviation
+    # resting exactly on the threshold passes and anything past it fails.
+    on_threshold = np.full(100, 1.0)
+    on_threshold[50:60] = 0.99
+    out = arfc_peg_check(on_threshold)
+    assert out["peg_pass"]
+    assert np.isclose(out["peg_worst_deviation"], 0.01)
+    assert np.isclose(out["peg_max_run_days"], 0.0)
+
+    past_threshold = np.full(100, 1.0)
+    past_threshold[50:60] = 0.9899
+    assert not arfc_peg_check(past_threshold)["peg_pass"]
 
 
 def test_vol_and_dof_estimators():

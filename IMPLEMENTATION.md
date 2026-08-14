@@ -50,6 +50,7 @@ The tests check:
 - close-factor liquidation sizing,
 - cap/LT monotonicity,
 - return-law dispatch and tail shape,
+- terminal-law preservation and matched multi-period endpoints,
 - Hub diversification,
 - correlation sensitivity,
 - deeper-liquidity allocation,

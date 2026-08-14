@@ -3,11 +3,12 @@
 Usage:
     python -m aave_risk_engine.run_multiperiod [--snapshot path]
 
-Compares each liquidation-mechanics variant in two ways over the same
-total stress window: one single-period shock (ordered clearing, stalls
-marked immediately) versus a multi-period path where books evolve,
-positions can be re-liquidated, stalled liquidations wait, and depth
-replenishes between periods.
+Compares each liquidation-mechanics variant over matched stress paths.
+The single-period row evaluates each path's exact terminal return, peg,
+and depth state with ordered clearing and immediate stall marking. The
+multi-period row follows the route to that same endpoint while books
+evolve, positions can be re-liquidated, stalled liquidations wait, and
+depth replenishes between periods.
 """
 
 from __future__ import annotations
@@ -18,8 +19,12 @@ from dataclasses import replace
 from .config import SimConfig, V4Liquidation
 from .data import build_real_book, load_snapshot
 from .data.book import scenario_config_from_snapshot
-from .engine import RiskEngine
-from .multiperiod import simulate_multi_period
+from .engine import evaluate_book
+from .multiperiod import (
+    sample_stress_paths,
+    simulate_multi_period,
+    terminal_scenarios_from_paths,
+)
 
 
 def _fmt(x: float) -> str:
@@ -83,22 +88,39 @@ def main() -> None:
         f"| depth replenish {args.replenish:.0%}"
     )
     print(
-        "single rows: one shock over the whole window, ordered clearing,"
-        " stalls marked immediately. multi rows: evolving book,"
-        " re-liquidation, stalls wait until the window ends."
+        "matched endpoints: each single and multi row shares the same terminal"
+        " return, peg drop, and depth haircut; the configured terminal return"
+        " law is preserved."
+    )
+    print(
+        "single rows: ordered clearing at the terminal state, stalls marked"
+        " immediately. multi rows: evolving book, re-liquidation, stalls wait"
+        " until the window ends."
     )
 
-    single_config = replace(
-        config, stress=replace(config.stress, horizon_days=args.days)
+    paths = sample_stress_paths(
+        config,
+        n_periods=args.periods,
+        total_days=args.days,
+        n_paths=args.n_paths,
+        seed=args.seed,
     )
+    terminal = terminal_scenarios_from_paths(config, paths)
     for book_label, book in (
         (f"USD-debt book ({_fmt(usd_book.total_debt)})", usd_book),
         (f"combined book ({_fmt(combined_book.total_debt)})", combined_book),
     ):
         print(f"\n{book_label}")
         for label, risk in variants.items():
-            engine = RiskEngine(replace(single_config, risk=risk))
-            single = engine.run(book=book)
+            single = evaluate_book(
+                book,
+                terminal,
+                risk,
+                config.stress.liquidation_delay_drawdown,
+                config.sim.cvar_level,
+                chunk_size=config.sim.chunk_size,
+                depth_points=config.liquidity.depth_points,
+            )
             print(
                 f"  {label:<17} single: P(bad debt) {single.prob_bad_debt:6.2%} "
                 f"| mean {_fmt(single.mean):>8} | CVaR99 {_fmt(single.cvar):>9}"
@@ -109,6 +131,10 @@ def main() -> None:
                 n_periods=args.periods,
                 total_days=args.days,
                 replenish=args.replenish,
+                n_paths=args.n_paths,
+                step_log_returns=paths.step_log_returns,
+                peg_idio_steps=paths.peg_idio_steps,
+                haircut_idio_steps=paths.haircut_idio_steps,
             )
             marks_share = (
                 multi.terminal_marks.sum() / multi.bad_debt.sum()

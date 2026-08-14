@@ -18,7 +18,11 @@ from .data.episodes import (
     rolling_windows,
 )
 from .engine import RiskEngine, evaluate_book
-from .multiperiod import simulate_multi_period
+from .multiperiod import (
+    sample_stress_paths,
+    simulate_multi_period,
+    terminal_scenarios_from_paths,
+)
 
 
 def _book(snapshot, scope: str, min_target_share: float):
@@ -51,13 +55,13 @@ def _config(snapshot, n_scenarios: int, seed: int):
     )
 
 
-def _variants(config, ordered: bool = False):
+def _variants(config, ordered: bool = True):
     bonus = config.risk.liquidation_bonus
     max_bonus = round(bonus * 1.11, 4)
     base = replace(config.risk, ordered_queue=ordered)
     return {
-        "V3": base,
-        "V4 Main (HF 1.24)": replace(
+        "V3 selected reserve": base,
+        "V4 Main config (target HF 1.24)": replace(
             base,
             v4=V4Liquidation(
                 target_health_factor=1.24,
@@ -67,7 +71,7 @@ def _variants(config, ordered: bool = False):
                 close_factor_floor=0.60,
             ),
         ),
-        "V4 correlated (HF 1.0137)": replace(
+        "V4 Correlated config (target HF 1.0137)": replace(
             base,
             v4=V4Liquidation(
                 target_health_factor=1.0137,
@@ -195,28 +199,23 @@ def run_v4_analysis(
     n_scenarios: int,
     seed: int,
 ) -> list[dict]:
-    """Compare V3 and V4 mechanics under aggregate and ordered clearing."""
+    """Compare V3 and V4 mechanics under ordered clearing."""
     config = _config(snapshot, n_scenarios, seed)
     book = _book(snapshot, scope, min_target_share)
     engine = RiskEngine(config)
     rows = []
-    for mechanics, risk in _variants(config).items():
-        for queue, mode_risk in (
-            ("Aggregate", risk),
-            ("Ordered", replace(risk, ordered_queue=True)),
-        ):
-            result = engine.run(book=book, risk=mode_risk)
-            rows.append(
-                {
-                    "Mechanics": mechanics,
-                    "Queue": queue,
-                    "P(bad debt)": result.prob_bad_debt,
-                    "Positive-loss draws": result.positive_loss_count,
-                    "Mean bad debt": result.mean,
-                    "VaR99": result.var,
-                    "CVaR99": result.cvar,
-                }
-            )
+    for mechanics, risk in _variants(config, ordered=True).items():
+        result = engine.run(book=book, risk=risk)
+        rows.append(
+            {
+                "Mechanics": mechanics,
+                "P(bad debt)": result.prob_bad_debt,
+                "Positive-loss draws": result.positive_loss_count,
+                "Mean bad debt": result.mean,
+                "VaR99": result.var,
+                "CVaR99": result.cvar,
+            }
+        )
     return rows
 
 
@@ -273,13 +272,22 @@ def run_multiperiod_analysis(
     total_days: float,
     replenish: float,
 ) -> list[dict]:
-    """Compare terminal shocks with evolving books for V3 and V4."""
+    """Compare matched terminal shocks with evolving books for V3 and V4."""
     config = _config(snapshot, n_paths, seed)
     book = _book(snapshot, scope, min_target_share)
-    single_config = replace(config, stress=replace(config.stress, horizon_days=total_days))
+    paths = sample_stress_paths(config, n_periods, total_days, n_paths, seed)
+    terminal = terminal_scenarios_from_paths(config, paths)
     rows = []
     for mechanics, risk in _variants(config, ordered=True).items():
-        single = RiskEngine(replace(single_config, risk=risk)).run(book=book)
+        single = evaluate_book(
+            book,
+            terminal,
+            risk,
+            config.stress.liquidation_delay_drawdown,
+            config.sim.cvar_level,
+            chunk_size=config.sim.chunk_size,
+            depth_points=config.liquidity.depth_points,
+        )
         multi = simulate_multi_period(
             replace(config, risk=risk),
             book,
@@ -287,7 +295,9 @@ def run_multiperiod_analysis(
             total_days=total_days,
             replenish=replenish,
             n_paths=n_paths,
-            seed=seed,
+            step_log_returns=paths.step_log_returns,
+            peg_idio_steps=paths.peg_idio_steps,
+            haircut_idio_steps=paths.haircut_idio_steps,
         )
         rows.extend(
             [

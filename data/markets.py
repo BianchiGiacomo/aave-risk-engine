@@ -14,7 +14,7 @@ import numpy as np
 _HEADERS = {"User-Agent": "aave-risk-engine/0.1"}
 
 # The ARFC Aave Risk Framework E-Mode precondition for pegged assets:
-# no sustained deviation from collateral value of >= 1% over >= 2 days.
+# no sustained deviation from collateral value of > 1% over >= 2 days.
 ARFC_PEG_THRESHOLD = 0.01
 ARFC_PEG_WINDOW_DAYS = 2.0
 
@@ -163,12 +163,17 @@ def arfc_peg_check(
 ) -> dict:
     """Apply the ARFC pegged-asset rule to a ratio series (1.0 = perfect peg).
 
-    Fails if any deviation of at least `threshold` below peg is sustained for
-    `window_days` or longer.
+    Fails if any deviation strictly greater than `threshold` below peg is
+    sustained for `window_days` or longer. The framework wording is "greater
+    than 1%", so a deviation sitting exactly on the threshold passes.
     """
     ratios = np.asarray(ratios, dtype=float)
     deviation = np.maximum(0.0, 1.0 - ratios)
-    breached = deviation >= threshold
+    # Strict comparison needs a float-noise guard: 1.0 - 0.99 evaluates to
+    # 0.010000000000000009 in binary floating point, which must not read as a
+    # breach of a 1% threshold. The epsilon is far below any economically
+    # meaningful deviation.
+    breached = deviation > threshold + 1e-12
 
     longest_run = 0
     run = 0

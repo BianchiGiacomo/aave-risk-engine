@@ -215,7 +215,7 @@ def ltv_sweep_fig(sweep: dict) -> go.Figure:
         annotation_text="current LT",
     )
     fig.update_layout(
-        title="Fixed-book LT transition sensitivity",
+        title="V3 / forced-migration current-book LT sensitivity",
         xaxis_title="liquidation threshold (%)",
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
     )
@@ -430,25 +430,23 @@ def concentration_fig(rows: list[dict], limit: int = 10) -> go.Figure:
 
 
 def mechanics_cvar_fig(rows: list[dict], scope: str) -> go.Figure:
-    fig = go.Figure()
-    for queue, color in (("Aggregate", _BLUE), ("Ordered", _GREEN)):
-        selected = [row for row in rows if row["Queue"] == queue]
-        fig.add_trace(
-            go.Bar(
-                name=queue,
-                x=[row["Mechanics"] for row in selected],
-                y=[row["CVaR99"] / 1e6 for row in selected],
-                marker_color=color,
-                text=[_fmt_usd(row["CVaR99"]) for row in selected],
-                textposition="outside",
-            )
+    display = rows[::-1]
+    fig = go.Figure(
+        go.Bar(
+            name="Ordered clearing",
+            x=[row["CVaR99"] / 1e6 for row in display],
+            y=[row["Mechanics"] for row in display],
+            orientation="h",
+            marker_color=[_RED, _GREEN, _BLUE][: len(display)],
+            text=[_fmt_usd(row["CVaR99"]) for row in display],
+            textposition="outside",
         )
+    )
     fig.update_layout(
-        title=f"CVaR99 by liquidation mechanics | {scope} book",
-        yaxis_title="CVaR99 ($m)",
-        barmode="group",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        margin=dict(l=45, r=20, t=85, b=65),
+        title=f"CVaR99 by liquidation mechanics | ordered clearing | {scope} book",
+        xaxis_title="CVaR99 ($m)",
+        showlegend=False,
+        margin=dict(l=235, r=35, t=85, b=55),
     )
     return fig
 

@@ -16,9 +16,14 @@ from aave_risk_engine.config import (
     V4Liquidation,
 )
 from aave_risk_engine.engine import evaluate_book
-from aave_risk_engine.multiperiod import simulate_multi_period
+from aave_risk_engine.multiperiod import (
+    StressPaths,
+    sample_stress_paths,
+    simulate_multi_period,
+    terminal_scenarios_from_paths,
+)
 from aave_risk_engine.positions import PositionBook
-from aave_risk_engine.stress import sample_scenarios
+from aave_risk_engine.stress import sample_log_returns, sample_scenarios
 
 
 def _quiet_stress(**overrides) -> StressConfig:
@@ -194,6 +199,68 @@ def test_idio_step_sigma_scales_with_window():
         sigma = _idio_step_sigma(0.004, 2.0, total_days, n_periods)
         terminal_var = n_periods * sigma**2
         assert np.isclose(terminal_var, 0.004**2 * total_days / 2.0)
+
+
+def test_terminal_scenarios_match_path_endpoint():
+    risk = RiskParams(ltv=0.70, liquidation_threshold=0.80)
+    stress = _quiet_stress(
+        base_peg_drop=0.01,
+        peg_crash_beta=0.20,
+        base_depth_haircut=0.05,
+        depth_crash_beta=0.50,
+    )
+    cfg = _config(risk, stress, depth_usd=1_000.0)
+    paths = StressPaths(
+        step_log_returns=np.log(np.array([[0.90, 1.05], [1.02, 0.95]])),
+        peg_idio_steps=np.array([[0.001, -0.002], [0.003, 0.001]]),
+        haircut_idio_steps=np.array([[0.02, -0.01], [0.01, 0.03]]),
+    )
+    terminal = terminal_scenarios_from_paths(cfg, paths)
+    expected_return = np.prod(np.exp(paths.step_log_returns), axis=0) - 1.0
+    drawdown = np.maximum(0.0, -expected_return)
+    expected_peg = np.clip(
+        stress.base_peg_drop
+        + stress.peg_crash_beta * drawdown
+        + paths.peg_idio_steps.sum(axis=0),
+        0.0,
+        stress.max_peg_drop,
+    )
+    expected_haircut = np.clip(
+        stress.base_depth_haircut
+        + stress.depth_crash_beta * drawdown
+        + paths.haircut_idio_steps.sum(axis=0),
+        0.0,
+        stress.max_depth_haircut,
+    )
+    assert np.allclose(terminal.eth_return, expected_return)
+    assert np.allclose(terminal.peg_drop, expected_peg)
+    assert np.allclose(terminal.depth_haircut, expected_haircut)
+    assert np.allclose(
+        terminal.coll_price,
+        cfg.asset.spot_price * (1.0 + expected_return) * (1.0 - expected_peg),
+    )
+
+
+def test_student_t_path_preserves_terminal_tail():
+    risk = RiskParams(ltv=0.70, liquidation_threshold=0.80)
+    stress = replace(
+        _quiet_stress(),
+        return_model="student_t",
+        tail_dof=6.2,
+        eth_annual_vol=0.66,
+    )
+    cfg = _config(risk, stress)
+    n = 200_000
+    paths = sample_stress_paths(cfg, n_periods=8, total_days=4.0, n_paths=n, seed=7)
+    path_terminal = paths.step_log_returns.sum(axis=0)
+    direct = sample_log_returns(
+        stress,
+        4.0 / 365.0,
+        n,
+        np.random.default_rng(19),
+    )
+    assert abs(np.quantile(path_terminal, 0.001) - np.quantile(direct, 0.001)) < 0.015
+    assert abs(path_terminal.var() / direct.var() - 1.0) < 0.05
 
 
 def test_summary_properties_consistent():

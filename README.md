@@ -23,8 +23,8 @@ This is not an automated risk agent and not a governance replacement. It is a co
 - Models both V3 liquidation mechanics and V4's live design (repay to
   target health factor, dynamic bonus) and compares them on real books.
 - Simulates multi-period stress paths with re-liquidation, waiting
-  stalls, and depth replenishment, quantifying how conservative the
-  single-shock convention is.
+  stalls, and depth replenishment, compared with single-shock liquidation
+  on exactly matched terminal scenarios.
 - Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
 - Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
 - Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.
@@ -164,7 +164,7 @@ the standard library:
   from Kraken price history; stETH/ETH peg history from DefiLlama, with a
   Coingecko fallback.
 - **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
-  peg rule (no >=1% deviation sustained >=2 days) and its requirement that
+  peg rule (no >1% deviation sustained >=2 days) and its requirement that
   depth must clear the largest borrower within the liquidation bonus,
   evaluated as the engine's liquidator break-even condition.
 
@@ -206,10 +206,13 @@ than 30 positive-loss draws.
 
 ## Dashboard
 
-The Streamlit dashboard opens on committed real-market snapshots for
-Ethereum wstETH and Linea WETH. It covers current-book CVaR and cap sizing,
-borrower concentration, empirical liquidation depth, ARFC clearance, V3 and
-V4 mechanics, historical episode replay, and multi-period simulation.
+The Streamlit dashboard opens on committed real-market snapshots targeting
+the wstETH reserve in Aave V3 Ethereum Core and the WETH reserve in Aave V3
+Linea. It covers current-book CVaR and cap sizing, borrower concentration,
+empirical liquidation depth, ARFC clearance, V3 and V4 mechanics, historical
+episode replay, and multi-period simulation. Ordered clearing is the dashboard
+execution model; the coarser aggregate approximation remains available in the
+research CLIs.
 
 Committed snapshots remain the deterministic default. An explicit live
 refresh reads keyless public sources into the current browser session and

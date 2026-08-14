@@ -32,7 +32,7 @@ from .config import ScenarioConfig
 from .liquidation import ordered_clearing, size_liquidations
 from .positions import PositionBook
 from .slippage import calibrate_liquidity
-from .stress import sample_log_returns
+from .stress import Scenarios, sample_log_return_paths
 
 # Positions with less debt than this are treated as closed.
 _CLOSED_DEBT_USD = 1.0
@@ -93,6 +93,106 @@ class MultiPeriodResult:
         return float((self.reliquidated_positions > 0).mean())
 
 
+@dataclass(frozen=True)
+class StressPaths:
+    """Matched return, peg, and depth innovations for evolving paths."""
+
+    step_log_returns: np.ndarray
+    peg_idio_steps: np.ndarray
+    haircut_idio_steps: np.ndarray
+
+    @property
+    def shape(self) -> tuple[int, int]:
+        return self.step_log_returns.shape
+
+
+def sample_stress_paths(
+    config: ScenarioConfig,
+    n_periods: int,
+    total_days: float,
+    n_paths: int | None = None,
+    seed: int | None = None,
+) -> StressPaths:
+    """Draw coherent paths with the configured terminal stress marginals."""
+    if n_periods < 1:
+        raise ValueError("n_periods must be at least one")
+    if total_days <= 0:
+        raise ValueError("total_days must be positive")
+
+    stress = config.stress
+    sim = config.sim
+    n = n_paths or sim.n_scenarios
+    rng = np.random.default_rng(sim.seed if seed is None else seed)
+    step_log_returns = sample_log_return_paths(
+        stress,
+        total_days / 365.0,
+        n_periods,
+        n,
+        rng,
+    )
+    peg_sigma = _idio_step_sigma(
+        stress.peg_idio_vol, stress.horizon_days, total_days, n_periods
+    )
+    haircut_sigma = _idio_step_sigma(
+        stress.depth_idio_vol, stress.horizon_days, total_days, n_periods
+    )
+    return StressPaths(
+        step_log_returns=step_log_returns,
+        peg_idio_steps=rng.normal(0.0, peg_sigma, (n_periods, n)),
+        haircut_idio_steps=rng.normal(0.0, haircut_sigma, (n_periods, n)),
+    )
+
+
+def terminal_scenarios_from_paths(
+    config: ScenarioConfig,
+    paths: StressPaths,
+) -> Scenarios:
+    """Return the exact terminal scenario reached by every sampled path."""
+    if not (
+        paths.step_log_returns.shape
+        == paths.peg_idio_steps.shape
+        == paths.haircut_idio_steps.shape
+    ):
+        raise ValueError("all stress path arrays must have the same shape")
+    if paths.step_log_returns.ndim != 2 or paths.step_log_returns.shape[0] < 1:
+        raise ValueError("stress path arrays must have shape (periods, paths)")
+
+    stress = config.stress
+    log_return = paths.step_log_returns.sum(axis=0)
+    eth_return = np.exp(log_return) - 1.0
+    drawdown = np.maximum(0.0, -eth_return)
+    peg_drop = np.clip(
+        stress.base_peg_drop
+        + stress.peg_crash_beta * drawdown
+        + paths.peg_idio_steps.sum(axis=0),
+        0.0,
+        stress.max_peg_drop,
+    )
+    depth_haircut = np.clip(
+        stress.base_depth_haircut
+        + stress.depth_crash_beta * drawdown
+        + paths.haircut_idio_steps.sum(axis=0),
+        0.0,
+        stress.max_depth_haircut,
+    )
+    coll_price = np.maximum(
+        config.asset.spot_price * (1.0 + eth_return) * (1.0 - peg_drop),
+        1e-9,
+    )
+    liquidity = calibrate_liquidity(
+        config.asset.spot_price,
+        config.liquidity.ref_notional_usd,
+        config.liquidity.ref_slippage,
+    )
+    return Scenarios(
+        coll_price=coll_price,
+        depth_liquidity=liquidity * (1.0 - depth_haircut),
+        eth_return=eth_return,
+        peg_drop=peg_drop,
+        depth_haircut=depth_haircut,
+    )
+
+
 def simulate_multi_period(
     config: ScenarioConfig,
     book: PositionBook,
@@ -113,35 +213,23 @@ def simulate_multi_period(
     """
     if n_periods < 1:
         raise ValueError("n_periods must be at least 1")
+    if total_days <= 0:
+        raise ValueError("total_days must be positive")
     if not 0.0 <= replenish <= 1.0:
         raise ValueError("replenish must be in [0, 1]")
 
-    stress = config.stress
     sim = config.sim
     n = n_paths or sim.n_scenarios
-    rng = np.random.default_rng(sim.seed if seed is None else seed)
     chunk = chunk_size or sim.chunk_size
 
-    dt_years = (total_days / n_periods) / 365.0
-    if step_log_returns is None:
-        step_log_returns = np.stack(
-            [sample_log_returns(stress, dt_years, n, rng) for _ in range(n_periods)]
-        )
-    # StressConfig idiosyncratic vols are sigmas at the configured
-    # single-period horizon; the walks must reach the terminal variance of
-    # the actual window, so the per-step sigma carries the
-    # total_days / horizon_days rescaling that the return draws get from
-    # dt_years automatically.
-    peg_sigma = _idio_step_sigma(
-        stress.peg_idio_vol, stress.horizon_days, total_days, n_periods
-    )
-    haircut_sigma = _idio_step_sigma(
-        stress.depth_idio_vol, stress.horizon_days, total_days, n_periods
-    )
-    if peg_idio_steps is None:
-        peg_idio_steps = rng.normal(0.0, peg_sigma, (n_periods, n))
-    if haircut_idio_steps is None:
-        haircut_idio_steps = rng.normal(0.0, haircut_sigma, (n_periods, n))
+    if step_log_returns is None or peg_idio_steps is None or haircut_idio_steps is None:
+        sampled = sample_stress_paths(config, n_periods, total_days, n, seed)
+        if step_log_returns is None:
+            step_log_returns = sampled.step_log_returns
+        if peg_idio_steps is None:
+            peg_idio_steps = sampled.peg_idio_steps
+        if haircut_idio_steps is None:
+            haircut_idio_steps = sampled.haircut_idio_steps
     for name, arr in (
         ("step_log_returns", step_log_returns),
         ("peg_idio_steps", peg_idio_steps),

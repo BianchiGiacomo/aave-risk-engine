@@ -44,16 +44,17 @@ Fractional slippage is increasing and concave; dollar shortfall `Q * s(Q)` is co
 
 Two clearing models are available:
 
-- **Aggregate** (default): one queue-average slippage for the whole
+- **Aggregate**: one queue-average slippage for the whole
   liquidation queue, compared per position against its own break-even
   `bonus / (1 + bonus)`. Fast, but all-or-nothing: when the average
-  crosses break-even, the entire queue stalls at once.
+  crosses break-even, the entire queue stalls at once. It remains an
+  optional research benchmark and CLI compatibility mode.
 - **Ordered** (`ordered_queue`): the queue clears sequentially in
   bonus-priority order (seize size breaking ties, mirroring liquidator
   profit priority). Each tranche is assessed at its marginal slippage on
   the cumulative proceeds curve; cleared tranches consume depth, stalled
   tranches do not, and a stalled position is marked at the slippage its
-  own sale would have realized.
+  own sale would have realized. This is the dashboard execution model.
 
 On the real wstETH book the two agree on P(bad debt) and VaR99 but the
 aggregate model overstates CVaR99 by roughly a fifth across V3 and V4
@@ -130,25 +131,29 @@ at once:
   delayed executable value.
 - **Re-liquidation**: cleared repayments and seizures update the book, so
   a position restored to the V4 target health factor can be liquidated
-  again if prices keep falling. This is where the target choice shows:
-  on the real book, restoring to 1.24 nearly eliminates repeat
-  liquidations while 1.0137 re-liquidates in about one path in nine.
+  again if subsequent cumulative shocks push it below HF 1. Market
+  conditions do not reset after a clear. On the archived July 16 book,
+  restoring to 1.24 produced re-liquidation in 0.17% of matched paths,
+  versus 10.72% when restoring to 1.0137.
 - **Depth replenishment**: depth consumed by cleared sales carries into
   the next period scaled by `1 - replenish`. Configurations that clear
   many small tranches are the most sensitive to slow replenishment.
 
-Per-step returns follow the configured law; peg and depth-haircut
-idiosyncratic terms follow random walks whose terminal variance matches
-the single-period calibration, and their crash-coupled terms respond to
-the running drawdown. With one period and identical shocks the simulator
-reproduces the single-period ordered engine exactly (tested).
+Every comparison uses matched endpoints: the single-shock and evolving rows
+share the exact terminal return, peg drop, and depth haircut on each path.
+Gaussian and jump-diffusion returns use coherent increments. Student-t paths
+use one shared variance mixture per path, so subdividing the horizon preserves
+the configured terminal Student-t law instead of thinning its tail. Peg and
+depth idiosyncratic terms follow random walks with the calibrated terminal
+variance, while crash-coupled terms respond to running drawdown.
 
-Multi-period losses over a window are much lower than the corresponding
-single-shock estimate over the same horizon, because intermediate liquidations
-deleverage the book
-along the path and stalled positions can recover. The single-shock
-convention is therefore conservative by construction; the simulator
-quantifies by how much.
+Differences between the rows therefore come from liquidation timing and book
+evolution, not different terminal scenario distributions. Intermediate clears
+can deleverage positions, stalled positions can recover, and consumed depth can
+replenish. These effects need not reduce losses: when a whale never clears, the
+single-shock and evolving results can be almost identical. With one period and
+identical shocks the simulator reproduces the single-period ordered engine
+exactly (tested).
 
 ## Rare-Event Reporting
 
@@ -245,8 +250,10 @@ crash beta assumes; peg stress can lead or lag the price move.
 Two requirements of the Aave Risk Framework (governance ARFC, June 2026)
 are evaluated directly:
 
-- **Peg rule**: for pegged collateral, no deviation of 1% or more below peg
-  sustained for two days or longer (E-Mode precondition).
+- **Peg rule**: for pegged collateral, no deviation of more than 1% below peg
+  sustained for two days or longer (E-Mode precondition). The comparison is
+  strict, matching the framework wording; a deviation resting exactly on 1%
+  passes.
 - **Liquidation capacity**: secondary-market depth must clear the largest
   expected borrower within the liquidation bonus. In this model that is the
   liquidator break-even condition `s(Q) <= bonus / (1 + bonus)` evaluated at

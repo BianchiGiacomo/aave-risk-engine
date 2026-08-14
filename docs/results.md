@@ -210,31 +210,35 @@ Command:
 python -m aave_risk_engine.run_multiperiod
 ```
 
-The July 30 mainnet snapshot at block 25,645,558 shows the size of the
-single-shock conservatism over a four-day window:
+The single-shock and evolving rows now share the exact terminal return, peg
+drop, and depth haircut on every path. The July 30 mainnet snapshot at block
+25,645,558 shows what happens when whale concentration dominates:
 
 ```text
 combined book ($449.92m)
-  V3                single: P(bad debt)  0.69% | mean   $1.24m | CVaR99  $124.05m
-  V3                multi : P(bad debt)  0.30% | mean $539.01k | CVaR99   $53.90m
+  V3                single: P(bad debt)  0.67% | mean   $1.20m | CVaR99  $119.58m
+  V3                multi : P(bad debt)  0.67% | mean   $1.20m | CVaR99  $119.55m | marks 100% of losses | events/path 0.01 | P(reliq) 0.06%
 ```
 
-The single-shock convention is about 2.3 times the evolving path result in
-this run, consistent with the broader finding that it is roughly two to
-three times conservative. Intermediate clears deleverage accounts, stalled
-positions can recover, and depth can replenish between periods.
+The results are almost identical because the dominant whale cannot clear and
+deleveraging barely occurs. Matching endpoints removes the previous apparent
+2.3 times reduction, which came primarily from constructing a four-day
+Student-t shock differently from the sum of eight half-day Student-t shocks.
+Path mechanics cannot help a position that remains far beyond available depth.
 
 The July 16 mid-size regime at block 25,546,280 exposed the target health
 factor mechanism that the current whale regime masks:
 
 ```text
-V4 Main (1.24)    multi : P(bad debt) 12.29% | mean  $58.15k | CVaR99    $1.31m | marks 100% of losses | events/path 0.24 | P(reliq) 0.02%
-V4 corr (1.0137)  multi : P(bad debt)  0.39% | mean   $3.49k | CVaR99  $348.74k | marks 100% of losses | events/path 0.57 | P(reliq) 11.24%
+V4 Main (1.24)    single: P(bad debt) 17.50% | mean  $99.03k | CVaR99    $3.47m
+V4 Main (1.24)    multi : P(bad debt) 10.75% | mean  $68.69k | CVaR99    $2.93m | marks 100% of losses | events/path 0.26 | P(reliq) 0.17%
+V4 corr (1.0137)  single: P(bad debt)  5.58% | mean  $51.38k | CVaR99    $2.56m
+V4 corr (1.0137)  multi : P(bad debt)  0.32% | mean  $12.62k | CVaR99    $1.26m | marks 100% of losses | events/path 0.59 | P(reliq) 10.72%
 ```
 
 Restoring health factor to 1.24 almost eliminated repeat liquidation.
 Restoring only to 1.0137 left positions close enough to the boundary that
-11.24% of paths liquidated a position again. This is why target health
+10.72% of paths liquidated a position again. This is why target health
 factor should be evaluated with an evolving book rather than only a
 terminal shock.
 

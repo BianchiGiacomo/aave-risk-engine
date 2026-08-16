@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from .engine import RiskEngine, RiskResult
-from .slippage import calibrate_liquidity, slippage
+from .slippage import calibrate_liquidity, empirical_slippage, slippage
 
 
 def _fmt_usd(x: float) -> str:
@@ -51,6 +51,7 @@ def plot_empirical_depth_curve(
     bonus_break_even: float,
     marker_notional_usd: float | None = None,
     marker_label: str | None = None,
+    additional_markers: list[tuple[float, str]] | None = None,
     quote_label: str = "aggregator quotes",
     title: str = "Empirical market depth",
 ):
@@ -77,13 +78,24 @@ def plot_empirical_depth_curve(
         label="liquidator break-even",
     )
     if marker_notional_usd is not None:
-        marker_slip = float(np.interp(marker_notional_usd, notional, slip))
+        marker_slip = float(empirical_slippage(marker_notional_usd, points))
         ax.scatter(
             [marker_notional_usd / 1e3],
             [100 * marker_slip],
             color="black",
             zorder=3,
             label=marker_label,
+        )
+    for value, label in additional_markers or []:
+        marker_slip = float(empirical_slippage(value, points))
+        ax.scatter(
+            [value / 1e3],
+            [100 * marker_slip],
+            color="darkorange",
+            marker="X",
+            s=70,
+            zorder=4,
+            label=label,
         )
     ax.set_xscale("log")
     ax.set_xticks(notional / 1e3)

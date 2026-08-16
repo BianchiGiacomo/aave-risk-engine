@@ -34,6 +34,7 @@ This is not an automated risk agent and not a governance replacement. It is a co
 ## Read Next
 
 - [Case study: reproducing the July 2026 Linea cap reductions](docs/case_studies/2026-07-linea-cap-reductions.md)
+- [Mathematical model specification](docs/model-specification.md)
 - [Methodology](METHODOLOGY.md)
 - [Implementation notes](IMPLEMENTATION.md)
 
@@ -126,7 +127,7 @@ python -m aave_risk_engine.run_market_report
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
-python -m streamlit run aave_risk_engine/dashboard.py
+python -m streamlit run dashboard.py
 ```
 
 Tests:

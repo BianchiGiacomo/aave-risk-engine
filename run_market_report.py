@@ -174,7 +174,7 @@ def _write_manifest(
     return absolute_path
 
 
-def _write_depth_figure(snapshot, requested_path: str) -> str:
+def _write_depth_figure(snapshot, requested_path: str, clearance) -> str:
     depth = snapshot.depth
     if depth is None:
         raise ValueError("snapshot has no depth calibration")
@@ -193,6 +193,16 @@ def _write_depth_figure(snapshot, requested_path: str) -> str:
     )
     marker_notional = 41_000.0 if is_linea_weth else None
     marker_label = "LlamaRisk reference ($41k)" if is_linea_weth else None
+    additional_markers = (
+        [
+            (
+                clearance.largest_borrower_usd,
+                f"largest borrower sale ({_fmt(clearance.largest_borrower_usd)})",
+            )
+        ]
+        if is_linea_weth
+        else None
+    )
     break_even = snapshot.reserve.liquidation_bonus / (
         1.0 + snapshot.reserve.liquidation_bonus
     )
@@ -201,6 +211,7 @@ def _write_depth_figure(snapshot, requested_path: str) -> str:
         break_even,
         marker_notional_usd=marker_notional,
         marker_label=marker_label,
+        additional_markers=additional_markers,
         quote_label=f"{source} quotes",
         title=f"{snapshot.chain.title()} {snapshot.reserve.symbol} empirical depth",
     )
@@ -473,7 +484,7 @@ def main() -> None:
             " when liquidated, so clearance is a pure market-depth question."
         )
         if args.figure is not None:
-            print(f"\nwrote {_write_depth_figure(snapshot, args.figure)}")
+            print(f"\nwrote {_write_depth_figure(snapshot, args.figure, clearance)}")
 
     if args.manifest:
         manifest_path = _write_manifest(

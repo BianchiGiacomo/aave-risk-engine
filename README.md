@@ -24,7 +24,8 @@ This is not an automated risk agent and not a governance replacement. It is a co
   target health factor, dynamic bonus) and compares them on real books.
 - Simulates multi-period stress paths with re-liquidation, waiting
   stalls, and depth replenishment, compared with single-shock liquidation
-  on exactly matched terminal scenarios.
+  on exactly matched terminal scenarios, with an optional mean-reverting
+  peg residual.
 - Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
 - Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
 - Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.

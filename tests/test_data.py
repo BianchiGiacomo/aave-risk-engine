@@ -33,6 +33,7 @@ from aave_risk_engine.data.depth import fit_depth, quotes_to_slippage_points
 from aave_risk_engine.data.markets import (
     arfc_peg_check,
     fit_student_t_dof,
+    peg_mean_reversion_speed,
     realized_annual_vol,
 )
 from aave_risk_engine.data.snapshot import (
@@ -650,6 +651,20 @@ def test_peg_vol_calibration_wires_into_config():
     snap.stress.peg_daily_vol = 0.002
     cfg = scenario_config_from_snapshot(snap)
     assert np.isclose(cfg.stress.peg_idio_vol, 0.002 * np.sqrt(cfg.stress.horizon_days))
+
+
+def test_peg_mean_reversion_calibration_and_config_wiring():
+    phi = 0.8
+    deviation = 0.02 * phi ** np.arange(60)
+    speed = peg_mean_reversion_speed(1.0 - deviation)
+    assert speed is not None
+    assert np.isclose(speed, -np.log(phi))
+    assert peg_mean_reversion_speed(np.ones(60)) is None
+
+    snap = _snapshot()
+    snap.stress.peg_mean_reversion_speed = speed
+    cfg = scenario_config_from_snapshot(snap)
+    assert np.isclose(cfg.stress.peg_mean_reversion_speed, speed)
 
 
 def test_lst_ratio_cleaning():

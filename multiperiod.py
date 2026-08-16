@@ -4,9 +4,9 @@ The single-period engine draws one terminal shock and marks every stalled
 liquidation to fire-sale value immediately. This simulator divides the
 stress window into periods and evolves the book through them:
 
-- prices follow per-step draws of the configured return law; peg and
-  depth-haircut idiosyncratic terms follow random walks whose terminal
-  variance matches the single-period calibration;
+- prices follow per-step draws of the configured return law; the peg
+  idiosyncratic residual follows an optional OU process and the depth-haircut
+  term follows a random walk, both matched to the single-period calibration;
 - each period runs ordered (bonus-priority) queue clearing against that
   period's depth; cleared repayments and seizures update the book, so
   positions restored to the V4 target health factor can be liquidated
@@ -50,6 +50,50 @@ def _idio_step_sigma(
     if horizon_days <= 0:
         raise ValueError("horizon_days must be positive")
     return float(idio_vol * np.sqrt(total_days / horizon_days) / np.sqrt(n_periods))
+
+
+def _ou_step_sigma(
+    horizon_vol: float,
+    horizon_days: float,
+    total_days: float,
+    n_periods: int,
+    speed_per_day: float,
+) -> float:
+    """Innovation sigma for an OU residual calibrated at `horizon_days`.
+
+    Starting from zero, the residual variance at the configured calibration
+    horizon equals `horizon_vol**2`. At zero speed this reduces exactly to
+    the previous random-walk scaling.
+    """
+    if speed_per_day < 0.0:
+        raise ValueError("mean-reversion speed must be non-negative")
+    if speed_per_day == 0.0:
+        return _idio_step_sigma(horizon_vol, horizon_days, total_days, n_periods)
+    dt = total_days / n_periods
+    horizon_decay = -np.expm1(-2.0 * speed_per_day * horizon_days)
+    step_decay = -np.expm1(-2.0 * speed_per_day * dt)
+    return float(horizon_vol * np.sqrt(step_decay / horizon_decay))
+
+
+def _mean_reverting_levels(
+    innovations: np.ndarray,
+    speed_per_day: float,
+    total_days: float,
+) -> np.ndarray:
+    """Convert period innovations into OU residual levels."""
+    if innovations.ndim != 2 or innovations.shape[0] < 1:
+        raise ValueError("innovations must have shape (periods, paths)")
+    if speed_per_day < 0.0:
+        raise ValueError("mean-reversion speed must be non-negative")
+    if speed_per_day == 0.0:
+        return np.cumsum(innovations, axis=0)
+    phi = float(np.exp(-speed_per_day * total_days / innovations.shape[0]))
+    levels = np.empty_like(innovations, dtype=float)
+    state = np.zeros(innovations.shape[1], dtype=float)
+    for period in range(innovations.shape[0]):
+        state = phi * state + innovations[period]
+        levels[period] = state
+    return levels
 
 
 @dataclass
@@ -100,6 +144,7 @@ class StressPaths:
     step_log_returns: np.ndarray
     peg_idio_steps: np.ndarray
     haircut_idio_steps: np.ndarray
+    total_days: float
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -130,8 +175,12 @@ def sample_stress_paths(
         n,
         rng,
     )
-    peg_sigma = _idio_step_sigma(
-        stress.peg_idio_vol, stress.horizon_days, total_days, n_periods
+    peg_sigma = _ou_step_sigma(
+        stress.peg_idio_vol,
+        stress.horizon_days,
+        total_days,
+        n_periods,
+        stress.peg_mean_reversion_speed,
     )
     haircut_sigma = _idio_step_sigma(
         stress.depth_idio_vol, stress.horizon_days, total_days, n_periods
@@ -140,6 +189,7 @@ def sample_stress_paths(
         step_log_returns=step_log_returns,
         peg_idio_steps=rng.normal(0.0, peg_sigma, (n_periods, n)),
         haircut_idio_steps=rng.normal(0.0, haircut_sigma, (n_periods, n)),
+        total_days=total_days,
     )
 
 
@@ -161,10 +211,15 @@ def terminal_scenarios_from_paths(
     log_return = paths.step_log_returns.sum(axis=0)
     eth_return = np.exp(log_return) - 1.0
     drawdown = np.maximum(0.0, -eth_return)
+    peg_residual = _mean_reverting_levels(
+        paths.peg_idio_steps,
+        stress.peg_mean_reversion_speed,
+        paths.total_days,
+    )[-1]
     peg_drop = np.clip(
         stress.base_peg_drop
         + stress.peg_crash_beta * drawdown
-        + paths.peg_idio_steps.sum(axis=0),
+        + peg_residual,
         0.0,
         stress.max_peg_drop,
     )
@@ -266,6 +321,7 @@ def simulate_multi_period(
             haircut_idio_steps[:, start:end],
             l0,
             depth_points,
+            total_days,
             replenish,
         )
         realized_arr[start:end], marks_arr[start:end] = out[0], out[1]
@@ -293,6 +349,7 @@ def _simulate_chunk(
     haircut_idio_steps: np.ndarray,
     l0: float,
     depth_points: list[list[float]] | None,
+    total_days: float,
     replenish: float,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     stress = config.stress
@@ -303,7 +360,11 @@ def _simulate_chunk(
 
     cum_log = np.cumsum(step_log_returns, axis=0)
     cum_ret = np.exp(cum_log) - 1.0
-    peg_walk = np.cumsum(peg_idio_steps, axis=0)
+    peg_walk = _mean_reverting_levels(
+        peg_idio_steps,
+        stress.peg_mean_reversion_speed,
+        total_days,
+    )
     haircut_walk = np.cumsum(haircut_idio_steps, axis=0)
 
     # Book state. ETH-denominated debt is kept at its time-zero USD value

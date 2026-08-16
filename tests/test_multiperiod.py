@@ -191,7 +191,7 @@ def test_no_replenishment_is_at_least_as_bad():
 
 
 def test_idio_step_sigma_scales_with_window():
-    from aave_risk_engine.multiperiod import _idio_step_sigma
+    from aave_risk_engine.multiperiod import _idio_step_sigma, _ou_step_sigma
 
     # Terminal variance over K steps must equal idio_vol^2 scaled by
     # total_days / horizon_days.
@@ -199,6 +199,13 @@ def test_idio_step_sigma_scales_with_window():
         sigma = _idio_step_sigma(0.004, 2.0, total_days, n_periods)
         terminal_var = n_periods * sigma**2
         assert np.isclose(terminal_var, 0.004**2 * total_days / 2.0)
+
+    # A mean-reverting residual preserves the calibrated horizon variance.
+    speed = np.log(2.0) / 2.0
+    sigma = _ou_step_sigma(0.004, 2.0, 2.0, 8, speed)
+    phi = np.exp(-speed * 2.0 / 8)
+    terminal_var = sigma**2 * sum(phi ** (2 * index) for index in range(8))
+    assert np.isclose(terminal_var, 0.004**2)
 
 
 def test_terminal_scenarios_match_path_endpoint():
@@ -214,6 +221,7 @@ def test_terminal_scenarios_match_path_endpoint():
         step_log_returns=np.log(np.array([[0.90, 1.05], [1.02, 0.95]])),
         peg_idio_steps=np.array([[0.001, -0.002], [0.003, 0.001]]),
         haircut_idio_steps=np.array([[0.02, -0.01], [0.01, 0.03]]),
+        total_days=2.0,
     )
     terminal = terminal_scenarios_from_paths(cfg, paths)
     expected_return = np.prod(np.exp(paths.step_log_returns), axis=0) - 1.0
@@ -239,6 +247,15 @@ def test_terminal_scenarios_match_path_endpoint():
         terminal.coll_price,
         cfg.asset.spot_price * (1.0 + expected_return) * (1.0 - expected_peg),
     )
+
+
+def test_mean_reverting_peg_residual_decays_between_periods():
+    from aave_risk_engine.multiperiod import _mean_reverting_levels
+
+    innovations = np.array([[0.02], [0.0], [0.0]])
+    speed = np.log(2.0)  # one-day half-life, with one-day periods
+    levels = _mean_reverting_levels(innovations, speed, total_days=3.0)
+    assert np.allclose(levels[:, 0], [0.02, 0.01, 0.005])
 
 
 def test_student_t_path_preserves_terminal_tail():

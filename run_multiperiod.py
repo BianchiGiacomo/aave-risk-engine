@@ -14,6 +14,7 @@ depth replenishes between periods.
 from __future__ import annotations
 
 import argparse
+import math
 from dataclasses import replace
 
 from .config import SimConfig, V4Liquidation
@@ -40,6 +41,12 @@ def main() -> None:
     parser.add_argument("--periods", type=int, default=8)
     parser.add_argument("--days", type=float, default=4.0)
     parser.add_argument("--replenish", type=float, default=1.0)
+    parser.add_argument(
+        "--peg-half-life-days",
+        type=float,
+        default=None,
+        help="OU half-life for the peg residual; 0 disables mean reversion",
+    )
     parser.add_argument("--min-target-share", type=float, default=0.5)
     parser.add_argument("--n-paths", type=int, default=20_000)
     parser.add_argument("--seed", type=int, default=7)
@@ -47,6 +54,18 @@ def main() -> None:
 
     snapshot = load_snapshot(args.snapshot)
     config = scenario_config_from_snapshot(snapshot)
+    if args.peg_half_life_days is not None:
+        if args.peg_half_life_days < 0.0:
+            parser.error("--peg-half-life-days must be non-negative")
+        peg_speed = (
+            math.log(2.0) / args.peg_half_life_days
+            if args.peg_half_life_days > 0.0
+            else 0.0
+        )
+        config.stress = replace(
+            config.stress,
+            peg_mean_reversion_speed=peg_speed,
+        )
     config.sim = SimConfig(n_scenarios=args.n_paths, seed=args.seed, chunk_size=2_000)
 
     v3_bonus = config.risk.liquidation_bonus
@@ -87,6 +106,13 @@ def main() -> None:
         f"block {snapshot.block:,} | {args.periods} x {dt:.2g}d = {args.days:.2g}d window "
         f"| depth replenish {args.replenish:.0%}"
     )
+    peg_speed = config.stress.peg_mean_reversion_speed
+    peg_label = (
+        f"{math.log(2.0) / peg_speed:.2f}d half-life"
+        if peg_speed > 0.0
+        else "disabled"
+    )
+    print(f"peg residual mean reversion: {peg_label}")
     print(
         "matched endpoints: each single and multi row shares the same terminal"
         " return, peg drop, and depth haircut; the configured terminal return"

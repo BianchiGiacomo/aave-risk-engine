@@ -155,6 +155,41 @@ def ratio_daily_vol(ratios: np.ndarray) -> float:
     return float(rets.std(ddof=1))
 
 
+def peg_mean_reversion_speed(
+    ratios: np.ndarray,
+    min_deviation: float = 1e-6,
+    min_observations: int = 10,
+    max_speed: float = 4.0,
+) -> float | None:
+    """Estimate daily OU speed from cleaned below-par peg deviations.
+
+    The no-intercept AR(1) coefficient estimates persistence toward par:
+    deviation[t+1] = phi * deviation[t] + noise. The equivalent continuous
+    speed is -log(phi) per day. Returns None when the series contains too
+    little below-par variation to identify persistence.
+    """
+    ratios = np.asarray(ratios, dtype=float)
+    if ratios.ndim != 1 or ratios.size < 2:
+        return None
+    deviation = np.maximum(0.0, 1.0 - ratios)
+    x = deviation[:-1]
+    y = deviation[1:]
+    active = x > min_deviation
+    if int(active.sum()) < min_observations:
+        return None
+    x = x[active]
+    y = y[active]
+    denominator = float(np.dot(x, x))
+    if denominator <= 0.0:
+        return None
+    phi = float(np.dot(x, y) / denominator)
+    if not np.isfinite(phi) or phi <= 0.0:
+        return None
+    if phi >= 1.0:
+        return 0.0
+    return float(np.clip(-np.log(phi), 0.0, max_speed))
+
+
 def arfc_peg_check(
     ratios: np.ndarray,
     threshold: float = ARFC_PEG_THRESHOLD,

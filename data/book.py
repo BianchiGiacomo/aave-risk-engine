@@ -123,5 +123,10 @@ def scenario_config_from_snapshot(
                 peg_idio_vol=snapshot.stress.peg_daily_vol
                 * float(np.sqrt(stress.horizon_days)),
             )
+        if snapshot.stress.peg_mean_reversion_speed is not None:
+            stress = replace(
+                stress,
+                peg_mean_reversion_speed=snapshot.stress.peg_mean_reversion_speed,
+            )
 
     return replace(cfg, asset=asset, risk=risk, liquidity=liquidity, stress=stress)

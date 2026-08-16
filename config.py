@@ -125,6 +125,9 @@ class StressConfig:
     base_peg_drop: float = 0.001
     peg_crash_beta: float = 0.25
     peg_idio_vol: float = 0.004
+    # OU speed for the idiosyncratic peg residual, in inverse days.
+    # Zero preserves the non-reverting random-walk convention.
+    peg_mean_reversion_speed: float = 0.0
     max_peg_drop: float = 0.30
 
     # Executable-depth haircut.

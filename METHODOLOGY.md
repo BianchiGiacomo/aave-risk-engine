@@ -111,6 +111,11 @@ rather than assumption:
   rate (the peg terms, with idiosyncratic peg volatility calibrated from
   ratio history) and depth evaporation, while stable-debt accounts keep
   the full USD price shock. The report shows both views.
+- **Peg persistence**: refreshed pegged-asset snapshots estimate a no-intercept
+  AR(1) coefficient on cleaned below-par deviations and convert it to a daily
+  OU speed. The dashboard exposes the equivalent half-life. A value of zero
+  disables mean reversion; committed snapshots without this newer calibration
+  retain that conservative random-walk baseline.
 - **Return law**: annualized realized volatility from daily closes; the
   Student-t degrees of freedom are matched to sample excess kurtosis
   (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy. Assets with
@@ -143,17 +148,23 @@ Every comparison uses matched endpoints: the single-shock and evolving rows
 share the exact terminal return, peg drop, and depth haircut on each path.
 Gaussian and jump-diffusion returns use coherent increments. Student-t paths
 use one shared variance mixture per path, so subdividing the horizon preserves
-the configured terminal Student-t law instead of thinning its tail. Peg and
-depth idiosyncratic terms follow random walks with the calibrated terminal
-variance, while crash-coupled terms respond to running drawdown.
+the configured terminal Student-t law instead of thinning its tail. The peg
+drop is the clipped sum of base stress, crash beta times running ETH drawdown,
+and an OU idiosyncratic residual. If `kappa` is the daily speed and `dt` the
+period length, that residual follows `x[t] = exp(-kappa * dt) * x[t-1] + eps[t]`.
+Innovation variance is scaled so the peg residual retains its calibrated
+variance at the configured horizon. At `kappa = 0` this reduces exactly to the
+previous random walk. The depth idiosyncratic term remains a random walk.
 
 Differences between the rows therefore come from liquidation timing and book
 evolution, not different terminal scenario distributions. Intermediate clears
 can deleverage positions, stalled positions can recover, and consumed depth can
-replenish. These effects need not reduce losses: when a whale never clears, the
-single-shock and evolving results can be almost identical. With one period and
-identical shocks the simulator reproduces the single-period ordered engine
-exactly (tested).
+replenish. These effects need not reduce losses. Early partial clears can also
+pay bonuses and consume collateral and depth without creating enough health
+factor buffer, making the evolving result worse than terminal-only liquidation.
+When a whale never clears, the single-shock and evolving results can be almost
+identical. With one period and identical shocks the simulator reproduces the
+single-period ordered engine exactly (tested).
 
 ## Rare-Event Reporting
 

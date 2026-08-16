@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import math
 import os
 import subprocess
 import sys
@@ -25,6 +26,7 @@ from aave_risk_engine.dashboard_analysis import (
     run_v4_analysis,
 )
 from aave_risk_engine.data import load_snapshot, snapshot_from_json, snapshot_to_json
+from aave_risk_engine.data.book import scenario_config_from_snapshot
 
 
 _PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -51,10 +53,12 @@ _MARKETS = {
     },
 }
 _LIVE_REFRESH_TIMEOUT_S = 360
+_V4_MODEL_VERSION = "spoke-severity-v2"
+_MULTIPERIOD_MODEL_VERSION = "ou-peg-v3"
 
 
-def _fmt_usd(value: float) -> str:
-    if not np.isfinite(value):
+def _fmt_usd(value: float | None) -> str:
+    if value is None or not np.isfinite(value):
         return "n/a"
     for unit, divisor in (("bn", 1e9), ("m", 1e6), ("k", 1e3)):
         if abs(value) >= divisor:
@@ -147,7 +151,9 @@ def _cached_v4_analysis(
     min_target_share: float,
     n_scenarios: int,
     seed: int,
+    model_version: str,
 ):
+    del model_version  # Included in the Streamlit cache key.
     return run_v4_analysis(
         snapshot_from_json(payload), scope, min_target_share, n_scenarios, seed
     )
@@ -187,7 +193,10 @@ def _cached_multiperiod_analysis(
     n_periods: int,
     total_days: float,
     replenish: float,
+    peg_mean_reversion_speed: float,
+    model_version: str,
 ):
+    del model_version  # Included in the Streamlit cache key.
     return run_multiperiod_analysis(
         snapshot_from_json(payload),
         scope,
@@ -197,6 +206,7 @@ def _cached_multiperiod_analysis(
         n_periods,
         total_days,
         replenish,
+        peg_mean_reversion_speed,
     )
 
 
@@ -398,6 +408,21 @@ def _scenario_parameter_rows(analysis, snapshot, scope: str, min_target_share: f
             "Idiosyncratic volatility",
             f"{stress.peg_idio_vol:.3%}",
             "Historical calibration",
+        ),
+        (
+            "Peg",
+            "Residual mean-reversion half-life",
+            (
+                f"{math.log(2.0) / stress.peg_mean_reversion_speed:.2f} days"
+                if stress.peg_mean_reversion_speed > 0.0
+                else "Disabled"
+            ),
+            (
+                "Historical calibration"
+                if snapshot.stress is not None
+                and snapshot.stress.peg_mean_reversion_speed is not None
+                else "Model assumption"
+            ),
         ),
         ("Peg", "Maximum peg drop", f"{stress.max_peg_drop:.1%}", "Model limit"),
         (
@@ -609,6 +634,15 @@ def _clearance_tab(analysis, snapshot) -> None:
         "does not remove its potential collateral sale from the depth test."
     )
     st.caption(
+        "Largest clearance sale is the smaller of target collateral and debt plus "
+        f"the {snapshot.reserve.liquidation_bonus:.2%} liquidation bonus: "
+        f"min({_fmt_usd(clearance.largest_target_collateral_usd)}, "
+        f"{_fmt_usd(clearance.largest_debt_usd)} x "
+        f"{1.0 + snapshot.reserve.liquidation_bonus:.2f}) = "
+        f"{_fmt_usd(clearance.largest_borrower_usd)}. Collateral above that amount "
+        "is not seized in this full-liquidation clearance test."
+    )
+    st.caption(
         "Max clearable is the largest quiet-market sale whose modeled average slippage "
         "does not exceed the liquidator break-even threshold. The 50% depth result "
         "assumes clearable capacity scales linearly with remaining depth."
@@ -645,14 +679,17 @@ def _clearance_tab(analysis, snapshot) -> None:
 
 def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: int, seed: int) -> None:
     state_key = "dashboard_v4_result"
+    versioned_context = f"{context_key}|{_V4_MODEL_VERSION}"
     if st.button("Run V3 / V4 comparison", type="primary"):
         with st.spinner("Running matched scenarios across mechanics with ordered clearing..."):
             st.session_state[state_key] = (
-                context_key,
-                _cached_v4_analysis(payload, scope, share, n_scen, seed),
+                versioned_context,
+                _cached_v4_analysis(
+                    payload, scope, share, n_scen, seed, _V4_MODEL_VERSION
+                ),
             )
     stored = st.session_state.get(state_key)
-    if not stored or stored[0] != context_key:
+    if not stored or stored[0] != versioned_context:
         st.info("Run the comparison for the active snapshot and book.")
         return
     rows = stored[1]
@@ -671,14 +708,16 @@ def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: in
     )
     table = pd.DataFrame(rows).copy()
     table["P(bad debt)"] = table["P(bad debt)"].map(lambda value: f"{value:.3%}")
-    for column in ("Mean bad debt", "VaR99", "CVaR99"):
+    for column in ("Mean bad debt", "Severity if loss", "VaR99", "CVaR99"):
         table[column] = table[column].map(_fmt_usd)
     table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
         "This is a mechanics counterfactual, not a measurement of a live V4 market. "
         "The V3 row uses the selected V3 reserve, borrower book, and on-chain risk "
-        "parameters. Both V4 rows apply documented Main and Correlated Spoke "
+        "parameters. V4 Main is the general-purpose Main Spoke configuration. "
+        "V4 Correlated is the configuration for correlated collateral and debt, "
+        "such as LST/WETH strategies. Both V4 rows apply those documented Spoke "
         "liquidation configurations to that same V3 book, with scenarios, depth, "
         "liquidation trigger, and ordered execution held fixed."
     )
@@ -688,6 +727,13 @@ def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: in
         "applies the floor as a minimum repayment fraction. Dynamic bonus and dust "
         "handling also differ from V3. Bonus interpolation between documented "
         "anchors is a modeling assumption."
+    )
+    st.caption(
+        "Expected bad debt is P(bad debt) times average severity conditional on a "
+        "loss. CVaR99 averages the worst 1% of all scenarios. When fewer than 1% "
+        "of scenarios lose and every loss lies in that tail, CVaR99 equals expected "
+        "bad debt divided by 1%, so it is exactly 100 times expected bad debt. This "
+        "is a sparse-tail identity, not a V4 scaling factor."
     )
 
 
@@ -748,23 +794,55 @@ def _multiperiod_tab(
     default_paths: int,
     seed: int,
 ) -> None:
-    controls = st.columns(4)
-    periods = int(controls[0].number_input("Periods", 1, 24, 8, 1))
-    days = float(controls[1].number_input("Window (days)", 1.0, 14.0, 4.0, 0.5))
-    replenish = float(controls[2].slider("Depth replenishment", 0.0, 1.0, 1.0, 0.1))
+    path_controls = st.columns(3)
+    periods = int(path_controls[0].number_input("Periods", 1, 24, 8, 1))
+    days = float(path_controls[1].number_input("Window (days)", 1.0, 14.0, 4.0, 0.5))
     paths = int(
-        controls[3].select_slider(
+        path_controls[2].select_slider(
             "Paths", [5_000, 10_000, 20_000], value=min(default_paths, 20_000)
         )
     )
-    context_key = f"{base_context}|{periods}|{days}|{replenish}|{paths}"
+    configured_speed = scenario_config_from_snapshot(
+        snapshot_from_json(payload)
+    ).stress.peg_mean_reversion_speed
+    configured_half_life = (
+        math.log(2.0) / configured_speed if configured_speed > 0.0 else 0.0
+    )
+    stress_controls = st.columns(2)
+    replenish = float(
+        stress_controls[0].slider("Depth replenishment", 0.0, 1.0, 1.0, 0.1)
+    )
+    peg_half_life = float(
+        stress_controls[1].number_input(
+            "Peg residual half-life (days)",
+            min_value=0.0,
+            max_value=30.0,
+            value=min(configured_half_life, 30.0),
+            step=0.5,
+            help="Zero disables mean reversion and preserves the random-walk baseline.",
+        )
+    )
+    peg_speed = math.log(2.0) / peg_half_life if peg_half_life > 0.0 else 0.0
+    context_key = (
+        f"{base_context}|{periods}|{days}|{replenish}|{paths}|{peg_speed}|"
+        f"{_MULTIPERIOD_MODEL_VERSION}"
+    )
     state_key = "dashboard_multiperiod_result"
     if st.button("Run multi-period comparison", type="primary"):
         with st.spinner("Evolving books across stress paths..."):
             st.session_state[state_key] = (
                 context_key,
                 _cached_multiperiod_analysis(
-                    payload, scope, share, paths, seed, periods, days, replenish
+                    payload,
+                    scope,
+                    share,
+                    paths,
+                    seed,
+                    periods,
+                    days,
+                    replenish,
+                    peg_speed,
+                    _MULTIPERIOD_MODEL_VERSION,
                 ),
             )
     stored = st.session_state.get(state_key)
@@ -808,6 +886,22 @@ def _multiperiod_tab(
         "can fall below HF 1 again after a later adverse step. Only consumed depth "
         "replenishes according to the selected control; at 100%, consumed capacity "
         "is restored before the next step, but the prevailing depth haircut remains."
+    )
+    st.caption(
+        "Multi-period CVaR is not constrained to be below single-shock CVaR. Early "
+        "partial clears pay liquidation bonuses, reduce collateral, and consume depth. "
+        "With partial replenishment, those costs can outweigh deleveraging if the "
+        "restored HF buffer is small; a higher target HF can reverse that result."
+    )
+    st.caption(
+        "At each period, peg drop equals the clipped sum of base peg stress, crash "
+        "beta times cumulative ETH drawdown, and an idiosyncratic OU residual. "
+        + (
+            f"The selected residual half-life is {peg_half_life:g} days."
+            if peg_half_life > 0.0
+            else "Mean reversion is disabled, so the residual is a random walk."
+        )
+        + " The peg is never reset mechanically between periods."
     )
 
 
@@ -876,10 +970,6 @@ def main() -> None:
     st.sidebar.title("Market controls")
     market_name = st.sidebar.selectbox("Real market", list(_MARKETS))
     market = _MARKETS[market_name]
-    #st.sidebar.caption(
-    #    "Each selection is a target reserve inside an Aave V3 deployment, not an "
-    #    "isolated two-asset market. Account totals may include other collateral and debt."
-    #)
     scope = st.sidebar.selectbox("Borrower book", ["USD debt", "Combined"])
     share = float(st.sidebar.slider("Minimum target share", 0.5, 0.9, 0.5, 0.1))
     scenarios = int(

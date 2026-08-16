@@ -61,7 +61,7 @@ def _variants(config, ordered: bool = True):
     base = replace(config.risk, ordered_queue=ordered)
     return {
         "V3 selected reserve": base,
-        "V4 Main config (target HF 1.24)": replace(
+        "V4 Main Spoke (target HF 1.24)": replace(
             base,
             v4=V4Liquidation(
                 target_health_factor=1.24,
@@ -71,7 +71,7 @@ def _variants(config, ordered: bool = True):
                 close_factor_floor=0.60,
             ),
         ),
-        "V4 Correlated config (target HF 1.0137)": replace(
+        "V4 Correlated Spoke (target HF 1.0137)": replace(
             base,
             v4=V4Liquidation(
                 target_health_factor=1.0137,
@@ -212,6 +212,7 @@ def run_v4_analysis(
                 "P(bad debt)": result.prob_bad_debt,
                 "Positive-loss draws": result.positive_loss_count,
                 "Mean bad debt": result.mean,
+                "Severity if loss": result.conditional_mean_bad_debt,
                 "VaR99": result.var,
                 "CVaR99": result.cvar,
             }
@@ -271,9 +272,18 @@ def run_multiperiod_analysis(
     n_periods: int,
     total_days: float,
     replenish: float,
+    peg_mean_reversion_speed: float | None = None,
 ) -> list[dict]:
     """Compare matched terminal shocks with evolving books for V3 and V4."""
     config = _config(snapshot, n_paths, seed)
+    if peg_mean_reversion_speed is not None:
+        config = replace(
+            config,
+            stress=replace(
+                config.stress,
+                peg_mean_reversion_speed=peg_mean_reversion_speed,
+            ),
+        )
     book = _book(snapshot, scope, min_target_share)
     paths = sample_stress_paths(config, n_periods, total_days, n_paths, seed)
     terminal = terminal_scenarios_from_paths(config, paths)

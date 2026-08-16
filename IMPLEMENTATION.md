@@ -50,7 +50,8 @@ The tests check:
 - close-factor liquidation sizing,
 - cap/LT monotonicity,
 - return-law dispatch and tail shape,
-- terminal-law preservation and matched multi-period endpoints,
+- terminal-law preservation, matched multi-period endpoints, and OU peg
+  residual variance scaling,
 - Hub diversification,
 - correlation sensitivity,
 - deeper-liquidity allocation,
@@ -61,7 +62,7 @@ The tests check:
 - book scaling preserving health factors,
 - depth-fit recovery of known liquidity,
 - vol / Student-t tail estimators,
-- the ARFC peg rule and clearance-test math,
+- the ARFC peg rule, peg-persistence estimator, and clearance-test math,
 - the committed snapshot loading and running offline.
 
 All data-layer tests are offline; network code paths run only in

@@ -86,7 +86,7 @@ CHAINS: dict[str, ChainConfig] = {
             "https://linea.drpc.org",
             "https://1rpc.io/linea",
         ),
-        # rpc.linea.build serves 100k-block log ranges; drpc caps at 10k.
+        # Public Linea endpoints cap eth_getLogs ranges at 10k blocks.
         log_endpoints=("https://rpc.linea.build",),
         tokens={
             "WETH": "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f",
@@ -96,7 +96,7 @@ CHAINS: dict[str, ChainConfig] = {
             "wstETH": "0xB5beDd42000b71FddE22D3eE8a79Bd49A568fC8F",
             "weETH": "0x1Bf74C010E6320bab11e2e5A532b5AC15e0b8aA6",
         },
-        log_chunk_blocks=100_000,
+        log_chunk_blocks=10_000,
         block_time_s=2.0,
         paraswap_network=None,
         kyber_slug="linea",

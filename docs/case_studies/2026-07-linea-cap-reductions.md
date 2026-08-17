@@ -7,7 +7,7 @@ built from public keyless sources, reaches the same conclusions from the
 same market.
 
 Sections 1 through 4 preserve the initial July 18 reproduction. The July 30
-release evidence and updated clearance figure appear in the addendum.
+and August 17 refreshes appear in the addendum.
 
 ## The Decision
 
@@ -131,23 +131,25 @@ Linea WETH liquidation capacity cannot clear even its largest single
 borrower within the liquidation bonus, so shrinking cap headroom toward
 observed usage was the right risk call.
 
-## Addendum (July 30, 2026)
+## Addendum: July 30 And August 17 Refreshes
 
-A fresh snapshot twelve days later (block 31,568,531) shows:
+Two later snapshots show that the independent clearance estimate remained
+close to LlamaRisk's reference while the verdict stayed unchanged:
 
-| Quantity | Jul 18 | Jul 30 |
-|---|---:|---:|
-| Max clearable within bonus | $32,500 | $41,770 |
-| Slippage at a $41k sale | 6.98% | 5.06% |
-| Largest borrower sale | $46,400 | $46,440 (still FAIL) |
-| WETH supplied | 4,970 | 4,831 |
-| Caps (supply / borrow) | 6,250 / 2,370 | unchanged |
+| Quantity | Jul 18 | Jul 30 | Aug 17 |
+|---|---:|---:|---:|
+| Snapshot block | 31,426,233 | 31,568,531 | 31,741,470 |
+| Max clearable within bonus | $32,500 | $41,770 | $42,420 |
+| Slippage at a $41k sale | 6.98% | 5.06% | 4.59% |
+| Largest borrower sale | $46,400 | $46,440 | $46,560 (still FAIL) |
+| WETH supplied | 4,970 | 4,831 | 4,641 |
+| Caps (supply / borrow) | 6,250 / 2,370 | unchanged | unchanged |
 
 ![Linea WETH empirical depth](../assets/linea_weth_depth.png)
 
-The figure uses the July 30 KyberSwap quote ladder. The black marker is
+The figure uses the August 17 KyberSwap quote ladder. The black marker is
 LlamaRisk's approximately $41,000 reference size, the orange marker is the
-$46,440 largest sampled borrower sale, and the horizontal line is liquidator
+$46,560 largest sampled borrower sale, and the horizontal line is liquidator
 break-even at 5.66%.
 
 Rebuild it from the committed snapshot with:
@@ -156,9 +158,16 @@ Rebuild it from the committed snapshot with:
 python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure
 ```
 
-Our clearance measure moved from below LlamaRisk's ~$41,000 figure to
-almost exactly on it, consistent with a noisy but unbiased independent
-estimate of the same underlying quantity. The market itself drifted the
-way the Stewards intended: supply edged down and the borrow cap still
-binds. The clearance verdict is unchanged, since the largest borrower
-still cannot be liquidated within the bonus on instant on-chain depth.
+The July 30 snapshot remains recoverable at commit `5876690`. The committed
+release snapshot and figure now use August 17.
+
+Borrower-book rows are not a clean panel across the three vintages because
+discovery coverage changed. Reserve totals, caps, and quote ladders are direct
+observations and do not depend on that borrower sample.
+
+Our clearance measure moved from below LlamaRisk's approximately $41,000
+figure to close to it on two separate refreshes. This is consistent with a
+noisy independent estimate of the same underlying quantity. Reserve-level
+supply continued to fall, and the clearance verdict is unchanged: the largest
+sampled borrower still cannot be liquidated within the bonus on instant
+on-chain depth.

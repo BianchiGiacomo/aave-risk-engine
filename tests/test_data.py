@@ -28,6 +28,11 @@ from aave_risk_engine.dashboard_analysis import (
 )
 from aave_risk_engine.data.aave_v3 import _addr_arg, _word_to_address, _words
 from aave_risk_engine.data.book import build_real_book, scenario_config_from_snapshot
+from aave_risk_engine.data.build_snapshot import (
+    DEFAULT_SCAN_BLOCKS,
+    MARKET_LADDERS_USD,
+    _merge_borrower_addresses,
+)
 from aave_risk_engine.data.clearance import arfc_clearance_test, max_clearable_notional
 from aave_risk_engine.data.depth import fit_depth, quotes_to_slippage_points
 from aave_risk_engine.data.markets import (
@@ -790,6 +795,19 @@ def test_chain_configs_are_well_formed():
         assert chain.paraswap_network is not None or chain.kyber_slug is not None
     assert CHAINS["ethereum"].tokens is TOKENS
     assert CHAINS["ethereum"].pool.lower() == "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2"
+    assert CHAINS["linea"].log_chunk_blocks <= 10_000
+
+
+def test_refresh_borrower_seed_retains_dormant_accounts():
+    discovered = ["0x" + "11" * 20, "0x" + "22" * 20]
+    seeded = ["0x" + "22" * 20, "0x" + "AA" * 20]
+    merged = _merge_borrower_addresses(discovered, tuple(seeded))
+    assert merged == sorted({address.lower() for address in discovered + seeded})
+
+
+def test_linea_refresh_uses_small_market_quote_ladder():
+    assert MARKET_LADDERS_USD[("linea", "WETH")][:3] == (5e3, 15e3, 41e3)
+    assert DEFAULT_SCAN_BLOCKS["linea"] == 1_200_000
 
 
 def test_committed_snapshot_loads_offline():

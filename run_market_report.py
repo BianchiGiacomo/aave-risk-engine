@@ -131,7 +131,7 @@ def _write_manifest(
             "python",
             "-m",
             "aave_risk_engine.run_market_report",
-            *sys.argv[1:],
+            *(argument.replace("\\", "/") for argument in sys.argv[1:]),
         ],
         "snapshot": {
             "file": os.path.relpath(snapshot_path, project_dir).replace("\\", "/"),
@@ -266,10 +266,11 @@ def main() -> None:
         chain = CHAINS.get(snapshot.chain)
         block_time = chain.block_time_s if chain else 12.0
         days = snapshot.scan_blocks * block_time / 86_400
-        print(
-            f"borrower sample: Borrow events over the last {snapshot.scan_blocks:,} blocks "
-            f"(~{days:.0f} days); dormant borrowers outside that window are not sampled"
+        source = snapshot.notes or (
+            f"Borrow events over the last {snapshot.scan_blocks:,} blocks; "
+            "dormant borrowers outside that window may be missed."
         )
+        print(f"borrower sample (~{days:.0f} day event window): {source}")
     elif snapshot.notes:
         print(f"borrower sample: {snapshot.notes}")
     print(

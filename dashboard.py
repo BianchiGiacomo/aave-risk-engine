@@ -95,6 +95,8 @@ def _refresh_snapshot(market: dict):
             "--rpc-retries",
             "1",
             "--no-borrower-cache",
+            "--seed-snapshot",
+            market["path"],
             "--out",
             output_path,
         ]
@@ -939,7 +941,8 @@ def _data_tab(snapshot, payload: str, source: str) -> None:
     source_rows.append(
         {
             "Input": "Borrower discovery",
-            "Source": f"Borrow events over {snapshot.scan_blocks or 0:,} blocks",
+            "Source": snapshot.notes
+            or f"Borrow events over {snapshot.scan_blocks or 0:,} blocks",
         }
     )
     st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
@@ -950,7 +953,8 @@ def _data_tab(snapshot, payload: str, source: str) -> None:
         mime="application/json",
     )
     st.caption(
-        "Dormant borrowers outside the scan window may be missed. Real books use an effective single-asset mapping."
+        "Dormant borrowers absent from the event scan and prior snapshot may be missed. "
+        "Real books use an effective single-asset mapping."
     )
 
 

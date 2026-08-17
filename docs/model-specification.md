@@ -438,7 +438,7 @@ Economic invariants and regression cases are in `tests/test_engine.py`,
 
 The current implementation does not provide:
 
-- complete borrower discovery outside the configured Borrow-event window;
+- complete borrower discovery beyond the event scan and prior-snapshot seed;
 - borrower-level correlated shocks across every collateral and debt asset;
 - CEX, OTC, redemption-queue, or time-to-exit capacity;
 - importance sampling for rare losses;

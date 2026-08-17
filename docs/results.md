@@ -1,21 +1,21 @@
 # Results
 
 This page is the consolidated results narrative for the real-data analyses.
-It separates the pinned July 30 market evidence from demonstrations that
+It separates the pinned August 17 market evidence from demonstrations that
 depended on an earlier exposure regime.
 
 ## Data Vintage
 
-The committed release snapshots were built on July 30, 2026:
+The committed release snapshots were built on August 17, 2026:
 
 | Market | Block |
 |---|---:|
-| Ethereum mainnet wstETH | 25,645,558 |
-| Linea WETH | 31,568,531 |
+| Ethereum mainnet wstETH | 25,773,934 |
+| Linea WETH | 31,741,470 |
 
-Borrower discovery uses recent Borrow events, so dormant accounts outside the
-scan window may be absent. The reports use committed snapshots and run
-offline.
+Borrower discovery combines recent Borrow events with addresses from the
+prior pinned snapshot. Dormant accounts absent from both sources may still be
+missed. The reports use committed snapshots and run offline.
 
 ## 1. Mainnet wstETH Market Report
 
@@ -25,55 +25,58 @@ Command:
 python -m aave_risk_engine.run_market_report --manifest market-report.json
 ```
 
-Trimmed output from the July 30 mainnet snapshot at block 25,645,558:
+Trimmed output from the August 17 mainnet snapshot at block 25,773,934:
 
 ```text
-USD-debt book entering the engine: 36 accounts | debt $142.35m | collateral $374.77m | median HF 1.85
+USD-debt book entering the engine: 43 accounts | debt $343.19m | collateral $933.76m | median HF 1.89
 
 Tail risk at observed book exposure
-  positive draws: 5 / 20,000
-  P(bad debt)  : 0.025% (95% Wilson CI 0.011% to 0.059%)
-  expected loss: $3.61k
-  loss severity: $14.43m conditional on positive loss
+  positive draws: 33 / 20,000
+  P(bad debt)  : 0.165% (95% Wilson CI 0.118% to 0.232%)
+  expected loss: $8.15k
+  loss severity: $4.94m conditional on positive loss
   VaR99        : $0
-  CVaR99       : $360.66k (worst 200 draws)
-  WARNING: fewer than 30 positive-loss draws; CVaR and conditional severity are low-sample estimates
+  CVaR99       : $814.88k (worst 200 draws)
 
 Combined book with ETH-denominated debt modeled
-  full book: 40 accounts | debt $449.92m (of which ETH-denominated $307.37m)
-  P(bad debt) 0.11% | VaR99 $0 | CVaR99 $20.95m
+  full book: 45 accounts | debt $604.47m (of which ETH-denominated $261.08m)
+  P(bad debt) 0.17% | VaR99 $0 | CVaR99 $10.57m
 
 Model-safe debt exposure (CVaR99 budget $5.00m)
-  observed book debt : $142.35m
-  model safe exposure: $427.05m
-  headroom           : +$284.70m (+200%)
+  observed book debt : $343.19m
+  model safe exposure: $1.03bn
+  headroom           : +$686.39m (+200%)
 
 ARFC clearance test (largest borrower within liquidation bonus)
-  largest borrower sale          : $307.60m
+  largest borrower sale          : $276.47m
   largest borrower account       : 0x893aa69fbaa1ee81b536f0fbe3a3453e86290080
-  target collateral / debt       : $320.36m / $290.19m
+  target collateral / debt       : $289.63m / $260.82m
   ETH-denominated debt share     : 100.00%
   caution: the sale exceeds the quote ladder top ($25.00m)
-  quiet depth    : slippage >= 75.74% | max clearable $2.60m -> FAIL
+  quiet depth    : slippage >= 74.45% | max clearable $2.71m -> FAIL
 ```
 
-The USD debt book appears benign under this exploratory calibration. The cap
-sweep reaches 300% of observed exposure while remaining below the 5 million
-dollar CVaR budget, so it demonstrates at least 200% tested headroom rather
-than locating the binding maximum. Five positive draws are not enough to treat
-the precise CVaR or conditional severity as publication-grade estimates. The
-Wilson interval quantifies probability uncertainty; targeted rare-event
-sampling is needed to tighten tail severity.
+The USD debt book remains below budget under this exploratory calibration.
+The cap sweep reaches 300% of observed exposure while remaining below the 5
+million dollar CVaR budget, so it demonstrates at least 200% tested headroom
+rather than locating the binding maximum. The August book is not a clean
+like-for-like successor to July. Nineteen addresses absent from the July file
+contribute $167.53 million of August debt, including two entrants with $64.17
+million and $51.90 million. The ordinary August event scan found those
+entrants; prior-snapshot seeding only prevents known borrowers from dropping
+out. The 2.4 times exposure increase therefore mixes improved discovery
+coverage with market movement, and targeted rare-event sampling is still
+needed to tighten tail severity.
 The combined book tells a different story. Rare peg and depth stress reaches
-large ETH debt loopers, producing a 20.95 million dollar CVaR despite only a
-0.11% bad debt probability.
+large ETH debt loopers, producing a 10.57 million dollar CVaR despite only a
+0.17% bad debt probability.
 
 The strict ARFC clearance test fails because the largest borrower sale is
-about 308 million dollars against 2.6 million dollars of instant clearable
+about 276 million dollars against 2.71 million dollars of instant clearable
 depth. This is an instant routed on-chain test. A wstETH liquidator can also
 use the redemption queue over days, which the strict test does not credit.
-The 75.74% figure is the last observed Paraswap ladder point and only a lower
-bound for the 307.60 million dollar sale, not an extrapolated whale quote.
+The 74.45% figure is the last observed Paraswap ladder point and only a lower
+bound for the 276.47 million dollar sale, not an extrapolated whale quote.
 Large Paraswap ladder points are indicative best routes and not guaranteed
 execution.
 The main conclusion is therefore about concentration versus immediate exit
@@ -90,37 +93,38 @@ Command:
 python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure
 ```
 
-Trimmed output from the July 30 Linea snapshot at block 31,568,531:
+Trimmed output from the August 17 Linea snapshot at block 31,741,470:
 
 ```text
-Aave V3 WETH market report (linea) | block 31,568,531 (2026-07-30)
+Aave V3 WETH market report (linea) | block 31,741,470 (2026-08-17)
 
 Tail risk at observed book exposure
   positive draws: 1 / 20,000
   P(bad debt)  : 0.005% (95% Wilson CI 0.001% to 0.028%)
-  expected loss: $0.43
-  loss severity: $8.69k conditional on positive loss
+  expected loss: $0.94
+  loss severity: $18.82k conditional on positive loss
   VaR99        : $0
-  CVaR99       : $43 (worst 200 draws)
+  CVaR99       : $94 (worst 200 draws)
   WARNING: fewer than 30 positive-loss draws; CVaR and conditional severity are low-sample estimates
 
 ARFC clearance test (largest borrower within liquidation bonus)
   liquidator break-even slippage : 5.66%
-  largest borrower sale          : $46.44k
-  quiet depth    : slippage 8.61% | max clearable $41.77k -> FAIL
-  stressed depth (50% haircut) : slippage 27.85% | max clearable $20.88k -> FAIL
+  largest borrower sale          : $46.56k
+  quiet depth    : slippage 8.61% | max clearable $42.42k -> FAIL
+  stressed depth (50% haircut) : slippage 30.55% | max clearable $21.21k -> FAIL
 ```
 
 The independent clearance estimate moved from 32.5 thousand dollars on July
-18 to 41.8 thousand dollars on July 30, almost exactly matching
-LlamaRisk's approximately 41 thousand dollar estimate, while the formal
-clearance verdict remains FAIL because the largest borrower sale is about
-46.4 thousand dollars.
+18 to 41.8 thousand dollars on July 30 and 42.4 thousand dollars on August
+17. Both refreshes remain close to LlamaRisk's approximately 41 thousand
+dollar estimate, while the formal clearance verdict remains FAIL because the
+largest borrower sale is about 46.6 thousand dollars.
 
 The Linea run also illustrates why sparse-loss reporting needs both frequency
-and conditional severity. Its only positive draw loses $8.69k, while CVaR99 is
-$43 because the other 199 draws in the worst 1% are zero. No simulated outcome
-loses $43: it is an unconditional risk-budget statistic, not event severity.
+and conditional severity. Its only positive draw loses $18.82k, while CVaR99
+is $94 because the other 199 draws in the worst 1% are zero. No simulated
+outcome loses $94: it is an unconditional risk-budget statistic, not event
+severity.
 
 ## 3. Historical Episode Replay
 
@@ -130,26 +134,26 @@ Command:
 python -m aave_risk_engine.run_episode_replay
 ```
 
-This replay uses the July 30 mainnet book at block 25,645,558. It applies
+This replay uses the August 17 mainnet book at block 25,773,934. It applies
 historical price and peg paths to that snapshot's positions and depth. It does
 not reconstruct historical borrower books.
 
 ```text
-Historical episode replay | wstETH (ethereum) block 25,645,558 | horizon 2d
+Historical episode replay | wstETH (ethereum) block 25,773,934 | horizon 2d
 
 Episode: ftx-2022 (2022-11-01 to 2022-11-30)
   combined book :  quiet depth: max bad debt        $0  stressed depth: max bad debt        $0
 
 Episode: steth-depeg-2022 (2022-05-01 to 2022-06-29)
-  combined book :  quiet depth: max bad debt  $227.62m (2022-06-16)  stressed depth: max bad debt  $227.62m (2022-06-16)
-  driving windows (combined, quiet): 2022-06-16 (eth +1.8%, peg 4.93%) $227.62m
+  combined book :  quiet depth: max bad debt  $175.84m (2022-06-15)  stressed depth: max bad debt  $175.84m (2022-06-15)
+  driving windows (combined, quiet): 2022-06-15 (eth -11.2%, peg 5.65%) $175.84m
 
 Episode: usdc-depeg-2023 (2023-02-28 to 2023-03-20)
   combined book :  quiet depth: max bad debt        $0  stressed depth: max bad debt        $0
 ```
 
-The June 2022 peg window activates the whale channel and produces 227.62
-million dollars of bad debt on the July 30 combined book. The FTX and USDC
+The June 2022 peg window activates the whale channel and produces 175.84
+million dollars of bad debt on the August 17 combined book. The FTX and USDC
 windows are clean for the modeled collateral channels. The timing matters:
 the worst realized peg moves need not coincide with the worst ETH return
 windows. A contemporaneous crash beta can therefore overstate or misplace
@@ -186,20 +190,21 @@ The July 16 snapshot is recoverable as
 `data/snapshots/aave_v3_ethereum_wsteth.json` at commit `ac9f2ae`. Pass that
 JSON to the current CLI through `--snapshot` to reproduce the older block.
 
-The July 30 snapshot at block 25,645,558 is a different regime:
+The August 17 snapshot at block 25,773,934 is a different regime:
 
 ```text
-combined book ($449.92m)
-  V3 (on-chain params)  aggregate: P(bad debt)  0.11% | mean $209.48k | VaR99        $0 | CVaR99   $20.95m
-  V3 (on-chain params)  ordered  : P(bad debt)  0.11% | mean $205.36k | VaR99        $0 | CVaR99   $20.54m
-  V4 Main Spoke         aggregate: P(bad debt)  0.11% | mean $209.48k | VaR99        $0 | CVaR99   $20.95m
-  V4 Main Spoke         ordered  : P(bad debt)  0.11% | mean $208.34k | VaR99        $0 | CVaR99   $20.83m
-  V4 correlated Spoke   aggregate: P(bad debt)  0.11% | mean $209.48k | VaR99        $0 | CVaR99   $20.95m
-  V4 correlated Spoke   ordered  : P(bad debt)  0.11% | mean $206.39k | VaR99        $0 | CVaR99   $20.64m
+combined book ($604.47m)
+  V3 (on-chain params)  aggregate: P(bad debt)  0.17% | mean $105.66k | VaR99        $0 | CVaR99   $10.57m
+  V3 (on-chain params)  ordered  : P(bad debt)  0.17% | mean $100.67k | VaR99        $0 | CVaR99   $10.07m
+  V4 Main Spoke         aggregate: P(bad debt)  0.17% | mean $105.57k | VaR99        $0 | CVaR99   $10.56m
+  V4 Main Spoke         ordered  : P(bad debt)  0.17% | mean $102.02k | VaR99        $0 | CVaR99   $10.20m
+  V4 correlated Spoke   aggregate: P(bad debt)  0.07% | mean $105.45k | VaR99        $0 | CVaR99   $10.55m
+  V4 correlated Spoke   ordered  : P(bad debt)  0.07% | mean  $99.48k | VaR99        $0 | CVaR99    $9.95m
 ```
 
-One whale is now far larger than instant depth, so V3 versus V4 and
-aggregate versus ordered clearing largely wash out. The apparent
+One whale remains about 102 times larger than instant clearable depth, so V3
+versus V4 and aggregate versus ordered clearing remain secondary on the
+combined book. The apparent
 contradiction is the result: liquidation mechanics matter in the middle,
 while concentration dominates after exposure crosses the available exit
 capacity by two orders of magnitude.
@@ -214,23 +219,23 @@ python -m aave_risk_engine.run_multiperiod
 
 The single-shock and evolving rows share the exact terminal return, peg drop,
 and depth haircut on every path. This CLI uses a four-day window, longer than
-the two-day market-report calibration above. The July 30 mainnet snapshot at
-block 25,645,558 shows what happens when whale concentration dominates:
+the two-day market-report calibration above. The August 17 mainnet snapshot
+at block 25,773,934 shows what happens when whale concentration dominates:
 
 ```text
-combined book ($449.92m)
-  V3                single: P(bad debt)  0.67% | mean   $1.20m | CVaR99  $119.58m
-  V3                multi : P(bad debt)  0.67% | mean   $1.20m | CVaR99  $119.55m | marks 100% of losses | events/path 0.01 | P(reliq) 0.06%
+combined book ($604.47m)
+  V3                single: P(bad debt)  0.76% | mean $459.63k | CVaR99   $45.96m
+  V3                multi : P(bad debt)  0.43% | mean $457.28k | CVaR99   $45.73m | marks 100% of losses | events/path 0.04 | P(reliq) 0.19%
 ```
 
-The results are almost identical because the dominant whale cannot clear and
-deleveraging barely occurs. Matching endpoints removes the previous apparent
+The CVaR results are almost identical because the dominant whale cannot clear
+and deleveraging barely occurs. Matching endpoints removes the previous apparent
 2.3 times reduction, which came primarily from constructing a four-day
 Student-t shock differently from the sum of eight half-day Student-t shocks.
 Path mechanics cannot help a position that remains far beyond available depth.
 
 The July 16 mid-size regime at block 25,546,280 exposed the target health
-factor mechanism that the July 30 whale regime masks on the USD-debt book:
+factor mechanism that the August 17 whale regime masks on the USD-debt book:
 
 ```text
 V4 Main (1.24)    single: P(bad debt) 17.50% | mean  $99.03k | CVaR99    $3.47m

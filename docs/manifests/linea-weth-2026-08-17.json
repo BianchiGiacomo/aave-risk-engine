@@ -1,0 +1,344 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-17T09:56:39.700001+00:00",
+  "command": [
+    "python",
+    "-m",
+    "aave_risk_engine.run_market_report",
+    "--snapshot",
+    "data/snapshots/aave_v3_linea_weth.json",
+    "--budget",
+    "500000",
+    "--figure",
+    "--manifest",
+    "docs/manifests/linea-weth-2026-08-17.json"
+  ],
+  "snapshot": {
+    "file": "data/snapshots/aave_v3_linea_weth.json",
+    "sha256": "3f64b5b7457332acbb007d53a65869d37f2fd1b7cfdb31392510a4f284dda59b",
+    "chain": "linea",
+    "block": 31741470,
+    "timestamp": 1786959261,
+    "asset": "WETH"
+  },
+  "run": {
+    "n_scenarios": 20000,
+    "seed": 7,
+    "cvar_level": 0.99,
+    "budget_usd": 500000.0,
+    "min_target_share": 0.5,
+    "queue": "aggregate",
+    "estimator": "plain_monte_carlo"
+  },
+  "parameters": {
+    "asset": {
+      "name": "WETH",
+      "spot_price": 1892.9402,
+      "debt_asset": "USDC"
+    },
+    "risk": {
+      "ltv": 0.8,
+      "liquidation_threshold": 0.83,
+      "liquidation_bonus": 0.06000000000000005,
+      "close_factor": 0.5,
+      "full_liquidation_hf": 0.95,
+      "v4": null,
+      "ordered_queue": false
+    },
+    "liquidity": {
+      "ref_notional_usd": 999999.9999999999,
+      "ref_slippage": 0.8300129091235908,
+      "depth_points": [
+        [
+          15000.0,
+          0.007599116678279949
+        ],
+        [
+          41000.0,
+          0.045851722534742456
+        ],
+        [
+          100000.0,
+          0.32808340970242933
+        ],
+        [
+          300000.0,
+          0.7316517035085277
+        ],
+        [
+          999999.9999999999,
+          0.9173039005796699
+        ]
+      ]
+    },
+    "stress": {
+      "horizon_days": 2.0,
+      "eth_annual_vol": 0.6404666974055295,
+      "eth_annual_drift": 0.0,
+      "tail_dof": 5.8665263943313475,
+      "return_model": "student_t",
+      "jump_intensity": 4.0,
+      "jump_mean": -0.15,
+      "jump_vol": 0.1,
+      "base_peg_drop": 0.0,
+      "peg_crash_beta": 0.0,
+      "peg_idio_vol": 0.0,
+      "peg_mean_reversion_speed": 0.0,
+      "max_peg_drop": 0.3,
+      "base_depth_haircut": 0.1,
+      "depth_crash_beta": 1.2,
+      "depth_idio_vol": 0.05,
+      "max_depth_haircut": 0.9,
+      "liquidation_delay_drawdown": 0.1
+    },
+    "sim": {
+      "n_scenarios": 20000,
+      "seed": 7,
+      "chunk_size": 2000,
+      "cvar_level": 0.99
+    }
+  },
+  "books": {
+    "usd_debt": {
+      "accounts": 3,
+      "debt_usd": 67017.91740812,
+      "metrics": {
+        "total_debt": 67017.91740812,
+        "mean_bad_debt": 0.9407886889145808,
+        "prob_bad_debt": 5e-05,
+        "VaR_99%": 0.0,
+        "CVaR_99%": 94.07886889145807,
+        "worst_case": 18815.773778291616,
+        "mean_slippage": 1.7556265802732264e-05,
+        "p99_slippage": 0.0,
+        "prob_bad_debt_ci95": [
+          8.826282272974824e-06,
+          0.0002831905702260402
+        ],
+        "positive_loss_draws": 1,
+        "conditional_mean_bad_debt": 18815.773778291616,
+        "cvar_tail_draws": 200,
+        "tail_metrics_low_sample": true
+      }
+    },
+    "combined": {
+      "accounts": 3,
+      "debt_usd": 67017.91740812,
+      "eth_debt_usd": 0.00016729634473135627,
+      "metrics": {
+        "total_debt": 67017.91740812,
+        "mean_bad_debt": 0.9407886889145808,
+        "prob_bad_debt": 5e-05,
+        "VaR_99%": 0.0,
+        "CVaR_99%": 94.07886889145807,
+        "worst_case": 18815.773778291616,
+        "mean_slippage": 1.7556265802732264e-05,
+        "p99_slippage": 0.0,
+        "prob_bad_debt_ci95": [
+          8.826282272974824e-06,
+          0.0002831905702260402
+        ],
+        "positive_loss_draws": 1,
+        "conditional_mean_bad_debt": 18815.773778291616,
+        "cvar_tail_draws": 200,
+        "tail_metrics_low_sample": true
+      }
+    }
+  },
+  "target_share_sensitivity": [
+    {
+      "min_target_share": 0.5,
+      "accounts": 3,
+      "debt_usd": 67017.91740812,
+      "metrics": {
+        "total_debt": 67017.91740812,
+        "mean_bad_debt": 0.9407886889145808,
+        "prob_bad_debt": 5e-05,
+        "VaR_99%": 0.0,
+        "CVaR_99%": 94.07886889145807,
+        "worst_case": 18815.773778291616,
+        "mean_slippage": 1.7556265802732264e-05,
+        "p99_slippage": 0.0,
+        "prob_bad_debt_ci95": [
+          8.826282272974824e-06,
+          0.0002831905702260402
+        ],
+        "positive_loss_draws": 1,
+        "conditional_mean_bad_debt": 18815.773778291616,
+        "cvar_tail_draws": 200,
+        "tail_metrics_low_sample": true
+      }
+    },
+    {
+      "min_target_share": 0.7,
+      "accounts": 3,
+      "debt_usd": 67017.91740812,
+      "metrics": {
+        "total_debt": 67017.91740812,
+        "mean_bad_debt": 0.9407886889145808,
+        "prob_bad_debt": 5e-05,
+        "VaR_99%": 0.0,
+        "CVaR_99%": 94.07886889145807,
+        "worst_case": 18815.773778291616,
+        "mean_slippage": 1.7556265802732264e-05,
+        "p99_slippage": 0.0,
+        "prob_bad_debt_ci95": [
+          8.826282272974824e-06,
+          0.0002831905702260402
+        ],
+        "positive_loss_draws": 1,
+        "conditional_mean_bad_debt": 18815.773778291616,
+        "cvar_tail_draws": 200,
+        "tail_metrics_low_sample": true
+      }
+    },
+    {
+      "min_target_share": 0.9,
+      "accounts": 3,
+      "debt_usd": 67017.91740812,
+      "metrics": {
+        "total_debt": 67017.91740812,
+        "mean_bad_debt": 0.9407886889145808,
+        "prob_bad_debt": 5e-05,
+        "VaR_99%": 0.0,
+        "CVaR_99%": 94.07886889145807,
+        "worst_case": 18815.773778291616,
+        "mean_slippage": 1.7556265802732264e-05,
+        "p99_slippage": 0.0,
+        "prob_bad_debt_ci95": [
+          8.826282272974824e-06,
+          0.0002831905702260402
+        ],
+        "positive_loss_draws": 1,
+        "conditional_mean_bad_debt": 18815.773778291616,
+        "cvar_tail_draws": 200,
+        "tail_metrics_low_sample": true
+      }
+    }
+  ],
+  "cap_recommendation": {
+    "budget_usd": 500000.0,
+    "recommended_debt_exposure_usd": 201053.75222436,
+    "sweep": {
+      "debt_exposure_usd": [
+        6701.791740812001,
+        18134.260004550117,
+        29566.728268288236,
+        40999.196532026355,
+        52431.664795764475,
+        63864.133059502594,
+        75296.6013232407,
+        86729.06958697882,
+        98161.53785071694,
+        109594.00611445506,
+        121026.47437819318,
+        132458.9426419313,
+        143891.4109056694,
+        155323.87916940753,
+        166756.34743314565,
+        178188.81569688377,
+        189621.2839606219,
+        201053.75222436
+      ],
+      "expected_bad_debt_usd": [
+        0.0,
+        0.0,
+        0.07572537575328228,
+        0.2906936382722963,
+        0.5504194518239542,
+        0.8470227624621238,
+        1.198008395476493,
+        1.5770103375800408,
+        1.9803122277434013,
+        2.40507018119567,
+        2.849037318822305,
+        3.3103933786573396,
+        3.7876336084862254,
+        4.279493196318069,
+        4.784894070278234,
+        5.302906355180593,
+        5.825321544984344,
+        6.255974062752477
+      ],
+      "cvar_usd": [
+        0.0,
+        0.0,
+        7.572537575328229,
+        29.069363827229626,
+        55.04194518239543,
+        84.70227624621239,
+        119.8008395476493,
+        157.7010337580041,
+        198.03122277434014,
+        240.507018119567,
+        284.9037318822305,
+        331.03933786573396,
+        378.76336084862254,
+        427.9493196318069,
+        478.4894070278234,
+        530.2906355180593,
+        582.5321544984344,
+        625.5974062752477
+      ],
+      "var_usd": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "prob_bad_debt": [
+        0.0,
+        0.0,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05,
+        5e-05
+      ]
+    }
+  },
+  "clearance": {
+    "largest_account": "0x207f9952bb1cc519b2709132d6d79017a06bb18a",
+    "largest_borrower_usd": 46555.66604254681,
+    "largest_debt_usd": 43920.43966278,
+    "largest_target_collateral_usd": 76083.45402511956,
+    "largest_eth_debt_share": 0.0,
+    "top5_borrowers_usd": 71038.99245260721,
+    "breakeven_slippage": 0.05660377358490571,
+    "slippage_quiet": 0.08607730881805473,
+    "slippage_stressed": 0.30549017431636455,
+    "slippage_quiet_is_lower_bound": false,
+    "slippage_stressed_is_lower_bound": false,
+    "max_quoted_usd": 999999.9999999999,
+    "max_clearable_usd_quiet": 42416.56080648003,
+    "max_clearable_usd_stressed": 21208.280403240016,
+    "passes_quiet": false,
+    "passes_stressed": false,
+    "depth_haircut_stressed": 0.5
+  }
+}

@@ -26,7 +26,7 @@ run manifests.
 > provider. It is not a parameter recommendation, production risk system, or
 > substitute for Risk Steward judgment.
 
-The committed release evidence is frozen at July 30, 2026. Every headline
+The committed release evidence is frozen at August 17, 2026. Every headline
 number below is tied to a block and snapshot hash; it is not a claim about the
 live market on the day this page is read.
 
@@ -63,21 +63,22 @@ surface.
 
 | Snapshot | Block | Date |
 |---|---:|---:|
-| Aave V3 Ethereum Core, wstETH reserve | 25,645,558 | 2026-07-30 |
-| Aave V3 Linea, WETH reserve | 31,568,531 | 2026-07-30 |
+| Aave V3 Ethereum Core, wstETH reserve | 25,773,934 | 2026-08-17 |
+| Aave V3 Linea, WETH reserve | 31,741,470 | 2026-08-17 |
 
 The standard market-report values below use the aggregate queue baseline.
-The dashboard uses ordered clearing; on the July 30 combined book the queue
-choice barely changes the whale-dominated result.
+The dashboard uses ordered clearing; on the August 17 combined book the queue
+choice changes CVaR99 by about 3% to 6% because the result remains
+whale-dominated.
 
 | Analysis | Reproduced result |
 |---|---|
-| Ethereum USD-debt book | `$142.35m` debt; 5 positive losses in 20,000 draws; `P(loss) 0.025%`; `$14.43m` conditional severity; `CVaR99 $360.66k` |
-| Ethereum combined book | `$449.92m` debt, including `$307.37m` ETH-denominated; `P(loss) 0.11%`; aggregate `CVaR99 $20.95m`; ordered `CVaR99 $20.54m` |
-| Strict wstETH clearance | `$307.60m` largest sale versus `$2.60m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
-| Linea WETH reproduction | `$41.77k` independently clearable versus LlamaRisk's approximately `$41k`; `$46.44k` largest sale: `FAIL` |
-| Historical replay | June 2022 worst combined-book window: `$227.62m`; modeled FTX and USDC windows: zero |
-| Four-day matched paths | Combined-book V3: `$119.58m` terminal-only CVaR99 versus `$119.55m` evolving-book CVaR99 |
+| Ethereum USD-debt book | `$343.19m` debt; 33 positive losses in 20,000 draws; `P(loss) 0.165%`; `$4.94m` conditional severity; `CVaR99 $814.88k` |
+| Ethereum combined book | `$604.47m` debt, including `$261.08m` ETH-denominated; `P(loss) 0.17%`; aggregate `CVaR99 $10.57m`; ordered `CVaR99 $10.07m` |
+| Strict wstETH clearance | `$276.47m` largest sale versus `$2.71m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
+| Linea WETH reproduction | `$42.42k` independently clearable versus LlamaRisk's approximately `$41k`; `$46.56k` largest sale: `FAIL` |
+| Historical replay | June 2022 worst combined-book window: `$175.84m`; modeled FTX and USDC windows: zero |
+| Four-day matched paths | Combined-book V3: `$45.96m` terminal-only CVaR99 versus `$45.73m` evolving-book CVaR99 |
 
 The two-day market-report CVaR and four-day multi-period CVaR are different
 horizon conventions and should not be compared as if they were one run.
@@ -162,8 +163,8 @@ python -m streamlit run dashboard.py
 Run from the cloned repository root after installation:
 
 ```bash
-python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --manifest docs/manifests/ethereum-wsteth-2026-07-30.json
-python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure --manifest docs/manifests/linea-weth-2026-07-30.json
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --manifest docs/manifests/ethereum-wsteth-2026-08-17.json
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure --manifest docs/manifests/linea-weth-2026-08-17.json
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
@@ -188,14 +189,14 @@ In the dashboard, select a market and open **Snapshot data** in the sidebar:
    **Live session**, every dashboard analysis uses that refreshed snapshot.
 2. Click **Download active snapshot** to retain the exact JSON used by the
    analysis.
-3. Click **Restore committed snapshot** to return to the reproducible July 30
+3. Click **Restore committed snapshot** to return to the reproducible August 17
    baseline.
 
 For a saved CLI workflow, build a snapshot into a new file and load that file
 with `--snapshot`:
 
 ```bash
-python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH --out .runtime/ethereum-wsteth-live.json
+python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH --seed-snapshot data/snapshots/aave_v3_ethereum_wsteth.json --out .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_market_report --snapshot .runtime/ethereum-wsteth-live.json --ordered
 python -m aave_risk_engine.run_episode_replay --snapshot .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_v4_comparison --snapshot .runtime/ethereum-wsteth-live.json
@@ -205,12 +206,13 @@ python -m aave_risk_engine.run_multiperiod --snapshot .runtime/ethereum-wsteth-l
 For Linea, replace the build command with:
 
 ```bash
-python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH --out .runtime/linea-weth-live.json
+python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH --blocks 1200000 --seed-snapshot data/snapshots/aave_v3_linea_weth.json --out .runtime/linea-weth-live.json
 ```
 
 The downloaded dashboard JSON can be supplied to the same CLIs through its
 file path. Writing to `.runtime/` keeps the committed release snapshots
-unchanged.
+unchanged. `--seed-snapshot` retains known borrower addresses that have no
+Borrow event inside the new rolling scan window.
 
 Refresh uses public JSON-RPC, Kraken, DefiLlama with a Coingecko fallback,
 and routed ParaSwap or KyberSwap quotes. Public endpoints can rate-limit or
@@ -279,14 +281,14 @@ python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
 ```
 
-The current release contains 78 offline tests across engine economics, real
+The current release contains 80 offline tests across engine economics, real
 data, multi-period state evolution, and Hub allocation. GitHub Actions runs
 the same suites on Python 3.11 and 3.12.
 
 ## Honest Limitations
 
-- Borrower discovery starts from recent `Borrow` events, so open accounts
-  with no event in the scan window can be absent.
+- Borrower discovery combines recent `Borrow` events with the prior snapshot;
+  open accounts absent from both sources can still be missed.
 - The effective single-asset mapping does not simulate every collateral and
   debt asset separately.
 - Instant depth excludes CEX, OTC, and primary redemption capacity.

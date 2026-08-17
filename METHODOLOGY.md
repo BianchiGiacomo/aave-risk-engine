@@ -59,11 +59,11 @@ Two clearing models are available:
 The queue effect is regime dependent. On the archived July 16 wstETH
 snapshot, ordered clearing reduced CVaR99 by 13% to 27% across the six
 reported V3 and V4 book comparisons because early tranches could clear before
-later positions exhausted depth. On the July 30 combined book, a single whale
-dominates and the reduction is only 0% to 2%. Larger differences on the July
-30 USD-debt book rely on only five positive-loss draws and are not stable tail
-estimates. Ordered clearing is still single-period: depth does not replenish
-between tranches, and no follow-on liquidations occur after the window.
+later positions exhausted depth. On the August 17 combined book, a single
+whale dominates and the reduction is about 3% to 6%. The USD-debt book shows
+larger queue effects, but its tail remains sparse. Ordered clearing is still
+single-period: depth does not replenish between tranches, and no follow-on
+liquidations occur after the window.
 
 ## Return Laws
 
@@ -82,8 +82,10 @@ rather than assumption:
 
 - **Risk parameters** (LT, LTV, bonus) are read from the Aave V3
   `PoolDataProvider`; the spot price from the Aave oracle (USD, 8 decimals).
-- **Borrower book**: accounts are discovered from recent `Borrow` events and
-  aggregated with `Pool.getUserAccountData`. Each account enters the book
+- **Borrower book**: candidate accounts combine recent `Borrow` events with
+  addresses retained from the prior pinned snapshot, then use
+  `Pool.getUserAccountData` to keep current debt positions. Each account enters
+  the book
   under an *effective single-asset mapping*: its total collateral is treated
   as the target asset and shocked by the scenario price, using the account's
   own on-chain weighted-average liquidation threshold. This is the
@@ -115,9 +117,11 @@ rather than assumption:
   the full USD price shock. The report shows both views.
 - **Peg persistence**: refreshed pegged-asset snapshots estimate a no-intercept
   AR(1) coefficient on cleaned below-par deviations and convert it to a daily
-  OU speed. The dashboard exposes the equivalent half-life. A value of zero
-  disables mean reversion; committed snapshots without this newer calibration
-  retain that conservative random-walk baseline.
+  OU speed. The August 17 Ethereum snapshot calibrates `0.147/day`, equivalent
+  to a 4.72-day half-life. The published four-day multi-period results therefore
+  include mean reversion and lower peg-residual variance than the July
+  random-walk run. This is one contributor, alongside the changed borrower
+  sample and exposure, to CVaR99 moving from $119.58m to $45.96m.
 - **Return law**: annualized realized volatility from daily closes; the
   Student-t degrees of freedom are matched to sample excess kurtosis
   (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy. Assets with
@@ -220,7 +224,7 @@ since March 2026 instead of the V3 baseline:
 On the archived July 16 wstETH USD-debt book, this traded probability against
 severity: repay-to-1.24 with a 60% floor sold more collateral per event than a
 50% close factor, pushing slippage past break-even more often while harder
-deleveraging thinned the loss tail. On the July 30 combined book, the
+deleveraging thinned the loss tail. On the August 17 combined book, the
 V3-to-V4 differences largely disappear because one sale is far beyond instant
 depth under every mechanics choice. One caveat remains: the single-period
 model cannot show how restoring HF to 1.0137 versus 1.24 changes vulnerability

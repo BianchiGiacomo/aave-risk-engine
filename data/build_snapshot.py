@@ -25,6 +25,7 @@ from .snapshot import (
     ReserveState,
     StressCalibration,
     default_snapshot_path,
+    load_snapshot,
     save_snapshot,
 )
 
@@ -42,10 +43,13 @@ ASSET_CALIBRATION = {
 
 # Quote-ladder sizes in USD; converted to token amounts at the oracle price.
 DEFAULT_LADDER_USD = (25e3, 100e3, 500e3, 2e6, 8e6, 25e6)
+MARKET_LADDERS_USD = {
+    ("linea", "WETH"): (5e3, 15e3, 41e3, 100e3, 300e3, 1e6),
+}
 
-# Default Borrow-event scan windows, sized to roughly two weeks of blocks
-# on each chain (Ethereum ~12s blocks, Linea ~2s blocks).
-DEFAULT_SCAN_BLOCKS = {"ethereum": 100_000, "linea": 600_000}
+# Market-specific Borrow-event scan windows. Linea uses a wider window because
+# its small target book is more sensitive to borrowers aging out of discovery.
+DEFAULT_SCAN_BLOCKS = {"ethereum": 100_000, "linea": 1_200_000}
 
 
 def build_reserve_state(rpc: EthRpc, chain: ChainConfig, symbol: str, asset: str) -> ReserveState:
@@ -80,6 +84,13 @@ def _load_borrower_cache(path: str, head: int, blocks: int, max_age_blocks: int 
     return cache["users"] if fresh and wide_enough else None
 
 
+def _merge_borrower_addresses(
+    discovered: list[str], seed_addresses: tuple[str, ...] = ()
+) -> list[str]:
+    """Retain known borrowers when they fall outside the rolling event window."""
+    return sorted({address.lower() for address in (*discovered, *seed_addresses)})
+
+
 def build_accounts(
     rpc: EthRpc,
     chain: ChainConfig,
@@ -89,6 +100,7 @@ def build_accounts(
     min_debt_usd: float,
     top_n: int,
     cache_path: str | None = None,
+    seed_addresses: tuple[str, ...] = (),
 ) -> list[AccountRecord]:
     data_provider, oracle = aave_v3.resolve_contracts(rpc, chain)
     atoken = aave_v3.atoken_address(rpc, data_provider, reserve.address)
@@ -98,6 +110,7 @@ def build_accounts(
     head = rpc.block_number()
 
     users = _load_borrower_cache(cache_path, head, blocks) if cache_path else None
+    scanned = users is None
     if users is not None:
         print(f"reusing {len(users)} cached borrowers ({cache_path})")
     else:
@@ -106,10 +119,16 @@ def build_accounts(
             aave_v3.discover_borrowers(rpc, head - blocks, head, chunk_blocks, chain=chain)
         )
         print(f"  {len(users)} unique borrowers")
-        if cache_path:
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-            with open(cache_path, "w", encoding="utf-8") as fh:
-                json.dump({"head": head, "blocks": blocks, "users": users}, fh)
+
+    discovered_count = len(users)
+    users = _merge_borrower_addresses(users, seed_addresses)
+    retained_count = len(users) - discovered_count
+    if retained_count:
+        print(f"  retained {retained_count} borrowers from the seed snapshot")
+    if cache_path and (scanned or retained_count):
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as fh:
+            json.dump({"head": head, "blocks": blocks, "users": users}, fh)
 
     print("fetching account data ...")
     accounts = [
@@ -211,6 +230,7 @@ def build_market_snapshot(
     peg_coin: str | None = None,
     calibrate_peg: bool = True,
     cache_path: str | None = None,
+    seed_addresses: tuple[str, ...] = (),
     rpc_timeout: float = 30.0,
     rpc_retries: int = 4,
 ) -> MarketSnapshot:
@@ -232,7 +252,9 @@ def build_market_snapshot(
     scan_blocks = blocks or DEFAULT_SCAN_BLOCKS.get(chain.name, 100_000)
     log_chunk = chunk_blocks or chain.log_chunk_blocks
     dest_symbol = pair_dest or ("USDC" if asset == "WETH" else "WETH")
-    quote_ladder = ladder_usd or DEFAULT_LADDER_USD
+    quote_ladder = ladder_usd or MARKET_LADDERS_USD.get(
+        (chain.name, asset), DEFAULT_LADDER_USD
+    )
     default_pair, default_peg = ASSET_CALIBRATION.get(asset, ("ETHUSD", None))
     resolved_pair = kraken_pair or default_pair
     resolved_peg = (peg_coin or default_peg) if calibrate_peg else None
@@ -252,6 +274,7 @@ def build_market_snapshot(
         min_debt_usd,
         top,
         cache_path=cache_path,
+        seed_addresses=seed_addresses,
     )
 
     print("calibrating stress from price history ...")
@@ -286,8 +309,13 @@ def build_market_snapshot(
         depth=fitted,
         stress=stress,
         notes=(
-            f"Borrowers discovered from Borrow events over the last {scan_blocks:,} blocks; "
-            "dormant borrowers outside that window are not sampled."
+            f"Candidate borrowers combine Borrow events over the last {scan_blocks:,} blocks"
+            + (
+                f" with {len(seed_addresses):,} addresses from a prior snapshot; "
+                if seed_addresses
+                else "; "
+            )
+            + "dormant borrowers absent from both sources may be missed."
         ),
         scan_blocks=scan_blocks,
     )
@@ -309,6 +337,11 @@ def main() -> None:
     parser.add_argument("--rpc-timeout", type=float, default=30.0)
     parser.add_argument("--rpc-retries", type=int, default=4)
     parser.add_argument("--no-borrower-cache", action="store_true")
+    parser.add_argument(
+        "--seed-snapshot",
+        default=None,
+        help="retain borrower addresses from a prior snapshot during the rolling event scan",
+    )
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -322,6 +355,13 @@ def main() -> None:
         cache_path = os.path.join(
             os.path.dirname(__file__), "snapshots", f".borrowers_cache_{args.chain}.json"
         )
+    seed_addresses: tuple[str, ...] = ()
+    if args.seed_snapshot:
+        seed_snapshot = load_snapshot(args.seed_snapshot)
+        if seed_snapshot.chain != args.chain or seed_snapshot.reserve.symbol != args.asset:
+            parser.error("--seed-snapshot chain and asset must match --chain and --asset")
+        seed_addresses = tuple(account.address for account in seed_snapshot.accounts)
+        print(f"seeding borrower discovery with {len(seed_addresses)} prior accounts")
     snapshot = build_market_snapshot(
         chain_name=args.chain,
         asset=args.asset,
@@ -336,6 +376,7 @@ def main() -> None:
         peg_coin=None if args.peg_coin == "none" else args.peg_coin,
         calibrate_peg=args.peg_coin != "none",
         cache_path=cache_path,
+        seed_addresses=seed_addresses,
         rpc_timeout=args.rpc_timeout,
         rpc_retries=args.rpc_retries,
     )

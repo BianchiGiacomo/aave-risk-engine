@@ -1,136 +1,276 @@
 # Aave Risk Engine
 
+```text
+        ___    ___ _   ________     ____  _________ __ __
+      /   |  /   | | / / ____/    / __ \/  _/ ___// //_/
+     / /| | / /| | |/ / __/      / /_/ // / \__ \/ ,<
+    / ___ |/ ___ | / / /___     / _, _// / ___/ / /| |
+   /_/  |_/_/  |_|__/_____/    /_/ |_/___//____/_/ |_|
+
+    LIQUIDATION CAPACITY STRESS ENGINE
+```
+
+[![Tests](https://github.com/BianchiGiacomo/aave-risk-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/BianchiGiacomo/aave-risk-engine/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-research%20prototype-orange)
 
-Decision-support tooling for Aave-style collateral risk and V4 Hub-Spoke credit-line sizing.
+A standalone quantitative research prototype for Aave collateral risk,
+liquidation capacity, and V3 to V4 mechanics analysis. It turns pinned Aave V3
+reserve state, borrower accounts, oracle prices, and routed depth quotes into
+reproducible stress reports, an interactive dashboard, and machine-readable
+run manifests.
 
-> Independent research prototype. This project is not affiliated with, endorsed by, or sponsored by Aave Labs or the Aave DAO.
+> Independent research prototype. This project is unaffiliated with Aave
+> Labs, the Aave DAO, Chaos Labs, LlamaRisk, or any other Aave service
+> provider. It is not a parameter recommendation, production risk system, or
+> substitute for Risk Steward judgment.
 
-![Aave-style risk engine flow](docs/assets/aave_risk_flow.svg)
+The committed release evidence is frozen at July 30, 2026. Every headline
+number below is tied to a block and snapshot hash; it is not a claim about the
+live market on the day this page is read.
 
-The project answers two related questions:
+![Aave risk engine pipeline](docs/assets/aave_risk_engine_overview.svg)
 
-1. **Single Spoke:** how large can a borrow cap / credit line be before 99% CVaR bad debt breaches a risk budget?
-2. **Hub allocation:** how should one shared Hub balance be split across multiple Spokes with different volatility, liquidity, and correlation?
+## What The Project Does
 
-This is not an automated risk agent and not a governance replacement. It is a compact quant prototype for making risk/growth trade-offs explicit.
+- Loads deterministic snapshots for the wstETH reserve in Aave V3 Ethereum
+  Core and the WETH reserve in Aave V3 Linea.
+- Builds a USD-debt book and a combined book that revalues ETH-denominated
+  debt, exposing LST/WETH looping risk through peg and depth channels.
+- Simulates Gaussian, Student-t, and jump-diffusion returns with peg stress,
+  depth haircuts, and empirical routed-slippage curves.
+- Clears liquidations sequentially in bonus-priority order, using marginal
+  slippage on cumulative proceeds. The aggregate queue remains a research
+  benchmark in the CLIs.
+- Separates cleared-liquidation insolvency from stalled-liquidation recovery
+  loss, with liquidator break-even at `bonus / (1 + bonus)`.
+- Applies V3 and V4 liquidation mechanics to the same V3 book and common
+  scenarios. The V4 result is a mechanics counterfactual, not live V4 data.
+- Replays historical ETH and stETH/ETH paths on a selected snapshot book.
+- Evolves debt, collateral, repeated liquidation, peg persistence, and depth
+  replenishment through matched multi-period paths.
+- Reports loss frequency, expected loss, conditional severity, Wilson
+  intervals, VaR, CVaR, positive-loss counts, and sparse-tail warnings.
+- Exports snapshot hash, parameters, seed, results, cap sweep, and clearance
+  evidence as JSON manifests.
 
-## 60-Second Tour
+Synthetic single-Spoke sizing and V4 Hub allocation remain as secondary
+research demos. The real-market reports and dashboard are the primary project
+surface.
 
-- Sizes a borrow cap / V4 Spoke credit line from 99% CVaR bad debt.
-- Models both V3 liquidation mechanics and V4's live design (repay to
-  target health factor, dynamic bonus) and compares them on real books.
-- Simulates multi-period stress paths with re-liquidation, waiting
-  stalls, and depth replenishment, compared with single-shock liquidation
-  on exactly matched terminal scenarios, with an optional mean-reverting
-  peg residual.
-- Treats liquidation slippage as a liquidator cost while incentives work, and as a protocol recovery cost only when liquidations stall.
-- Models fat-tailed and jump-diffusion stress, peg widening, and liquidity-depth evaporation.
-- Allocates one shared Hub balance across Spokes by marginal Hub-CVaR.
-- Shows why lower-correlation Spokes can receive credit even when they look risky standalone.
+## Release Evidence
 
-## Read Next
+| Snapshot | Block | Date |
+|---|---:|---:|
+| Aave V3 Ethereum Core, wstETH reserve | 25,645,558 | 2026-07-30 |
+| Aave V3 Linea, WETH reserve | 31,568,531 | 2026-07-30 |
 
-- [Case study: reproducing the July 2026 Linea cap reductions](docs/case_studies/2026-07-linea-cap-reductions.md)
-- [Mathematical model specification](docs/model-specification.md)
-- [Methodology](METHODOLOGY.md)
-- [Implementation notes](IMPLEMENTATION.md)
+The standard market-report values below use the aggregate queue baseline.
+The dashboard uses ordered clearing; on the July 30 combined book the queue
+choice barely changes the whale-dominated result.
 
-## What It Models
+| Analysis | Reproduced result |
+|---|---|
+| Ethereum USD-debt book | `$142.35m` debt; 5 positive losses in 20,000 draws; `P(loss) 0.025%`; `$14.43m` conditional severity; `CVaR99 $360.66k` |
+| Ethereum combined book | `$449.92m` debt, including `$307.37m` ETH-denominated; `P(loss) 0.11%`; aggregate `CVaR99 $20.95m`; ordered `CVaR99 $20.54m` |
+| Strict wstETH clearance | `$307.60m` largest sale versus `$2.60m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
+| Linea WETH reproduction | `$41.77k` independently clearable versus LlamaRisk's approximately `$41k`; `$46.44k` largest sale: `FAIL` |
+| Historical replay | June 2022 worst combined-book window: `$227.62m`; modeled FTX and USDC windows: zero |
+| Four-day matched paths | Combined-book V3: `$119.58m` terminal-only CVaR99 versus `$119.55m` evolving-book CVaR99 |
 
-```text
-borrower book + stressed collateral scenarios
-  -> health factors and liquidation queue
-  -> liquidator participation threshold: slippage <= bonus / (1 + bonus)
-     (queue-average, or sequential clearing in bonus-priority order)
-  -> cleared liquidations: protocol loss is insolvency gap
-  -> stalled liquidations: protocol marks collateral to delayed executable value
-  -> bad-debt distribution
-  -> VaR / CVaR / recommended cap
-```
+The two-day market-report CVaR and four-day multi-period CVaR are different
+horizon conventions and should not be compared as if they were one run.
+Sparse-loss results are exploratory: the engine exposes frequency and
+conditional severity because CVaR99 may average only a few losses with many
+zeros.
 
-For V4-style Hub allocation, one standardized systemic factor drives all Spokes:
+The strict clearance test follows the
+[Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114).
+The V4 counterfactual uses the governed
+[Ethereum activation parameters](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293).
 
-```text
-u_k = rho_k * Z + sqrt(1 - rho_k^2) * e_k
-```
+![Linea WETH empirical depth](docs/assets/linea_weth_depth.png)
 
-The allocator greedily assigns credit to the Spoke with the lowest marginal Hub-CVaR per dollar until the Hub balance or CVaR budget binds. Marginal premia are approximately equalized because the allocator is discrete.
+The black point is LlamaRisk's `$41k` reference. The orange point is the
+`$46.44k` largest sampled borrower sale, above the 5.66% liquidator
+break-even line.
 
-Aave V4 has been live on Ethereum mainnet since March 2026 with governed Spoke add/draw caps, cross-Hub credit lines, and a collateral risk premium (launched at 0 bps): the quantities this engine sizes. See the [V4 activation ARFC](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293).
+See the [consolidated results](docs/results.md), the
+[Linea cap-reduction case study](docs/case_studies/2026-07-linea-cap-reductions.md),
+and the [governance research note](docs/article/governance-post-draft.md) for
+the full evidence and caveats.
 
-## Results Preview
+## Dashboard
 
-The [results page](docs/results.md) covers the July 30 real-data analyses
-and includes a guide to the synthetic demo figures below.
-
-### Single-Spoke Credit-Line Sizing
-
-The chart below is the core decision view. It sweeps the borrow cap / Spoke credit line and reports the resulting 99% CVaR bad debt. The recommended cap is the largest exposure that stays inside the chosen risk budget.
-
-![CVaR budget vs credit line](docs/assets/cap_budget.png)
-
-### Liquidation Capacity
-
-Liquidators clear positions only while execution slippage is below break-even:
-
-```text
-slippage <= bonus / (1 + bonus)
-```
-
-Below that line, slippage is a liquidator cost compensated by the bonus. Above it, liquidations stall and the protocol marks collateral to delayed executable value.
-
-![Liquidation slippage curve](docs/assets/slippage_curve.png)
-
-### Loss Distribution
-
-Most scenarios have no bad debt. The relevant risk is concentrated in the far right tail, which is why the engine uses CVaR rather than only VaR.
-
-![Bad debt distribution](docs/assets/loss_distribution.png)
-
-### Hub Allocation Example
-
-The Hub demo allocates a `$700m` USDC Hub balance across three Spokes under an `$8m` CVaR budget.
-
-| Spoke | rho | Credit line | Standalone CVaR | Risk premium / $1m |
-|---|---:|---:|---:|---:|
-| stETH | 0.95 | $70m | $2.0m | $48.5k |
-| WBTC | 0.85 | $315m | $4.2m | $79.4k |
-| LONGTAIL | 0.45 | $105m | $2.6m | $61.6k |
-
-In this run, total credit is `$490m` (`70%` of Hub balance), Hub CVaR is `$7.9m`, and diversification benefit is about `$0.9m`. The exact numbers vary with Monte Carlo seed and allocation granularity; the qualitative story is the point.
-
-## Install
+The Streamlit dashboard is a real-market workbench, not the original
+synthetic demo.
 
 ```bash
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1   # Windows PowerShell
-pip install -e ".[dev]"
+python -m streamlit run dashboard.py
 ```
 
-On macOS/Linux:
+Sidebar controls select:
+
+- real market: Aave V3 Ethereum Core wstETH or Aave V3 Linea WETH;
+- borrower scope: USD debt or Combined;
+- minimum target-collateral share;
+- 5,000 to 1,000,000 Monte Carlo scenarios;
+- random seed and CVaR99 budget;
+- committed snapshot, explicit live refresh, restore, and JSON download.
+
+| Tab | Purpose |
+|---|---|
+| Overview | Reserve exposure, cap usage, tail decomposition, cap sweep, bad-debt distribution, and borrower concentration |
+| Sensitivities | Full scenario parameters, loss-driver scatter, empirical depth stress, and fixed-book LT transition or forced-migration sensitivity |
+| Clearance | Largest-borrower ARFC test, break-even capacity, quote-range warnings, and stressed clearable depth |
+| V3 / V4 | Matched V3, V4 Main, and V4 Correlated mechanics on the selected V3 book with ordered clearing |
+| Episodes | Historical ETH and peg paths replayed on the selected snapshot book; available for wstETH |
+| Multi-period | Matched terminal shocks versus evolving liquidation paths, with periods, horizon, replenishment, and peg half-life controls |
+| Data | Active block, reserve parameters, calibration sources, scan window, and snapshot download |
+
+Expensive analyses run only when their tab button is pressed. A failed live
+refresh leaves the committed offline snapshot active. The dashboard never
+overwrites committed snapshot files.
+
+## Quick Start
 
 ```bash
+git clone https://github.com/BianchiGiacomo/aave-risk-engine
+cd aave-risk-engine
 python -m venv .venv
+```
+
+Windows PowerShell:
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+python -m streamlit run dashboard.py
+```
+
+macOS or Linux:
+
+```bash
 source .venv/bin/activate
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
+python -m streamlit run dashboard.py
 ```
 
-## Run
+## Reproduce The Reports
+
+Run from the cloned repository root after installation:
+
+```bash
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --manifest docs/manifests/ethereum-wsteth-2026-07-30.json
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure --manifest docs/manifests/linea-weth-2026-07-30.json
+python -m aave_risk_engine.run_episode_replay
+python -m aave_risk_engine.run_v4_comparison
+python -m aave_risk_engine.run_multiperiod
+```
+
+Add `--ordered` to `run_market_report` for the dashboard queue convention.
+The July 16 V3/V4 mechanics regime is preserved by the
+[archived snapshot at commit `ac9f2ae`](https://github.com/BianchiGiacomo/aave-risk-engine/blob/ac9f2ae/data/snapshots/aave_v3_ethereum_wsteth.json).
+
+The original synthetic experiments remain available:
 
 ```bash
 python -m aave_risk_engine.run_demo
 python -m aave_risk_engine.run_hub_demo
-python -m aave_risk_engine.run_market_report
-python -m aave_risk_engine.run_episode_replay
-python -m aave_risk_engine.run_v4_comparison
-python -m aave_risk_engine.run_multiperiod
-python -m streamlit run dashboard.py
 ```
 
-Tests:
+## Snapshot Refresh
+
+In the dashboard, select a market and open **Snapshot data** in the sidebar:
+
+1. Click **Refresh from public sources**. When the new block appears as
+   **Live session**, every dashboard analysis uses that refreshed snapshot.
+2. Click **Download active snapshot** to retain the exact JSON used by the
+   analysis.
+3. Click **Restore committed snapshot** to return to the reproducible July 30
+   baseline.
+
+For a saved CLI workflow, build a snapshot into a new file and load that file
+with `--snapshot`:
+
+```bash
+python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH --out .runtime/ethereum-wsteth-live.json
+python -m aave_risk_engine.run_market_report --snapshot .runtime/ethereum-wsteth-live.json --ordered
+python -m aave_risk_engine.run_episode_replay --snapshot .runtime/ethereum-wsteth-live.json
+python -m aave_risk_engine.run_v4_comparison --snapshot .runtime/ethereum-wsteth-live.json
+python -m aave_risk_engine.run_multiperiod --snapshot .runtime/ethereum-wsteth-live.json
+```
+
+For Linea, replace the build command with:
+
+```bash
+python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH --out .runtime/linea-weth-live.json
+```
+
+The downloaded dashboard JSON can be supplied to the same CLIs through its
+file path. Writing to `.runtime/` keeps the committed release snapshots
+unchanged.
+
+Refresh uses public JSON-RPC, Kraken, DefiLlama with a Coingecko fallback,
+and routed ParaSwap or KyberSwap quotes. Public endpoints can rate-limit or
+reject requests; committed snapshots keep reports and tests deterministic
+when that happens.
+
+## Core Conventions
+
+```text
+snapshot reserve + target-dominant borrower accounts
+  -> USD-debt or combined debt-denomination book
+  -> collateral return + peg + executable-depth scenarios
+  -> V3 or V4 liquidation sizing
+  -> ordered marginal queue or aggregate benchmark
+  -> cleared insolvency gaps + stalled delayed-recovery losses
+  -> frequency, severity, VaR, CVaR, cap sweep, and manifest
+```
+
+- The real-book mapping treats each selected account's total collateral as
+  the target asset while retaining its weighted on-chain liquidation
+  threshold. The target-share filter limits this approximation.
+- Ordered clearing prioritizes bonus, then seize value. Cleared tranches
+  consume depth; stalled tranches do not.
+- Slippage is a liquidator cost while participation remains profitable. It
+  becomes a protocol recovery cost only when liquidation stalls.
+- Multi-period runs do not reset price, peg, or the prevailing depth haircut
+  after liquidation. Only consumed depth replenishes.
+- V4 Main and V4 Correlated parameters are applied to V3 positions as a
+  controlled mechanics comparison.
+
+For equations and implementation-level assumptions, read the
+[mathematical model specification](docs/model-specification.md),
+[methodology](METHODOLOGY.md), and
+[implementation notes](IMPLEMENTATION.md).
+
+## Repository Layout
+
+```text
+config.py                 model dataclasses and V4 parameters
+stress.py                 terminal return laws and matched stress paths
+positions.py              borrower book state and exposure scaling
+liquidation.py            V3/V4 sizing, ordered clearing, and bad debt
+slippage.py               analytic and empirical execution curves
+engine.py                 single-period simulation and risk metrics
+multiperiod.py            evolving paths and book-state transitions
+hub.py                    synthetic V4 Hub allocation experiment
+dashboard.py              Streamlit application and snapshot controls
+dashboard_analysis.py     cached dashboard analysis adapters
+dashboard_charts.py       Plotly dashboard figures
+plotting.py               reproducible Matplotlib report figures
+data/                     RPC readers, calibration, snapshots, and episodes
+docs/                     results, case study, article, model specification
+run_market_report.py      market report, depth figure, and manifest export
+run_episode_replay.py     historical path replay on a snapshot book
+run_v4_comparison.py      matched V3/V4 mechanics comparison
+run_multiperiod.py        matched terminal and evolving path comparison
+tests/                    economics invariants and offline regressions
+```
+
+## Verification
 
 ```bash
 python -m aave_risk_engine.tests.test_engine
@@ -139,132 +279,25 @@ python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
 ```
 
-## Real Market Data (Aave V3)
-
-The `data/` layer replaces synthetic assumptions with observed Aave V3
-state (Ethereum mainnet and Linea), using only keyless public sources and
-the standard library:
-
-- **On-chain reserve state** (public JSON-RPC): liquidation threshold, LTV,
-  liquidation bonus, supply/borrow caps, current supply and debt, oracle price.
-- **Real borrower book**: borrowers discovered from recent `Borrow` events,
-  account aggregates from `Pool.getUserAccountData`, filtered to accounts
-  dominated by the target collateral. Each account keeps its own on-chain
-  weighted-average liquidation threshold.
-- **Depth calibration**: routed sell quotes (Paraswap on mainnet, KyberSwap
-  on Linea) at a ladder of USD sizes. The engine interpolates the observed
-  points directly, because real exit liquidity cliffs (wstETH: ~0.3%
-  slippage at $2m, >50% at $9m) cannot be represented by a single-parameter
-  curve.
-- **Debt denomination**: WETH-denominated debt is measured per account.
-  Leveraged-staking loopers (collateral and debt both ETH-correlated) are
-  excluded from the default USD-shock book, and modeled explicitly in the
-  combined book, where ETH-denominated debt scales with the scenario ETH
-  return and looper risk comes from the LST/ETH exchange rate and depth,
-  not the USD price level.
-- **Stress calibration**: realized volatility and a Student-t tail fitted
-  from Kraken price history; stETH/ETH peg history from DefiLlama, with a
-  Coingecko fallback.
-- **ARFC checks**: the [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
-  peg rule (no >1% deviation sustained >=2 days) and its requirement that
-  depth must clear the largest borrower within the liquidation bonus,
-  evaluated as the engine's liquidator break-even condition.
-
-- **Historical episode replay**: the realized ETH and stETH/ETH paths of
-  past stress episodes (Terra/Celsius depeg May-June 2022, FTX November
-  2022, the market window around the March 2023 USDC depeg) are rolled
-  through today's books and today's depth curve, window by window. The
-  June 2022 replay liquidates the current whale loopers through the
-  exchange-rate channel; in the FTX replay the peg stayed tight through
-  the loss-driving crash window, leaving loopers untouched. Episodes
-  supply only the ETH and stETH/ETH paths; liability-side effects such
-  as the USDC depeg itself are not modeled.
-
-Snapshots and episode paths are committed JSON (`data/snapshots/`,
-`data/episodes/`), so the reports, tests, and CI run offline and
-deterministically. Refresh with:
-
-```bash
-python -m aave_risk_engine.data.build_snapshot --chain ethereum --asset wstETH
-python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH
-```
-
-The market report then compares governance dials against model output:
-current cap and usage, tail risk of the real book, the model-safe exposure
-for a chosen CVaR budget, and the clearance test under quiet and stressed
-depth.
-
-For an auditable publication run, export the snapshot hash, calibrated
-parameters, seed, loss diagnostics, cap sweep, and clearance result:
-
-```bash
-python -m aave_risk_engine.run_market_report --manifest market-report.json
-```
-
-The report decomposes rare losses into event probability, expected loss, and
-severity conditional on loss. It also prints a 95% Wilson interval for the
-event probability and warns when CVaR and conditional severity rely on fewer
-than 30 positive-loss draws.
-
-## Dashboard
-
-The Streamlit dashboard opens on committed real-market snapshots targeting
-the wstETH reserve in Aave V3 Ethereum Core and the WETH reserve in Aave V3
-Linea. It covers current-book CVaR and cap sizing, borrower concentration,
-empirical liquidation depth, ARFC clearance, V3 and V4 mechanics, historical
-episode replay, and multi-period simulation. Ordered clearing is the dashboard
-execution model; the coarser aggregate approximation remains available in the
-research CLIs.
-
-Committed snapshots remain the deterministic default. An explicit live
-refresh reads keyless public sources into the current browser session and
-offers the resulting JSON for download without overwriting repository data.
-Synthetic single-Spoke and Hub allocation experiments remain available
-through `run_demo` and `run_hub_demo`.
-
-## Repository Layout
-
-```text
-aave_risk_engine/
-  config.py              dataclass inputs
-  stress.py              return laws and stressed scenarios
-  positions.py           synthetic and real borrower books
-  liquidation.py         liquidation and bad-debt accounting
-  slippage.py            concentrated-liquidity execution shortfall
-  engine.py              single-Spoke Monte Carlo engine
-  multiperiod.py         multi-period simulation with book-state evolution
-  hub.py                 multi-Spoke Hub allocator
-  data/                  Aave V3 on-chain state, prices, depth, snapshots
-    aave_v3.py           per-chain reserve/caps/account readers (raw eth_call)
-    markets.py           price history, vol/tail calibration, ARFC peg rule
-    depth.py             slippage-curve fit from aggregator quotes
-    book.py              snapshot -> real PositionBook and calibrated config
-    clearance.py         ARFC largest-borrower clearance test
-    build_snapshot.py    live snapshot builder CLI
-    episodes.py          historical stress episodes and rolling-window replay
-    build_episodes.py    episode price-path fetcher CLI
-    snapshots/           committed JSON snapshots (offline/deterministic)
-    episodes/            committed episode price paths
-  dashboard.py           Streamlit UI
-  run_demo.py            single-Spoke demo
-  run_hub_demo.py        Hub allocation demo
-  run_market_report.py   real-market report: caps vs model-safe exposure
-  run_episode_replay.py  historical stress paths through today's book
-  run_v4_comparison.py   V3 vs V4 liquidation mechanics on the same book
-  run_multiperiod.py     multi-period stress paths with re-liquidation
-  tests/                 invariant/economics tests
-```
+The current release contains 78 offline tests across engine economics, real
+data, multi-period state evolution, and Hub allocation. GitHub Actions runs
+the same suites on Python 3.11 and 3.12.
 
 ## Honest Limitations
 
-- Real books use an effective single-asset mapping: an account's whole
-  collateral is shocked as the target asset (with the account's own average
-  liquidation threshold). No borrower-level cross-collateral modeling yet.
-- Borrower discovery scans recent `Borrow` events, so dormant borrowers
-  outside the scan window are missed.
-- Slippage uses one concentrated-liquidity curve fitted to aggregator quotes;
-  no CEX depth or venue-concentration modeling.
-- Hub allocation is a static snapshot with one systemic factor.
-- The model is meant for analysis and discussion, not production parameter automation.
+- Borrower discovery starts from recent `Borrow` events, so open accounts
+  with no event in the scan window can be absent.
+- The effective single-asset mapping does not simulate every collateral and
+  debt asset separately.
+- Instant depth excludes CEX, OTC, and primary redemption capacity.
+- Empirical slippage is flat beyond the final quote and is only a lower bound
+  there.
+- Rare-loss CVaR and conditional severity remain low-sample estimates until
+  targeted rare-event sampling is implemented.
+- Episode replay is a counterfactual on the selected snapshot book, not an
+  archive reconstruction of historical borrowers and liquidity.
+- The Hub allocator is synthetic and is not yet connected to live V4 Spokes.
 
-See [METHODOLOGY.md](METHODOLOGY.md) for more detail.
+## License
+
+MIT. See [LICENSE](LICENSE).

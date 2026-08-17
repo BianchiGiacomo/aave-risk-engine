@@ -1,4 +1,4 @@
-"""Replay historical stress episodes through today's real book.
+"""Replay historical stress episodes through a selected snapshot book.
 
 Usage:
     python -m aave_risk_engine.run_episode_replay [--snapshot path] [names ...]
@@ -6,7 +6,7 @@ Usage:
 For each episode, every rolling stress-horizon window of the realized ETH
 and stETH/ETH paths becomes one deterministic scenario, evaluated against
 the current snapshot's borrower book and depth curve. This is scenario
-replay on today's book, not a reconstruction of the historical book.
+replay on the selected snapshot, not a reconstruction of the historical book.
 """
 
 from __future__ import annotations
@@ -57,8 +57,8 @@ def main() -> None:
         f"(ETH-denominated {_fmt(float(combined_book.eth_debt_usd.sum()))})"
     )
     print(
-        "note: replay applies realized market paths to today's book and"
-        " today's depth curve; the historical borrower book is not"
+        "note: replay applies realized market paths to the selected snapshot book"
+        " and depth curve; the historical borrower book is not"
         " reconstructed."
     )
 

@@ -1,0 +1,234 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 760" width="1440" height="760" role="img" aria-labelledby="pipeline-title pipeline-desc" style="background: #0B0F19; font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;">
+  <title id="pipeline-title">From public market data to liquidation risk evidence</title>
+  <desc id="pipeline-desc">Five-stage Aave risk pipeline from keyless public data through pinned snapshots, borrower books, stress and clearing, and reproducible decision evidence. Additional analyses cover historical episode replay, V3 and V4 counterfactuals, and multi-period evolution.</desc>
+
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1E1B4B" stop-opacity="0.4"/>
+      <stop offset="50%" stop-color="#0B0F19" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#064E3B" stop-opacity="0.25"/>
+    </linearGradient>
+
+    <linearGradient id="gradTitle" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="50%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#34D399"/>
+    </linearGradient>
+
+    <!-- Card Top Border Gradients -->
+    <linearGradient id="gCard1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>
+    <linearGradient id="gCard2" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#818CF8"/><stop offset="100%" stop-color="#4F46E5"/></linearGradient>
+    <linearGradient id="gCard3" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#C084FC"/><stop offset="100%" stop-color="#9333EA"/></linearGradient>
+    <linearGradient id="gCard4" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#FBBF24"/><stop offset="100%" stop-color="#D97706"/></linearGradient>
+    <linearGradient id="gCard5" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#34D399"/><stop offset="100%" stop-color="#059669"/></linearGradient>
+
+    <!-- Arrow Marker -->
+    <marker id="arrow" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 7 5 L 0 8.5 z" fill="#64748B" />
+    </marker>
+
+    <!-- Glass Drop Shadow -->
+    <filter id="cardGlow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Background Layer -->
+  <rect width="1440" height="760" fill="#0B0F19"/>
+  <rect width="1440" height="760" fill="url(#bgGlow)"/>
+
+  <!-- Top Title Header -->
+  <g transform="translate(720, 55)" text-anchor="middle">
+    <text y="0" font-size="24" font-weight="900" letter-spacing="1.5" fill="url(#gradTitle)">FROM PUBLIC MARKET DATA TO LIQUIDATION RISK EVIDENCE</text>
+    <text y="28" font-size="12.5" font-weight="500" fill="#94A3B8" letter-spacing="0.5">Deterministic stress pipeline across Ethereum Core (wstETH) and Linea (WETH)</text>
+  </g>
+
+  <!-- ==================== 5 PIPELINE STAGE CARDS ==================== -->
+
+  <!-- STAGE 1 -->
+  <g transform="translate(45, 120)" filter="url(#cardGlow)">
+    <rect width="240" height="340" rx="12" fill="#111827" fill-opacity="0.8" stroke="#1F2937" stroke-width="1.5"/>
+    <path d="M 0 12 Q 0 0 12 0 L 228 0 Q 240 0 240 12 L 240 46 L 0 46 Z" fill="url(#gCard1)" fill-opacity="0.15"/>
+    <line x1="0" y1="46" x2="240" y2="46" stroke="url(#gCard1)" stroke-width="1.5"/>
+    
+    <text x="20" y="30" font-size="12" font-weight="800" fill="#38BDF8" letter-spacing="0.8">1. KEYLESS PUBLIC DATA</text>
+
+    <g transform="translate(22, 78)" font-size="12.5" fill="#E2E8F0" font-weight="400">
+      <circle cx="2" cy="-4" r="2.5" fill="#38BDF8"/>
+      <text x="14" y="0">Aave V3 state</text>
+      
+      <circle cx="2" cy="30" r="2.5" fill="#38BDF8"/>
+      <text x="14" y="34">Borrower accounts</text>
+      
+      <circle cx="2" cy="64" r="2.5" fill="#38BDF8"/>
+      <text x="14" y="68">Oracle prices</text>
+      
+      <circle cx="2" cy="98" r="2.5" fill="#38BDF8"/>
+      <text x="14" y="102">Routed depth</text>
+      
+      <circle cx="2" cy="132" r="2.5" fill="#38BDF8"/>
+      <text x="14" y="136">Market history</text>
+    </g>
+    
+    <!-- Bottom Tag -->
+    <rect x="20" y="290" width="200" height="26" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+    <text x="120" y="307" text-anchor="middle" font-size="10.5" font-weight="600" fill="#94A3B8" font-family="monospace">RPC / Routers / Market APIs</text>
+  </g>
+
+  <!-- Flow Connector 1 -> 2 -->
+  <line x1="295" y1="290" x2="315" y2="290" stroke="#475569" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+
+  <!-- STAGE 2 -->
+  <g transform="translate(325, 120)" filter="url(#cardGlow)">
+    <rect width="240" height="340" rx="12" fill="#111827" fill-opacity="0.8" stroke="#1F2937" stroke-width="1.5"/>
+    <path d="M 0 12 Q 0 0 12 0 L 228 0 Q 240 0 240 12 L 240 46 L 0 46 Z" fill="url(#gCard2)" fill-opacity="0.15"/>
+    <line x1="0" y1="46" x2="240" y2="46" stroke="url(#gCard2)" stroke-width="1.5"/>
+    
+    <text x="20" y="30" font-size="12" font-weight="800" fill="#818CF8" letter-spacing="0.8">2. PINNED SNAPSHOT</text>
+
+    <g transform="translate(22, 78)" font-size="12.5" fill="#E2E8F0" font-weight="400">
+      <circle cx="2" cy="-4" r="2.5" fill="#818CF8"/>
+      <text x="14" y="0">Block &amp; timestamp</text>
+      
+      <circle cx="2" cy="30" r="2.5" fill="#818CF8"/>
+      <text x="14" y="34">Snapshot hash</text>
+      
+      <circle cx="2" cy="64" r="2.5" fill="#818CF8"/>
+      <text x="14" y="68">Stress calibration</text>
+      
+      <circle cx="2" cy="98" r="2.5" fill="#818CF8"/>
+      <text x="14" y="102">Empirical depth curve</text>
+    </g>
+
+    <!-- Bottom Tag -->
+    <rect x="20" y="290" width="200" height="26" rx="6" fill="#1E1B4B" stroke="#3730A3" stroke-width="1"/>
+    <text x="120" y="307" text-anchor="middle" font-size="10.5" font-weight="600" fill="#A5B4FC" font-family="monospace">Deterministic / Offline</text>
+  </g>
+
+  <!-- Flow Connector 2 -> 3 -->
+  <line x1="575" y1="290" x2="595" y2="290" stroke="#475569" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+
+  <!-- STAGE 3 -->
+  <g transform="translate(605, 120)" filter="url(#cardGlow)">
+    <rect width="240" height="340" rx="12" fill="#111827" fill-opacity="0.8" stroke="#1F2937" stroke-width="1.5"/>
+    <path d="M 0 12 Q 0 0 12 0 L 228 0 Q 240 0 240 12 L 240 46 L 0 46 Z" fill="url(#gCard3)" fill-opacity="0.15"/>
+    <line x1="0" y1="46" x2="240" y2="46" stroke="url(#gCard3)" stroke-width="1.5"/>
+    
+    <text x="20" y="30" font-size="12" font-weight="800" fill="#C084FC" letter-spacing="0.8">3. BORROWER BOOKS</text>
+
+    <g transform="translate(22, 78)" font-size="12.5" fill="#E2E8F0" font-weight="400">
+      <circle cx="2" cy="-4" r="2.5" fill="#C084FC"/>
+      <text x="14" y="0">USD-debt book</text>
+      
+      <circle cx="2" cy="30" r="2.5" fill="#C084FC"/>
+      <text x="14" y="34">Combined debt book</text>
+      
+      <circle cx="2" cy="64" r="2.5" fill="#C084FC"/>
+      <text x="14" y="68">Target-share filter</text>
+      
+      <circle cx="2" cy="98" r="2.5" fill="#C084FC"/>
+      <text x="14" y="102">Per-account LT</text>
+    </g>
+
+    <!-- Bottom Tag -->
+    <rect x="20" y="290" width="200" height="26" rx="6" fill="#2E1065" stroke="#581C87" stroke-width="1"/>
+    <text x="120" y="307" text-anchor="middle" font-size="10.5" font-weight="600" fill="#E9D5FF" font-family="monospace">Single-Asset Mapping</text>
+  </g>
+
+  <!-- Flow Connector 3 -> 4 -->
+  <line x1="855" y1="290" x2="875" y2="290" stroke="#475569" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+
+  <!-- STAGE 4 -->
+  <g transform="translate(885, 120)" filter="url(#cardGlow)">
+    <rect width="240" height="340" rx="12" fill="#111827" fill-opacity="0.8" stroke="#1F2937" stroke-width="1.5"/>
+    <path d="M 0 12 Q 0 0 12 0 L 228 0 Q 240 0 240 12 L 240 46 L 0 46 Z" fill="url(#gCard4)" fill-opacity="0.15"/>
+    <line x1="0" y1="46" x2="240" y2="46" stroke="url(#gCard4)" stroke-width="1.5"/>
+    
+    <text x="20" y="30" font-size="12" font-weight="800" fill="#FBBF24" letter-spacing="0.8">4. STRESS &amp; CLEARING</text>
+
+    <g transform="translate(22, 78)" font-size="12.5" fill="#E2E8F0" font-weight="400">
+      <circle cx="2" cy="-4" r="2.5" fill="#FBBF24"/>
+      <text x="14" y="0">Student-t / Gaussian / Jumps</text>
+      
+      <circle cx="2" cy="30" r="2.5" fill="#FBBF24"/>
+      <text x="14" y="34">Peg &amp; depth stress</text>
+      
+      <circle cx="2" cy="64" r="2.5" fill="#FBBF24"/>
+      <text x="14" y="68">V3 / V4 mechanics</text>
+      
+      <circle cx="2" cy="98" r="2.5" fill="#FBBF24"/>
+      <text x="14" y="102">Ordered queue clearing</text>
+    </g>
+
+    <!-- Bottom Tag -->
+    <rect x="20" y="290" width="200" height="26" rx="6" fill="#451A03" stroke="#78350F" stroke-width="1"/>
+    <text x="120" y="307" text-anchor="middle" font-size="10.5" font-weight="600" fill="#FDE68A" font-family="monospace">Break-Even: s &lt;= b/(1+b)</text>
+  </g>
+
+  <!-- Flow Connector 4 -> 5 -->
+  <line x1="1135" y1="290" x2="1155" y2="290" stroke="#475569" stroke-width="2" stroke-dasharray="4 2" marker-end="url(#arrow)"/>
+
+  <!-- STAGE 5 -->
+  <g transform="translate(1165, 120)" filter="url(#cardGlow)">
+    <rect width="230" height="340" rx="12" fill="#111827" fill-opacity="0.8" stroke="#1F2937" stroke-width="1.5"/>
+    <path d="M 0 12 Q 0 0 12 0 L 218 0 Q 230 0 230 12 L 230 46 L 0 46 Z" fill="url(#gCard5)" fill-opacity="0.15"/>
+    <line x1="0" y1="46" x2="230" y2="46" stroke="url(#gCard5)" stroke-width="1.5"/>
+    
+    <text x="20" y="30" font-size="12" font-weight="800" fill="#34D399" letter-spacing="0.8">5. DECISION EVIDENCE</text>
+
+    <g transform="translate(22, 78)" font-size="12.5" fill="#E2E8F0" font-weight="400">
+      <circle cx="2" cy="-4" r="2.5" fill="#34D399"/>
+      <text x="14" y="0">P(bad debt)</text>
+      
+      <circle cx="2" cy="30" r="2.5" fill="#34D399"/>
+      <text x="14" y="34">Conditional severity</text>
+      
+      <circle cx="2" cy="64" r="2.5" fill="#34D399"/>
+      <text x="14" y="68">CVaR &amp; cap headroom</text>
+      
+      <circle cx="2" cy="98" r="2.5" fill="#34D399"/>
+      <text x="14" y="102">Largest-borrower test</text>
+      
+      <circle cx="2" cy="132" r="2.5" fill="#34D399"/>
+      <text x="14" y="136">Reproducibility manifest</text>
+    </g>
+
+    <!-- Bottom Tag -->
+    <rect x="15" y="290" width="200" height="26" rx="6" fill="#064E3B" stroke="#065F46" stroke-width="1"/>
+    <text x="115" y="307" text-anchor="middle" font-size="10.5" font-weight="600" fill="#A7F3D0" font-family="monospace">JSON Run Manifests</text>
+  </g>
+
+  <!-- ==================== LOWER BAND: ANALYSIS LENSES ==================== -->
+  <g transform="translate(45, 495)">
+    <rect width="1350" height="80" rx="10" fill="#111827" fill-opacity="0.9" stroke="#334155" stroke-width="1.2"/>
+    
+    <text x="35" y="45" font-size="11" font-weight="800" fill="#94A3B8" letter-spacing="1">ADDITIONAL ANALYSIS LENSES:</text>
+
+    <!-- Lens Pills -->
+    <g transform="translate(290, 24)">
+      <!-- Pill 1 -->
+      <rect x="0" y="0" width="310" height="34" rx="6" fill="#1E293B" stroke="#475569" stroke-width="1"/>
+      <text x="155" y="21" text-anchor="middle" font-size="11.5" font-weight="700" fill="#F1F5F9" letter-spacing="0.5">HISTORICAL EPISODE REPLAY</text>
+
+      <text x="335" y="22" font-size="13" fill="#475569" text-anchor="middle">|</text>
+
+      <!-- Pill 2 -->
+      <rect x="360" y="0" width="310" height="34" rx="6" fill="#1E293B" stroke="#475569" stroke-width="1"/>
+      <text x="515" y="21" text-anchor="middle" font-size="11.5" font-weight="700" fill="#F1F5F9" letter-spacing="0.5">V3 / V4 COUNTERFACTUAL</text>
+
+      <text x="695" y="22" font-size="13" fill="#475569" text-anchor="middle">|</text>
+
+      <!-- Pill 3 -->
+      <rect x="720" y="0" width="310" height="34" rx="6" fill="#1E293B" stroke="#475569" stroke-width="1"/>
+      <text x="875" y="21" text-anchor="middle" font-size="11.5" font-weight="700" fill="#F1F5F9" letter-spacing="0.5">MULTI-PERIOD EVOLUTION</text>
+    </g>
+  </g>
+
+  <!-- ==================== CAVEATS FOOTER ==================== -->
+  <g transform="translate(720, 640)" font-size="12" fill="#64748B" text-anchor="middle">
+    <text x="0" y="0" font-weight="500">- Episode replay uses the selected snapshot book, not historical positions.</text>
+    <text x="0" y="24" font-weight="500">- Instant depth excludes primary redemption, CEX, and OTC capacity.</text>
+  </g>
+
+</svg>

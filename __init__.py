@@ -1,4 +1,4 @@
-"""Aave collateral and Hub-Spoke risk-budgeting engine."""
+"""Aave collateral risk, liquidation capacity, and V3-to-V4 research engine."""
 
 from .config import (
     AssetParams,

@@ -8,9 +8,9 @@ The package is intentionally small and self-contained. It has no dependency on t
 |---|---|
 | `config.py` | Dataclass inputs |
 | `stress.py` | Return laws, peg stress, depth haircuts |
-| `positions.py` | Synthetic borrower books |
+| `positions.py` | Synthetic and real borrower-book state, debt denomination, and exposure scaling |
 | `liquidation.py` | Liquidation and bad-debt accounting |
-| `slippage.py` | Concentrated-liquidity slippage curve |
+| `slippage.py` | Analytic and empirical liquidation-slippage curves |
 | `engine.py` | Single-Spoke Monte Carlo engine |
 | `multiperiod.py` | Multi-period simulation with book-state evolution |
 | `hub.py` | Multi-Spoke Hub allocator |
@@ -25,13 +25,20 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `data/episodes.py` | Historical episodes: paths, cleaning, rolling-window scenarios |
 | `data/build_episodes.py` | Episode price-path fetcher CLI |
 | `run_market_report.py` | Real-market decision report and reproducibility-manifest CLI |
-| `run_episode_replay.py` | Historical stress paths through today's book |
+| `run_episode_replay.py` | Historical stress paths through a selected snapshot book |
 | `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
 | `run_multiperiod.py` | Multi-period stress paths with re-liquidation |
 | `dashboard.py` | Streamlit dashboard |
+| `dashboard_analysis.py` | Cached dashboard analysis adapters and table builders |
 | `dashboard_charts.py` | Plotly charts |
+| `plotting.py` | Reproducible Matplotlib report figures |
 | `run_demo.py` | Single-Spoke CLI demo |
 | `run_hub_demo.py` | Hub allocation CLI demo |
+
+The equations and accounting conventions are collected in
+[`docs/model-specification.md`](docs/model-specification.md). Canonical July
+30 report inputs and outputs, including snapshot hashes and seeds, are stored
+in [`docs/manifests/`](docs/manifests/).
 
 ## Verification
 

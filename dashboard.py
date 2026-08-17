@@ -777,9 +777,9 @@ def _episode_tab(payload: str, context_key: str, snapshot, scope: str, share: fl
     )
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
-        "Historical paths are replayed on today's book; this is not archive "
+        "Historical paths are replayed on the selected snapshot book; this is not archive "
         "backtesting. ETH returns and stETH/ETH peg moves are historical, but "
-        "liquidity is not: both rows use today's depth curve, either unchanged or "
+        "liquidity is not: both rows use the snapshot depth curve, either unchanged or "
         "with an assumed flat 50% haircut because historical routed depth is unavailable. "
         "A 50% haircut can match quiet depth when both sales already stall beyond "
         "the observed quote ladder."
@@ -875,7 +875,7 @@ def _multiperiod_tab(
     table = table.rename(columns={"Mean bad debt": "Expected bad debt"})
     st.dataframe(table, width="stretch", hide_index=True)
     st.caption(
-        "Both rows now share the exact same terminal return, peg drop, and depth "
+        "Both rows share the exact same terminal return, peg drop, and depth "
         "haircut on every matched path. Single-shock marks terminal stalls "
         "immediately. Multi-period follows the route to that endpoint: cleared "
         "positions update debt and collateral, while stalls wait and may recover."

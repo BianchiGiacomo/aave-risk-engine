@@ -51,7 +51,9 @@ def main() -> None:
 
     lt_sweep = engine.ltv_sweep(np.linspace(0.70, 0.92, 18))
     outdir = os.path.join(os.path.dirname(__file__), "figures")
+    docs_assets = os.path.join(os.path.dirname(__file__), "docs", "assets")
     os.makedirs(outdir, exist_ok=True)
+    os.makedirs(docs_assets, exist_ok=True)
     figs = {
         "slippage_curve.png": plotting.plot_slippage_curve(engine),
         "loss_distribution.png": plotting.plot_loss_distribution(base),
@@ -61,6 +63,10 @@ def main() -> None:
     for name, fig in figs.items():
         path = os.path.join(outdir, name)
         fig.savefig(path, dpi=130)
+        if name != "ltv_sweep.png":
+            published_path = os.path.join(docs_assets, name)
+            fig.savefig(published_path, dpi=130)
+            print(f"wrote {published_path}")
         plt.close(fig)
         print(f"wrote {path}")
 

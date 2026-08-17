@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aave-risk-engine"
 version = "0.1.0"
-description = "Collateral and Hub-Spoke credit-line risk engine for Aave-style lending markets."
+description = "Real-market collateral risk, liquidation capacity, and V3-to-V4 mechanics research for Aave."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

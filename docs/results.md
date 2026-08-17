@@ -1,12 +1,12 @@
 # Results
 
 This page is the consolidated results narrative for the real-data analyses.
-It separates current market conclusions from demonstrations that depended on
-an earlier exposure regime.
+It separates the pinned July 30 market evidence from demonstrations that
+depended on an earlier exposure regime.
 
 ## Data Vintage
 
-The current committed snapshots were built on July 30, 2026:
+The committed release snapshots were built on July 30, 2026:
 
 | Market | Block |
 |---|---:|
@@ -57,12 +57,13 @@ ARFC clearance test (largest borrower within liquidation bonus)
   quiet depth    : slippage >= 75.74% | max clearable $2.60m -> FAIL
 ```
 
-The USD debt book appears benign under this exploratory calibration. Its
-current exposure has 200% model exposure headroom before the 5 million dollar
-CVaR budget binds, but five positive draws are not enough to treat the precise
-CVaR or conditional severity as publication-grade estimates. The Wilson
-interval quantifies probability uncertainty; targeted rare-event sampling is
-needed to tighten tail severity.
+The USD debt book appears benign under this exploratory calibration. The cap
+sweep reaches 300% of observed exposure while remaining below the 5 million
+dollar CVaR budget, so it demonstrates at least 200% tested headroom rather
+than locating the binding maximum. Five positive draws are not enough to treat
+the precise CVaR or conditional severity as publication-grade estimates. The
+Wilson interval quantifies probability uncertainty; targeted rare-event
+sampling is needed to tighten tail severity.
 The combined book tells a different story. Rare peg and depth stress reaches
 large ETH debt loopers, producing a 20.95 million dollar CVaR despite only a
 0.11% bad debt probability.
@@ -111,7 +112,7 @@ ARFC clearance test (largest borrower within liquidation bonus)
 ```
 
 The independent clearance estimate moved from 32.5 thousand dollars on July
-18 to 41.8 thousand dollars on July 30. It now almost exactly matches
+18 to 41.8 thousand dollars on July 30, almost exactly matching
 LlamaRisk's approximately 41 thousand dollar estimate, while the formal
 clearance verdict remains FAIL because the largest borrower sale is about
 46.4 thousand dollars.
@@ -130,8 +131,8 @@ python -m aave_risk_engine.run_episode_replay
 ```
 
 This replay uses the July 30 mainnet book at block 25,645,558. It applies
-historical price and peg paths to today's positions and depth. It does not
-reconstruct historical borrower books.
+historical price and peg paths to that snapshot's positions and depth. It does
+not reconstruct historical borrower books.
 
 ```text
 Historical episode replay | wstETH (ethereum) block 25,645,558 | horizon 2d
@@ -148,7 +149,7 @@ Episode: usdc-depeg-2023 (2023-02-28 to 2023-03-20)
 ```
 
 The June 2022 peg window activates the whale channel and produces 227.62
-million dollars of bad debt on the current combined book. The FTX and USDC
+million dollars of bad debt on the July 30 combined book. The FTX and USDC
 windows are clean for the modeled collateral channels. The timing matters:
 the worst realized peg moves need not coincide with the worst ETH return
 windows. A contemporaneous crash beta can therefore overstate or misplace
@@ -176,9 +177,10 @@ USD-debt book ($146.42m)
 
 V4 Main increased the frequency of some loss because repay-to-target sold
 more collateral near the threshold, but it reduced severity beyond the loss
-threshold. Ordered clearing reduced CVaR by roughly 20% to 25% in this
-regime because early tranches could clear before later positions exhausted
-depth.
+threshold. In the two quoted USD-debt rows, ordered clearing reduced CVaR by
+19% to 23% because early tranches could clear before later positions exhausted
+depth. Across all six archived V3 and V4 book comparisons, the reduction was
+13% to 27%.
 
 The July 16 snapshot is recoverable as
 `data/snapshots/aave_v3_ethereum_wsteth.json` at commit `ac9f2ae`. Pass that
@@ -210,9 +212,10 @@ Command:
 python -m aave_risk_engine.run_multiperiod
 ```
 
-The single-shock and evolving rows now share the exact terminal return, peg
-drop, and depth haircut on every path. The July 30 mainnet snapshot at block
-25,645,558 shows what happens when whale concentration dominates:
+The single-shock and evolving rows share the exact terminal return, peg drop,
+and depth haircut on every path. This CLI uses a four-day window, longer than
+the two-day market-report calibration above. The July 30 mainnet snapshot at
+block 25,645,558 shows what happens when whale concentration dominates:
 
 ```text
 combined book ($449.92m)
@@ -227,7 +230,7 @@ Student-t shock differently from the sum of eight half-day Student-t shocks.
 Path mechanics cannot help a position that remains far beyond available depth.
 
 The July 16 mid-size regime at block 25,546,280 exposed the target health
-factor mechanism that the current whale regime masks:
+factor mechanism that the July 30 whale regime masks on the USD-debt book:
 
 ```text
 V4 Main (1.24)    single: P(bad debt) 17.50% | mean  $99.03k | CVaR99    $3.47m
@@ -244,8 +247,8 @@ terminal shock.
 
 ## Interpretation
 
-Across the five analyses, market structure is the first-order result.
-Current USD debt exposure can look safe while a correlated whale remains
+Across the five analyses, market structure is the first-order result. The
+pinned USD debt exposure can look safe while a correlated whale remains
 unclearable through immediate market depth. Liquidation design changes the
 distribution materially when queues are comparable with depth, but no
 mechanics choice can compensate for a single account that is more than one

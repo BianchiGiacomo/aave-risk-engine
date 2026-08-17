@@ -1,11 +1,11 @@
 """Historical stress episodes: data, rolling-window scenarios, and replay.
 
 This is scenario replay, not book reconstruction: the realized price and
-peg paths of past episodes are rolled through today's book and today's
+peg paths of past episodes are rolled through a selected snapshot book and
 depth curve. Reconstructing the historical borrower book would need
 archive-node state, which keyless public endpoints do not serve; the
 replay answers the complementary question of what those market paths
-would do to the positions on the books now.
+would do to the positions in that snapshot.
 
 Price history comes from the keyless DefiLlama coins API, which serves
 daily prices back past 2022.
@@ -219,7 +219,7 @@ def episode_scenarios(
 
     Collateral repricing follows the engine's convention: spot times the
     window's driver return times one minus the window's peg drop. Depth is
-    today's calibrated curve with a flat haircut, since historical depth is
+    the snapshot's calibrated curve with a flat haircut, since historical depth is
     not observable from keyless sources.
     """
     horizon = max(1, int(round(config.stress.horizon_days)))

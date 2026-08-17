@@ -6,6 +6,9 @@ second-guess the decision but to test whether an independent pipeline,
 built from public keyless sources, reaches the same conclusions from the
 same market.
 
+Sections 1 through 4 preserve the initial July 18 reproduction. The July 30
+release evidence and updated clearance figure appear in the addendum.
+
 ## The Decision
 
 On July 1, 2026, LlamaRisk posted
@@ -112,10 +115,9 @@ the headroom for that gap to grow.
 - Borrower discovery scans recent Borrow events (~28 days here), so
   dormant positions are not sampled. The reserve-level supply and borrow
   totals are exact regardless.
-- The engine's USD-shock scenarios do not model the loopers' actual risk
-  vector (LST/ETH exchange-rate moves). A dedicated exchange-rate stress
-  for correlated loops is the model feature this case study most clearly
-  motivates.
+- The combined book revalues ETH-denominated debt, but the effective
+  single-asset mapping does not separately shock every LST collateral leg.
+  It therefore does not fully model each looper's LST/ETH exchange-rate risk.
 - Instant routed depth understates total exit capacity where redemption
   queues exist; for WETH itself there is no queue, so the strict reading
   is appropriate here.
@@ -143,9 +145,10 @@ A fresh snapshot twelve days later (block 31,568,531) shows:
 
 ![Linea WETH empirical depth](../assets/linea_weth_depth.png)
 
-The figure uses the July 30 KyberSwap quote ladder. The marker is
-LlamaRisk's approximately $41,000 reference size and the horizontal line
-is liquidator break-even at 5.66%.
+The figure uses the July 30 KyberSwap quote ladder. The black marker is
+LlamaRisk's approximately $41,000 reference size, the orange marker is the
+$46,440 largest sampled borrower sale, and the horizontal line is liquidator
+break-even at 5.66%.
 
 Rebuild it from the committed snapshot with:
 

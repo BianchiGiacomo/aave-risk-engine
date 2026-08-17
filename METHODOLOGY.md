@@ -56,12 +56,14 @@ Two clearing models are available:
   tranches do not, and a stalled position is marked at the slippage its
   own sale would have realized. This is the dashboard execution model.
 
-On the real wstETH book the two agree on P(bad debt) and VaR99 but the
-aggregate model overstates CVaR99 by roughly a fifth across V3 and V4
-configurations, because in tail scenarios the front of the queue still
-clears within its bonus while the aggregate average stalls everything.
-Ordered clearing is still single-period: depth does not replenish between
-tranches, and no follow-on liquidations occur after the window.
+The queue effect is regime dependent. On the archived July 16 wstETH
+snapshot, ordered clearing reduced CVaR99 by 13% to 27% across the six
+reported V3 and V4 book comparisons because early tranches could clear before
+later positions exhausted depth. On the July 30 combined book, a single whale
+dominates and the reduction is only 0% to 2%. Larger differences on the July
+30 USD-debt book rely on only five positive-loss draws and are not stable tail
+estimates. Ordered clearing is still single-period: depth does not replenish
+between tranches, and no follow-on liquidations occur after the window.
 
 ## Return Laws
 
@@ -137,8 +139,8 @@ at once:
 - **Re-liquidation**: cleared repayments and seizures update the book, so
   a position restored to the V4 target health factor can be liquidated
   again if subsequent cumulative shocks push it below HF 1. Market
-  conditions do not reset after a clear. On the archived July 16 book,
-  restoring to 1.24 produced re-liquidation in 0.17% of matched paths,
+  conditions do not reset after a clear. On the archived July 16 USD-debt
+  book, restoring to 1.24 produced re-liquidation in 0.17% of matched paths,
   versus 10.72% when restoring to 1.0137.
 - **Depth replenishment**: depth consumed by cleared sales carries into
   the next period scaled by `1 - replenish`. Configurations that clear
@@ -215,25 +217,24 @@ since March 2026 instead of the V3 baseline:
   `s > b_i / (1 + b_i)`, so deep-in-default positions keep clearing at
   slippage levels that stall near-par liquidations.
 
-On the real wstETH book this trades probability against severity, driven
-by liquidation sizing: repay-to-1.24 with a 60% floor sells much more
-collateral per event than a 50% close factor, pushing slippage past
-break-even more often (more scenarios with some bad debt), while deep
-positions carrying the full bonus clear at higher slippage and each
-event deleverages harder, thinning the tail. One caveat: the
-single-period model understates the benefit of high targets, because
-restoring HF to 1.0137 versus 1.24 changes vulnerability to follow-on
-shocks that a one-shot simulation does not see.
+On the archived July 16 wstETH USD-debt book, this traded probability against
+severity: repay-to-1.24 with a 60% floor sold more collateral per event than a
+50% close factor, pushing slippage past break-even more often while harder
+deleveraging thinned the loss tail. On the July 30 combined book, the
+V3-to-V4 differences largely disappear because one sale is far beyond instant
+depth under every mechanics choice. One caveat remains: the single-period
+model cannot show how restoring HF to 1.0137 versus 1.24 changes vulnerability
+to follow-on shocks.
 
 ## Historical Episode Replay
 
 Past stress episodes are replayed as deterministic scenarios: every rolling
 stress-horizon window of the realized ETH price and stETH/ETH ratio paths
-becomes one scenario, evaluated against the current book and the current
-depth curve. This is scenario replay, not backtesting against the
-historical book, which would require archive-node state that keyless
-endpoints do not serve. It answers: what would those market paths do to
-the positions on the books now?
+becomes one scenario, evaluated against the selected snapshot book and depth
+curve. This is scenario replay, not backtesting against the historical book,
+which would require archive-node state that keyless endpoints do not serve.
+It answers: what would those market paths do to the positions in the selected
+snapshot?
 
 Data handling for the daily price series (keyless DefiLlama marks):
 

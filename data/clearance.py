@@ -55,7 +55,7 @@ def arfc_clearance_test(
     stressed_haircut: float = 0.5,
     min_target_share: float = 0.5,
 ) -> ClearanceResult:
-    """Can current depth clear the largest borrower within the bonus?
+    """Can snapshot depth clear the largest borrower within the bonus?
 
     The sale notional per account is the seized collateral,
     min(collateral, debt * (1 + bonus)), that is, full liquidation, which is

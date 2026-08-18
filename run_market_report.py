@@ -173,7 +173,7 @@ def _write_manifest(
     }
     absolute_path = os.path.abspath(path)
     os.makedirs(os.path.dirname(absolute_path), exist_ok=True)
-    with open(absolute_path, "w", encoding="utf-8") as fh:
+    with open(absolute_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(_json_safe(manifest), fh, indent=2, allow_nan=False)
         fh.write("\n")
     return absolute_path

@@ -1,13 +1,13 @@
 # Aave Risk Engine
 
 ```text
-        ___    ___ _   ________     ____  _________ __ __
-      /   |  /   | | / / ____/    / __ \/  _/ ___// //_/
-     / /| | / /| | |/ / __/      / /_/ // / \__ \/ ,<
-    / ___ |/ ___ | / / /___     / _, _// / ___/ / /| |
-   /_/  |_/_/  |_|__/_____/    /_/ |_/___//____/_/ |_|
+         ___    ___ _   ________     ____  _________ __ __
+        /   |  /   | | / / ____/    / __ \/  _/ ___// //_/
+       / /| | / /| | |/ / __/      / /_/ // / \__ \/ ,<
+      / ___ |/ ___ | / / /___     / _, _// / ___/ / /| |
+     /_/  |_/_/  |_|__/_____/    /_/ |_/___//____/_/ |_|
 
-    LIQUIDATION CAPACITY STRESS ENGINE
+     --- LIQUIDATION CAPACITY STRESS ENGINE ---
 ```
 
 [![Tests](https://github.com/BianchiGiacomo/aave-risk-engine/actions/workflows/tests.yml/badge.svg)](https://github.com/BianchiGiacomo/aave-risk-engine/actions/workflows/tests.yml)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from types import SimpleNamespace
@@ -269,6 +270,8 @@ def test_snapshot_roundtrip():
     path = os.path.join(runtime, "test_snapshot_roundtrip.json")
     try:
         save_snapshot(snap, path)
+        with open(path, "rb") as fh:
+            snapshot_bytes = fh.read()
         loaded = load_snapshot(path)
     finally:
         if os.path.exists(path):
@@ -277,6 +280,7 @@ def test_snapshot_roundtrip():
     assert loaded.accounts == snap.accounts
     assert loaded.depth == snap.depth
     assert loaded.stress == snap.stress
+    assert b"\r\n" not in snapshot_bytes
 
 
 def test_snapshot_json_payload_roundtrip():
@@ -459,6 +463,10 @@ def test_market_report_manifest_records_snapshot_and_tail_diagnostics():
             recommendation,
             arfc_clearance_test(snap),
         )
+        with open(snapshot_path, "rb") as fh:
+            snapshot_bytes = fh.read()
+        with open(manifest_path, "rb") as fh:
+            manifest_bytes = fh.read()
         with open(manifest_path, encoding="utf-8") as fh:
             manifest = json.load(fh)
     finally:
@@ -467,7 +475,9 @@ def test_market_report_manifest_records_snapshot_and_tail_diagnostics():
                 os.remove(path)
 
     assert manifest["snapshot"]["block"] == snap.block
-    assert len(manifest["snapshot"]["sha256"]) == 64
+    assert manifest["snapshot"]["sha256"] == hashlib.sha256(snapshot_bytes).hexdigest()
+    assert b"\r\n" not in snapshot_bytes
+    assert b"\r\n" not in manifest_bytes
     metrics = manifest["books"]["usd_debt"]["metrics"]
     assert metrics["positive_loss_draws"] == result.positive_loss_count
     assert metrics["prob_bad_debt_ci95"][0] <= result.prob_bad_debt
@@ -990,6 +1000,8 @@ def test_borrower_registry_increment_retains_dormant_accounts():
         second_registry = update_registry(
             object(), chain, initial_end + 10, path, chunk_blocks=10
         )
+        with open(path, "rb") as fh:
+            registry_bytes = fh.read()
         loaded = load_registry(path, chain)
     finally:
         borrowers.discover_borrowers = original
@@ -1003,6 +1015,7 @@ def test_borrower_registry_increment_retains_dormant_accounts():
     ]
     assert second_registry.users == sorted([first, dormant, newcomer])
     assert loaded == second_registry
+    assert b"\r\n" not in registry_bytes
 
 
 def test_borrower_registry_validation_rejects_incomplete_start():

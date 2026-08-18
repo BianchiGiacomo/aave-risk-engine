@@ -1,0 +1,11 @@
+# Normalize every text file to LF in the repository and in the working tree.
+#
+# Run manifests record the SHA-256 of the snapshot file they consumed. Without
+# this, a Windows checkout produces CRLF snapshots whose hash does not match the
+# hash a Linux or macOS checkout produces, and the recorded evidence fails to
+# verify on the platform the reader happens to use.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary

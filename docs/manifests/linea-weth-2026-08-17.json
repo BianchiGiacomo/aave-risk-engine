@@ -15,7 +15,7 @@
   ],
   "snapshot": {
     "file": "data/snapshots/aave_v3_linea_weth.json",
-    "sha256": "3f64b5b7457332acbb007d53a65869d37f2fd1b7cfdb31392510a4f284dda59b",
+    "sha256": "9f4f798a35490eda357337f7e41cfb3f37a498d1710d66c42cc7ee3615e9c32e",
     "chain": "linea",
     "block": 31741470,
     "timestamp": 1786959261,

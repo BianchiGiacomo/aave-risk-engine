@@ -33,10 +33,7 @@ python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_e
 Trimmed output from block 25,780,402:
 
 ```text
-Borrower discovery
-  registry coverage : blocks 16,291,127 to 25,780,402
-  historical candidates: 84,427
-  active debt accounts stored: 9,526 (minimum debt $10.00k)
+borrower registry: blocks 16,291,127 to 25,780,402 | 84,427 candidates | 9,526 with debt >= $10.00k
 
 USD-debt book entering the engine: 790 accounts | debt $634.47m | collateral $1.67bn | median HF 1.94
 
@@ -93,12 +90,9 @@ python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_l
 Trimmed output from block 31,749,322:
 
 ```text
-Borrower discovery
-  registry coverage : blocks 12,430,836 to 31,749,322
-  historical candidates: 13,397
-  active debt accounts stored: 51 (minimum debt $10.00k)
+borrower registry: blocks 12,430,836 to 31,749,322 | 13,397 candidates | 51 with debt >= $10.00k
 
-USD-debt book entering the engine: 22 accounts | debt $887.88k | median HF 1.55
+USD-debt book entering the engine: 22 accounts | debt $887.88k | collateral $4.41m | median HF 1.55
 
 Tail risk at observed book exposure
   positive draws: 6 / 20,000
@@ -224,10 +218,11 @@ combined book ($964.28m)
 ```
 
 The previous two-to-three-times gap disappears once the terminal shocks are
-matched correctly. Evolving liquidation now changes combined-book CVaR by
-about 3% to 6%, although it can raise the probability of some loss while
-reducing severity. The re-liquidation contrast remains informative: restoring
-positions toward HF 1.24 creates more buffer than restoring toward 1.0137, but
+matched correctly. Evolving liquidation now reduces combined-book CVaR by
+about 3% for V3, 6% for V4 Main, and 3% for V4 Correlated, although it can
+raise the probability of some loss while reducing severity. The
+re-liquidation contrast remains informative: restoring positions toward HF
+1.24 creates more buffer than restoring toward 1.0137, but
 the rows also differ in bonus and floor parameters, so the comparison is not
 a pure target-HF experiment.
 

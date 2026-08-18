@@ -69,7 +69,7 @@ def save_registry(
     if directory:
         os.makedirs(directory, exist_ok=True)
     temp_path = path + ".tmp"
-    with open(temp_path, "w", encoding="utf-8") as fh:
+    with open(temp_path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(asdict(registry), fh, indent=1)
     os.replace(temp_path, path)
 

@@ -133,7 +133,7 @@ def default_snapshot_path(symbol: str = "wstETH", chain: str = "ethereum") -> st
 
 def save_snapshot(snapshot: MarketSnapshot, path: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(snapshot_to_json(snapshot))
 
 

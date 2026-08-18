@@ -153,7 +153,7 @@ def fetch_episode_paths(episode: Episode, timeout: float = 30.0) -> EpisodePaths
 def save_episode_paths(paths: EpisodePaths) -> str:
     os.makedirs(episodes_dir(), exist_ok=True)
     file = episode_path_file(paths.name)
-    with open(file, "w", encoding="utf-8") as fh:
+    with open(file, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(paths.__dict__, fh, indent=1)
     return file
 

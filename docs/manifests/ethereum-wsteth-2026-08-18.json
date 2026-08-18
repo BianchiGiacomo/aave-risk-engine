@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-08-18T07:30:17.070423+00:00",
+  "generated_at_utc": "2026-08-18T12:19:13.375849+00:00",
   "command": [
     "python",
     "-m",
@@ -12,7 +12,7 @@
   ],
   "snapshot": {
     "file": "data/snapshots/aave_v3_ethereum_wsteth.json",
-    "sha256": "a9ee47acb61ad04298ad28a427b587ccad0a29da3ae1f0dbb036dd8db0862a7d",
+    "sha256": "ee83cd344d2bd684e322421ba3c75c6ee876681e05e2b9cd5756c5094d42a778",
     "chain": "ethereum",
     "block": 25780402,
     "timestamp": 1787037143,

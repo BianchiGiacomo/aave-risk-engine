@@ -22,9 +22,10 @@ sell size against about $8.4 million supplied.
 ## Independent Reproduction
 
 The first snapshot was captured at Linea block 31,426,233 on July 18, 2026.
-JSON-RPC verified the implemented caps at 6,250 WETH supplied and 2,370 WETH
-borrowed. It also measured 4,969.5 WETH supplied and 2,368.7 WETH borrowed, so
-the new borrow cap was already 99.9% utilized.
+JSON-RPC confirmed the implemented parameters: a 6,250 WETH supply cap and a
+2,370 WETH borrow cap. Against those limits the reserve held 4,969.5 WETH
+supplied and 2,368.7 WETH borrowed, so the new borrow cap was already 99.9%
+utilized.
 
 An independent KyberSwap WETH-to-USDC ladder produced:
 

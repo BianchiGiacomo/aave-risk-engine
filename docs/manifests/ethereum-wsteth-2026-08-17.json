@@ -12,7 +12,7 @@
   ],
   "snapshot": {
     "file": "data/snapshots/aave_v3_ethereum_wsteth.json",
-    "sha256": "1a99307040e7596de33f8e9714c45533695bfcc980e87728d44d1ccd596e58c1",
+    "sha256": "94b97ce1814886378c7f6ee3ac37a859f98d2e133bf4eccf390724d3dcdaa30b",
     "chain": "ethereum",
     "block": 25773934,
     "timestamp": 1786959233,

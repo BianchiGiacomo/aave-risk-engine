@@ -30,10 +30,12 @@ borrower sample.
 The pipeline uses keyless public sources: Aave JSON-RPC state, Paraswap or
 KyberSwap routed quotes, Kraken prices, and DefiLlama LST ratios. A persistent
 registry replays every `Borrow` event from each configured Pool deployment,
-then re-queries all historical candidates at one pinned block. Accounts with
-current debt form real borrower books. The engine simulates collateral
-returns, peg moves, and depth evaporation; clears liquidations sequentially
-by bonus and seize size; and reports loss frequency, expected loss,
+then re-queries all historical candidates at one pinned block. Candidates
+still carrying at least $10,000 of debt at that block are stored in the
+snapshot. Target-collateral-share and debt-denomination filters then construct
+the USD-debt and combined analysis books. The engine simulates collateral
+returns, peg moves, and depth evaporation; clears liquidations sequentially by
+bonus and seize size; and reports loss frequency, expected loss,
 conditional severity, VaR, and CVaR. Liquidators participate while slippage is
 below `bonus / (1 + bonus)`. Snapshots, hashes, seeds, and parameters are
 committed for offline reproduction.
@@ -99,11 +101,16 @@ largest borrower sale      : $256.52m
 max clearable within bonus : $2.73m -> FAIL
 ```
 
-The sale is about 94 times estimated instant clearance capacity. This is not
-a claim that wstETH is unsafe or that eventual recovery is limited to $2.73
-million. The strict test includes routed on-chain exits only; wstETH can also
-be redeemed over time, and CEX or OTC liquidity may exist. It exposes an
-interpretation problem in the
+The sale is about 94 times estimated instant clearance capacity. That
+borrower's debt is entirely ETH-denominated, so it is a leveraged staking
+loop: its debt falls with its collateral, and it is stressed by the
+wstETH/ETH exchange rate and by exit depth rather than by the USD price of
+ETH. Its collateral still sells on the same depth curve once liquidated,
+which is why the clearance test includes it. This is not a claim that wstETH
+is unsafe or that eventual recovery is limited to $2.73 million. The strict
+test includes routed on-chain exits only; wstETH can also be redeemed over
+time, and CEX or OTC liquidity may exist. It exposes an interpretation
+problem in the
 [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114):
 instant depth and horizon liquidation capacity are not the same quantity.
 
@@ -113,9 +120,15 @@ instant depth and horizon liquidation capacity are not the same quantity.
 
 The V4 comparison holds the V3 book, scenarios, and depth fixed while changing
 repay-to-target sizing, dynamic bonus, close-factor floors, dust rules, and
-queue execution. It is a mechanics counterfactual, not live V4 borrower data.
-Linear interpolation between documented bonus anchors is an explicit model
-assumption.
+queue execution. V4 Main is the general-asset Spoke configuration, repaying a
+liquidated position to health factor 1.24 with a 60% close-factor floor, a
+0.90 bonus factor, and a 0.90 health-factor anchor for maximum bonus. V4
+Correlated is the tight-band configuration for assets that track each other,
+such as an LST against ETH, repaying to 1.0137 with a 35% floor, a 1.0 bonus
+factor, and a 0.99 maximum-bonus anchor. Both use a modeled maximum bonus 1.11
+times the V3 bonus. This is a mechanics counterfactual, not live V4 borrower
+data. Linear interpolation between documented bonus anchors is an explicit
+model assumption.
 
 On the current combined book, aggregate CVaR99 is $31.82 million for V3,
 $32.85 million for V4 Main, and $32.83 million for V4 Correlated. Ordered
@@ -129,9 +142,9 @@ liquidation. Combined-book V3 CVaR99 is $32.78 million under a terminal-only
 shock and $31.85 million with book evolution. V4 Main moves from $51.08
 million to $47.84 million; V4 Correlated moves from $40.76 million to $39.68
 million. Re-liquidation occurs in 0.21% of V4 Main paths versus 16.84% of V4
-Correlated paths. The target health factors, 1.24 and 1.0137, contribute to
-that contrast, but bonus and floor parameters also differ, so it is not a
-single-parameter causal estimate.
+Correlated paths. The higher repay target contributes to that contrast, but
+bonus and floor parameters also differ, so it is not a single-parameter
+causal estimate.
 
 Historical replay provides a separate deterministic stress lens. Applying
 the June 2022 ETH and stETH/ETH path to today's combined book produces a

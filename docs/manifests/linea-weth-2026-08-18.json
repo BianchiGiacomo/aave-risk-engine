@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at_utc": "2026-08-18T07:30:32.132725+00:00",
+  "generated_at_utc": "2026-08-18T12:19:17.512568+00:00",
   "command": [
     "python",
     "-m",
@@ -15,7 +15,7 @@
   ],
   "snapshot": {
     "file": "data/snapshots/aave_v3_linea_weth.json",
-    "sha256": "e1895bb71dbd1d69ba9ac885de34e73deca9c9e7f7ec6ade494e2228f0282a5e",
+    "sha256": "c991abd072507eb2021ff27a15aeabd2c26abe17e7d0e11b0c1ad89b7a4215fd",
     "chain": "linea",
     "block": 31749322,
     "timestamp": 1787037146,

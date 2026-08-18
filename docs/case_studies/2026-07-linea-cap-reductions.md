@@ -1,58 +1,34 @@
 # Case Study: Risk Stewards Cap Reductions on Aave V3 Linea (July 2026)
 
-An independent quantitative reproduction of a live governance decision,
-using this repository's data layer and risk engine. The point is not to
-second-guess the decision but to test whether an independent pipeline,
-built from public keyless sources, reaches the same conclusions from the
-same market.
-
-Sections 1 through 4 preserve the initial July 18 reproduction. The July 30
-and August 17 refreshes appear in the addendum.
+This case study independently reproduces a governance risk decision with
+public keyless data. It does not second-guess the decision; it tests whether a
+separate pipeline reaches the same liquidity conclusion.
 
 ## The Decision
 
 On July 1, 2026, LlamaRisk posted
 [Risk Stewards: Supply and Borrow Cap Reductions on Aave V3 / 2026.07.01](https://governance.aave.com/t/risk-stewards-supply-and-borrow-cap-reductions-on-aave-v3-2026-07-01/25269),
-reducing caps across Aave V3 Linea. For WETH specifically:
+reducing caps across Aave V3 Linea. For WETH:
 
 | Parameter | Old | New |
 |---|---:|---:|
 | Supply cap | 7,950 WETH | 6,250 WETH |
 | Borrow cap | 7,150 WETH | 2,370 WETH |
 
-The stated rationale: caps were set with "limited margin above current
-outstanding supply", borrow caps were brought "toward current outstanding
-borrowing", and on-chain DEX liquidity was identified as the key concern.
-The post's headline liquidity observation:
-
-> WETH reaches its liquidation bonus threshold at approximately $41,000 of
-> sell size against $8.4M supplied.
+The post identified on-chain DEX liquidity as the key concern and reported
+that WETH reached its liquidation-bonus threshold at approximately $41,000 of
+sell size against about $8.4 million supplied.
 
 ## Independent Reproduction
 
-Snapshot: Aave V3 Linea, block 31,426,233 (July 18, 2026), built with
-`python -m aave_risk_engine.data.build_snapshot --chain linea --asset WETH`.
-All inputs are keyless public sources: Linea JSON-RPC for reserve state and
-borrower discovery, KyberSwap routed quotes for depth, Kraken for the
-volatility calibration.
+The first snapshot was captured at Linea block 31,426,233 on July 18, 2026.
+JSON-RPC verified the implemented caps at 6,250 WETH supplied and 2,370 WETH
+borrowed. It also measured 4,969.5 WETH supplied and 2,368.7 WETH borrowed, so
+the new borrow cap was already 99.9% utilized.
 
-### 1. The implemented caps verify on-chain
+An independent KyberSwap WETH-to-USDC ladder produced:
 
-| Check | On-chain (block 31,426,233) | Governance post |
-|---|---:|---:|
-| Supply cap | 6,250 WETH | 6,250 WETH |
-| Borrow cap | 2,370 WETH | 2,370 WETH |
-| Supplied | 4,969.5 WETH ($9.17m) | ~$8.4m at post time |
-| Borrowed | 2,368.7 WETH | n/a |
-
-The borrow cap is 99.9% utilized: the Stewards brought it to current
-outstanding borrowing almost exactly, and it now binds.
-
-### 2. The depth observation reproduces independently
-
-Routed KyberSwap sell quotes (WETH to USDC on Linea, July 18):
-
-| Sale size | Slippage |
+| Sale size | July 18 slippage |
 |---:|---:|
 | $15,000 | 1.31% |
 | $41,000 | 6.98% |
@@ -60,97 +36,34 @@ Routed KyberSwap sell quotes (WETH to USDC on Linea, July 18):
 | $300,000 | 75.3% |
 | $1,000,000 | 92.2% |
 
-Liquidator break-even at a 6% bonus is `0.06 / 1.06 = 5.66%`. Interpolating
-the quote curve, the largest sale clearable within the bonus is about
-**$32,500**, measured 17 days after the post and via a different
-aggregator. LlamaRisk's figure was **~$41,000**. Same order of magnitude,
-same conclusion, slightly more conservative on the later date: the
-market's instant exit capacity for WETH on Linea is a few tens of
-thousands of dollars, against $9m supplied.
+Liquidator break-even at a 6% bonus is `0.06 / 1.06 = 5.66%`.
+Interpolating the July 18 curve gives maximum clearable notional of about
+$32,500. The estimate was more conservative than LlamaRisk's $41,000, but it
+agreed in order of magnitude and supported the same conclusion: instant WETH
+exit capacity on Linea was only a few tens of thousands of dollars.
 
-The ARFC clearance test formalizes what that means:
+## Quote Convergence
 
-```text
-largest WETH-collateral borrower sale : $46,400
-max clearable within bonus (quiet)    : $32,500  -> FAIL
-max clearable (50% depth haircut)     : $16,200  -> FAIL
-```
+Later quote ladders moved closer to LlamaRisk's reference:
 
-Even the largest single WETH-collateral borrower could not be liquidated
-within the bonus in calm conditions. Under the Aave Risk Framework's
-liquidation-capacity requirement, this market fails on instant on-chain
-depth alone, which supports the reduction direction unambiguously.
+| Quantity | Jul 18 | Jul 30 | Aug 17 | Aug 18 |
+|---|---:|---:|---:|---:|
+| Snapshot block | 31,426,233 | 31,568,531 | 31,741,470 | 31,749,322 |
+| Max clearable within bonus | $32,500 | $41,770 | $42,420 | $43,195 |
+| Slippage at a $41k sale | 6.98% | 5.06% | 4.59% | 4.06% |
+| WETH supplied | 4,970 | 4,831 | 4,641 | 4,639 |
+| Caps, supply / borrow | 6,250 / 2,370 | unchanged | unchanged | unchanged |
 
-### 3. What the borrower book shows
-
-Of 44 sampled accounts with debt (from a ~28-day Borrow-event scan), the
-five largest are all leveraged loopers: 100% WETH-denominated debt against
-LST collateral, with health factors of 1.00 to 1.23. Positions at HF 1.00
-sit exactly at the liquidation boundary; any wstETH/ETH or weETH/ETH
-exchange-rate wobble pushes them into a liquidation queue that, per the
-depth curve above, stalls almost immediately.
-
-The USD-debt book against WETH collateral is tiny ($96k across 5
-accounts; CVaR99 of $760), so the engine's USD-shock lens confirms the
-market's risk does not sit in conventional stable-debt borrowing. It sits
-in exit liquidity and correlated loops, which is exactly the vector the
-Stewards cited.
-
-### 4. Cap headroom in model terms
-
-The supply cap times LTV still permits up to $9.2m of debt against WETH
-collateral. A cap sweep on the (scaled) real book shows a $500k CVaR99
-budget is breached at roughly $290k of USD-debt exposure, because any
-meaningful liquidation queue immediately exceeds the clearable depth. The
-cap is therefore not the binding risk control on this market; liquidity
-is. Right-sizing caps toward observed usage, as the Stewards did, reduces
-the headroom for that gap to grow.
-
-## Divergences and Honest Limitations
-
-- Our $32.5k clearance figure vs their $41k: different quote date (17 days
-  apart), different aggregator routing, and possibly different slippage
-  conventions. The agreement is in magnitude and conclusion, not the third
-  significant digit.
-- Borrower discovery scans recent Borrow events (~28 days here), so
-  dormant positions are not sampled. The reserve-level supply and borrow
-  totals are exact regardless.
-- The combined book revalues ETH-denominated debt, but the effective
-  single-asset mapping does not separately shock every LST collateral leg.
-  It therefore does not fully model each looper's LST/ETH exchange-rate risk.
-- Instant routed depth understates total exit capacity where redemption
-  queues exist; for WETH itself there is no queue, so the strict reading
-  is appropriate here.
-
-## Conclusion
-
-An independent pipeline reproduces the decision's inputs (caps, usage,
-depth) from public data, confirms its headline liquidity number within
-measurement noise, and reaches the same verdict through a formal test:
-Linea WETH liquidation capacity cannot clear even its largest single
-borrower within the liquidation bonus, so shrinking cap headroom toward
-observed usage was the right risk call.
-
-## Addendum: July 30 And August 17 Refreshes
-
-Two later snapshots show that the independent clearance estimate remained
-close to LlamaRisk's reference while the verdict stayed unchanged:
-
-| Quantity | Jul 18 | Jul 30 | Aug 17 |
-|---|---:|---:|---:|
-| Snapshot block | 31,426,233 | 31,568,531 | 31,741,470 |
-| Max clearable within bonus | $32,500 | $41,770 | $42,420 |
-| Slippage at a $41k sale | 6.98% | 5.06% | 4.59% |
-| Largest borrower sale | $46,400 | $46,440 | $46,560 (still FAIL) |
-| WETH supplied | 4,970 | 4,831 | 4,641 |
-| Caps (supply / borrow) | 6,250 / 2,370 | unchanged | unchanged |
+Different quote times, routes, and aggregators prevent a uniquely correct
+third significant digit. Three later estimates nevertheless cluster around
+LlamaRisk's value.
 
 ![Linea WETH empirical depth](../assets/linea_weth_depth.png)
 
-The figure uses the August 17 KyberSwap quote ladder. The black marker is
+The figure uses the August 18 KyberSwap ladder. The black marker is
 LlamaRisk's approximately $41,000 reference size, the orange marker is the
-$46,560 largest sampled borrower sale, and the horizontal line is liquidator
-break-even at 5.66%.
+$300,470 largest current borrower sale, and the horizontal line is
+liquidator break-even at 5.66%.
 
 Rebuild it from the committed snapshot with:
 
@@ -158,16 +71,46 @@ Rebuild it from the committed snapshot with:
 python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure
 ```
 
-The July 30 snapshot remains recoverable at commit `5876690`. The committed
-release snapshot and figure now use August 17.
+## Complete Borrower Discovery
 
-Borrower-book rows are not a clean panel across the three vintages because
-discovery coverage changed. Reserve totals, caps, and quote ladders are direct
-observations and do not depend on that borrower sample.
+The July 18, July 30, and August 17 snapshot builders used recent `Borrow`
+events plus previously known addresses. That rolling method could omit open
+positions whose last borrow predated the scan. The August 18 release replaces
+it with a persistent registry covering every `Borrow` event from the Linea
+Pool proxy deployment at block 12,430,836 through block 31,749,322. It
+re-queries all 13,397 historical candidates at the pinned snapshot block and
+stores 51 accounts with at least $10,000 of debt.
 
-Our clearance measure moved from below LlamaRisk's approximately $41,000
-figure to close to it on two separate refreshes. This is consistent with a
-noisy independent estimate of the same underlying quantity. Reserve-level
-supply continued to fall, and the clearance verdict is unchanged: the largest
-sampled borrower still cannot be liquidated within the bonus on instant
-on-chain depth.
+This correction means old borrower-book rows are not a panel and should not
+be read as market growth. Reserve totals, caps, and quote ladders are direct
+observations and remain comparable. On the corrected current book, 22
+target-dominant accounts enter the USD-debt analysis and the deterministic
+clearance test is:
+
+```text
+largest WETH-collateral borrower sale : $300,470
+max clearable within bonus, quiet     : $43,195 -> FAIL
+max clearable with 50% depth haircut  : $21,598 -> FAIL
+```
+
+The discovery correction therefore strengthens, rather than reverses, the
+same clearance verdict.
+
+## Limitations
+
+- The depth curve is a routed-quote observation, not guaranteed execution.
+- WETH has no primary redemption delay, but CEX and OTC liquidity are still
+  outside this instant on-chain test.
+- The real-book mapping does not separately shock every collateral leg of a
+  multi-collateral account.
+- The Monte Carlo result is sparse: six positive losses in 20,000 draws do
+  not support a precise conditional-severity estimate.
+
+## Conclusion
+
+The independent pipeline verifies the implemented caps, reproduces the
+reported liquidation threshold within measurement variation, and reaches the
+same decision direction through a formal test. Complete discovery finds that
+the current largest WETH-collateral sale is about seven times maximum quiet
+clearance capacity. For this market, shrinking cap headroom toward observed
+usage is consistent with the measured instant-liquidity constraint.

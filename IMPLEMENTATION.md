@@ -16,6 +16,8 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
 | `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
+| `data/borrowers.py` | Persistent full-history Borrow-event registries with incremental checkpoints |
+| `data/account_cache.py` | Resumable SQLite cache for block-pinned borrower account reads |
 | `data/markets.py` | Price history, realized vol, t-tail fit, ARFC peg rule |
 | `data/depth.py` | Slippage-curve calibration from Paraswap/KyberSwap sell quotes |
 | `data/snapshot.py` | Snapshot schema and JSON persistence |
@@ -36,9 +38,9 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_hub_demo.py` | Hub allocation CLI demo |
 
 The equations and accounting conventions are collected in
-[`docs/model-specification.md`](docs/model-specification.md). Canonical July
-30 report inputs and outputs, including snapshot hashes and seeds, are stored
-in [`docs/manifests/`](docs/manifests/).
+[`docs/model-specification.md`](docs/model-specification.md). Canonical August
+18 report inputs and outputs, including snapshot hashes, borrower-registry
+coverage, and seeds, are stored in [`docs/manifests/`](docs/manifests/).
 
 ## Verification
 
@@ -65,6 +67,9 @@ The tests check:
 - severity sensitivity,
 - budget binding,
 - ABI word decoding and snapshot round-trips,
+- full-history borrower-registry updates, validation, and monotonicity,
+- block-pinned account reads and interrupted SQLite-cache resumption,
+- collateral-enable flags and stable plus variable WETH debt accounting,
 - real-book filtering and per-position liquidation thresholds,
 - book scaling preserving health factors,
 - depth-fit recovery of known liquidity,
@@ -72,5 +77,5 @@ The tests check:
 - the ARFC peg rule, peg-persistence estimator, and clearance-test math,
 - the committed snapshot loading and running offline.
 
-All data-layer tests are offline; network code paths run only in
-`data/build_snapshot.py`.
+All automated tests are offline; live network paths run only during explicit
+snapshot and episode refresh commands.

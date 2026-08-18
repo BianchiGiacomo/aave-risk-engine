@@ -94,12 +94,24 @@ class StressCalibration:
 
 
 @dataclass
+class BorrowerDiscovery:
+    """Coverage and filtering metadata for a borrower-book snapshot."""
+
+    source: str
+    from_block: int
+    to_block: int
+    candidate_count: int
+    active_count: int
+    min_debt_usd: float
+    account_limit: int | None = None
+
+
+@dataclass
 class MarketSnapshot:
     """A dated, single-market view of everything the engine needs.
 
-    `scan_blocks` is the Borrow-event discovery window; borrowers dormant
-    for longer than that are not sampled, so it belongs in any presentation
-    of the account data.
+    New snapshots carry a complete Borrow-event registry through `block`.
+    `scan_blocks` remains only for loading pre-registry research vintages.
     """
 
     chain: str
@@ -109,6 +121,7 @@ class MarketSnapshot:
     accounts: list[AccountRecord] = field(default_factory=list)
     depth: DepthCalibration | None = None
     stress: StressCalibration | None = None
+    borrower_discovery: BorrowerDiscovery | None = None
     notes: str = ""
     scan_blocks: int | None = None
 
@@ -145,6 +158,11 @@ def _snapshot_from_raw(raw: dict) -> MarketSnapshot:
         accounts=[AccountRecord(**a) for a in raw["accounts"]],
         depth=DepthCalibration(**raw["depth"]) if raw.get("depth") else None,
         stress=StressCalibration(**raw["stress"]) if raw.get("stress") else None,
+        borrower_discovery=(
+            BorrowerDiscovery(**raw["borrower_discovery"])
+            if raw.get("borrower_discovery")
+            else None
+        ),
         notes=raw.get("notes", ""),
         scan_blocks=raw.get("scan_blocks"),
     )

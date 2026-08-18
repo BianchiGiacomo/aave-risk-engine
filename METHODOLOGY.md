@@ -56,14 +56,12 @@ Two clearing models are available:
   tranches do not, and a stalled position is marked at the slippage its
   own sale would have realized. This is the dashboard execution model.
 
-The queue effect is regime dependent. On the archived July 16 wstETH
-snapshot, ordered clearing reduced CVaR99 by 13% to 27% across the six
-reported V3 and V4 book comparisons because early tranches could clear before
-later positions exhausted depth. On the August 17 combined book, a single
-whale dominates and the reduction is about 3% to 6%. The USD-debt book shows
-larger queue effects, but its tail remains sparse. Ordered clearing is still
-single-period: depth does not replenish between tranches, and no follow-on
-liquidations occur after the window.
+The queue effect is regime dependent. On the August 18 complete combined
+book, ordered clearing reduces CVaR99 by 52% for V3, 18% for V4 Main, and 32%
+for V4 Correlated because early tranches can clear before later positions
+exhaust depth. Ordered clearing is still single-period: depth does not
+replenish between tranches, and no follow-on liquidations occur after the
+window.
 
 ## Return Laws
 
@@ -82,11 +80,13 @@ rather than assumption:
 
 - **Risk parameters** (LT, LTV, bonus) are read from the Aave V3
   `PoolDataProvider`; the spot price from the Aave oracle (USD, 8 decimals).
-- **Borrower book**: candidate accounts combine recent `Borrow` events with
-  addresses retained from the prior pinned snapshot, then use
-  `Pool.getUserAccountData` to keep current debt positions. Each account enters
-  the book
-  under an *effective single-asset mapping*: its total collateral is treated
+- **Borrower book**: a persistent registry covers `Borrow` events from the
+  configured Pool proxy deployment through the pinned snapshot block. Every
+  historical candidate is re-queried with `Pool.getUserAccountData` at that
+  block, and accounts above the minimum current-debt floor are stored. Target
+  collateral and WETH stable plus variable debt are read at the same block.
+  Each account enters the book under an *effective single-asset mapping*: its
+  total collateral is treated
   as the target asset and shocked by the scenario price, using the account's
   own on-chain weighted-average liquidation threshold. This is the
   perfectly-correlated-collateral view; restricting to accounts whose
@@ -95,7 +95,8 @@ rather than assumption:
 - **Depth**: observed routed sell quotes are used two ways. The engine
   interpolates the (notional, slippage) points directly, because real exit
   liquidity can fall off a cliff once concentrated pools are exhausted
-  (observed for wstETH: ~0.3% at $2m, >50% at $9m), which no single-`L`
+  (observed for wstETH: near zero at $2m, 25% at $8m, and 74% at $25m),
+  which no single-`L`
   curve represents. A scenario depth haircut `h` acts as size scaling,
   `s(Q, h) = s_quiet(Q / (1 - h))`, an identity under the analytic curve.
   A median-fitted `L` reference point is kept for components needing a
@@ -117,11 +118,10 @@ rather than assumption:
   the full USD price shock. The report shows both views.
 - **Peg persistence**: refreshed pegged-asset snapshots estimate a no-intercept
   AR(1) coefficient on cleaned below-par deviations and convert it to a daily
-  OU speed. The August 17 Ethereum snapshot calibrates `0.147/day`, equivalent
-  to a 4.72-day half-life. The published four-day multi-period results therefore
-  include mean reversion and lower peg-residual variance than the July
-  random-walk run. This is one contributor, alongside the changed borrower
-  sample and exposure, to CVaR99 moving from $119.58m to $45.96m.
+  OU speed. The August 18 Ethereum snapshot calibrates `0.0961/day`, equivalent
+  to a 7.22-day half-life. The published four-day multi-period results include
+  this mean reversion. It changes pathwise residual variance relative to a
+  random-walk assumption but does not change the matched terminal law.
 - **Return law**: annualized realized volatility from daily closes; the
   Student-t degrees of freedom are matched to sample excess kurtosis
   (`dof = 4 + 6/k`, clamped to [2.6, 12]) when tails are heavy. Assets with
@@ -143,9 +143,11 @@ at once:
 - **Re-liquidation**: cleared repayments and seizures update the book, so
   a position restored to the V4 target health factor can be liquidated
   again if subsequent cumulative shocks push it below HF 1. Market
-  conditions do not reset after a clear. On the archived July 16 USD-debt
-  book, restoring to 1.24 produced re-liquidation in 0.17% of matched paths,
-  versus 10.72% when restoring to 1.0137.
+  conditions do not reset after a clear. On the August 18 USD-debt book, the
+  full V4 Main configuration produces re-liquidation in 0.27% of matched
+  paths, versus 16.93% for V4 Correlated. Their target health factors, 1.24
+  and 1.0137, contribute to this gap, but the configurations also differ in
+  bonus and close-factor-floor parameters.
 - **Depth replenishment**: depth consumed by cleared sales carries into
   the next period scaled by `1 - replenish`. Configurations that clear
   many small tranches are the most sensitive to slow replenishment.
@@ -177,11 +179,11 @@ single-period ordered engine exactly (tested).
 CVaR99 remains the risk-budget convention: it averages the worst 1% of all
 draws, including zero-loss draws when bad debt occurs in less than 1% of the
 simulation. In a sparse-loss run this is a valid unconditional risk measure,
-but it is not event severity. Linea makes the distinction concrete: one
-$8.69k loss in 20,000 draws produces CVaR99 of $43 because the other 199 draws
-in the worst 1% are zero. No simulated scenario loses $43, so the value is
+but it is not event severity. Linea makes the distinction concrete: six
+positive draws in 20,000 have conditional severity of $82.02k, while CVaR99
+is $2.46k because 194 zeros also enter the worst 1% average. The value is
 mathematically correct as an unconditional budget statistic but easy to
-misread as an attainable loss. The market report therefore also exposes:
+misread as event severity. The market report therefore also exposes:
 
 ```text
 expected loss = P(loss) * E[loss | loss > 0]
@@ -221,14 +223,13 @@ since March 2026 instead of the V3 baseline:
   `s > b_i / (1 + b_i)`, so deep-in-default positions keep clearing at
   slippage levels that stall near-par liquidations.
 
-On the archived July 16 wstETH USD-debt book, this traded probability against
-severity: repay-to-1.24 with a 60% floor sold more collateral per event than a
-50% close factor, pushing slippage past break-even more often while harder
-deleveraging thinned the loss tail. On the August 17 combined book, the
-V3-to-V4 differences largely disappear because one sale is far beyond instant
-depth under every mechanics choice. One caveat remains: the single-period
-model cannot show how restoring HF to 1.0137 versus 1.24 changes vulnerability
-to follow-on shocks.
+On the August 18 complete book, mechanics and queue execution are both
+visible. Aggregate combined-book CVaR99 is $31.82m for V3, $32.85m for V4
+Main, and $32.83m for V4 Correlated; ordered clearing reduces those values to
+$15.25m, $26.87m, and $22.41m. These are joint configuration comparisons,
+not isolated estimates of one parameter. The multi-period simulator is needed
+to show how restoring HF to 1.0137 versus 1.24 affects vulnerability to
+follow-on shocks.
 
 ## Historical Episode Replay
 
@@ -253,13 +254,12 @@ Episodes are named after the historical event but carry only the
 collateral-relevant paths (ETH price, stETH/ETH ratio); liability-side
 effects such as the March 2023 USDC depeg itself are outside the replay.
 
-The replay separates the two loss channels cleanly: episodes whose
-loss-driving ETH crash windows had a tight peg (FTX 2022) stress only the
-USD-debt book, while peg windows (June 2022) liquidate loopers through
-the exchange-rate channel. It also
-exposes a limitation of the Monte Carlo peg coupling: realized peg drops
-do not co-occur with the worst ETH windows the way a contemporaneous
-crash beta assumes; peg stress can lead or lag the price move.
+The replay helps separate loss channels. In the August 18 book, the June 2022
+peg window drives $42.20m of combined-book loss even though the corresponding
+two-day ETH return is positive. The stressed-depth FTX window produces a much
+smaller $381.42k loss, and the modeled USDC window produces none. This exposes
+a limitation of contemporaneous Monte Carlo peg coupling: realized peg stress
+can lead or lag the largest ETH price move.
 
 ## ARFC Checks
 

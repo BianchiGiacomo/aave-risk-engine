@@ -5,10 +5,9 @@
 > **Independent research prototype.** This work is unaffiliated with Aave
 > Labs, the Aave DAO, Chaos Labs, LlamaRisk, or any other Aave service
 > provider. It is not a parameter recommendation, automated risk agent, or
-> substitute for Risk Steward judgment. The purpose is to offer an
-> independent, open-source quantitative lens on Risk Steward decisions and V4
-> liquidation design, with assumptions and reproducible code open to
-> challenge.
+> substitute for Risk Steward judgment. Its purpose is an open-source
+> quantitative lens on Risk Steward decisions and V4 liquidation design, with
+> assumptions and code open to challenge.
 
 Repository: [BianchiGiacomo/aave-risk-engine](https://github.com/BianchiGiacomo/aave-risk-engine)
 
@@ -20,156 +19,124 @@ This note asks a narrow question: when stressed collateral reaches the
 liquidation queue, is immediate market depth sufficient to clear the relevant
 borrowers within the liquidation bonus?
 
-All real-market results are frozen at the August 17 snapshot blocks stated
-below. They are a reproducible research vintage, not a claim about live market
-state on the publication date.
+All primary results are frozen at the August 18, 2026 blocks stated below.
+Earlier July and August 17 snapshots used incomplete rolling borrower
+discovery. They are not used for current book-level claims; the July Linea
+quote ladders remain useful because depth measurement does not depend on the
+borrower sample.
 
 ## Method
 
-The pipeline uses keyless public sources only: Aave state and account data
-from JSON-RPC, routed sell quotes from Paraswap or KyberSwap, ETH history from
-Kraken, and LST ratio history from DefiLlama. Recent Borrow events plus known
-addresses from the prior snapshot define the candidate universe, which is
-then queried on-chain and mapped into real borrower books.
-The engine simulates collateral returns, peg moves, and depth evaporation,
-places underwater accounts into a liquidation queue, and measures bad debt
-with 99% CVaR. Liquidators participate while execution slippage remains below
-`bonus / (1 + bonus)`. The engine evaluates both an aggregate queue benchmark
-and ordered clearing, which processes positions sequentially by bonus and
-seize size, with each cleared tranche consuming depth. The standard market
-report retains the aggregate baseline; mechanics comparisons report both
-queue rules explicitly. Committed snapshots make the reports deterministic
-and offline.
+The pipeline uses keyless public sources: Aave JSON-RPC state, Paraswap or
+KyberSwap routed quotes, Kraken prices, and DefiLlama LST ratios. A persistent
+registry replays every `Borrow` event from each configured Pool deployment,
+then re-queries all historical candidates at one pinned block. Accounts with
+current debt form real borrower books. The engine simulates collateral
+returns, peg moves, and depth evaporation; clears liquidations sequentially
+by bonus and seize size; and reports loss frequency, expected loss,
+conditional severity, VaR, and CVaR. Liquidators participate while slippage is
+below `bonus / (1 + bonus)`. Snapshots, hashes, seeds, and parameters are
+committed for offline reproduction.
 
-The repository includes:
-
-- deterministic Aave market snapshots and report CLIs;
-- V3 and V4 liquidation mechanics with ordered queue clearing;
-- historical episode replay on the selected snapshot book;
-- a multi-period simulator with re-liquidation and depth replenishment.
+The repository includes deterministic market reports, V3 and V4 liquidation
+mechanics, ordered queue clearing, historical episode replay, multi-period
+book evolution, and an interactive real-data dashboard.
 
 ## Result 1: Reproducing The Linea WETH Cap Decision
 
 The first validation target was LlamaRisk's
-[July 2026 reduction of WETH supply and borrow caps](https://governance.aave.com/t/risk-stewards-supply-and-borrow-cap-reductions-on-aave-v3-2026-07-01/25269)
+[July 2026 WETH cap reduction](https://governance.aave.com/t/risk-stewards-supply-and-borrow-cap-reductions-on-aave-v3-2026-07-01/25269)
 on Aave V3 Linea. The implemented settings verify on-chain at a 6,250 WETH
 supply cap and a 2,370 WETH borrow cap.
 
-LlamaRisk reported that WETH reached its liquidation bonus threshold at about
-$41,000 of sell size. An independent KyberSwap quote ladder initially
-estimated $32,500 on July 18 and $41,770 on July 30. The August 17 release
-snapshot at block 31,741,470 estimates $42,420, still close to the reported
-figure.
+LlamaRisk reported that WETH reached its liquidation-bonus threshold at about
+$41,000 of sell size. Independent KyberSwap ladders estimated $32,500 on July
+18, $41,770 on July 30, and $43,195 in the August 18 release snapshot at block
+31,749,322.
 
 ![Linea WETH empirical depth](https://raw.githubusercontent.com/BianchiGiacomo/aave-risk-engine/v0.1.0/docs/assets/linea_weth_depth.png)
 
-The formal clearance test reaches the same risk verdict:
-
 ```text
 liquidator break-even slippage : 5.66%
-largest borrower sale          : $46.56k
-max clearable within bonus     : $42.42k -> FAIL
-max clearable, 50% haircut     : $21.21k -> FAIL
+largest borrower sale          : $300.47k
+max clearable within bonus     : $43.20k -> FAIL
+max clearable, 50% haircut     : $21.60k -> FAIL
 ```
 
-This does not establish that one estimate is uniquely correct. Aggregator
-routing and quote time both matter. It does show convergence in magnitude and
-decision: Linea WETH instant on-chain depth cannot clear its largest sampled
-borrower within the bonus.
+The independent depth estimate agrees with LlamaRisk in magnitude. Complete
+borrower discovery also finds a current sale far above that threshold, so a
+formal largest-borrower clearance test reaches the same risk direction as the
+cap reduction.
 
-The Linea Monte Carlo run also shows why deterministic evidence matters in a
-sparse-loss book. Its only positive draw loses $18,820, but CVaR99 is $94
-because that loss is averaged with 199 zeros in the worst 200 draws. The $94
-figure is a budget statistic, not an outcome that can occur.
+The Monte Carlo row shows why frequency and severity must accompany CVaR in a
+sparse book: six positive draws have mean severity of $82,020, while CVaR99
+is $2,460 because 194 zeros enter the same worst-1% average.
 
-The full
-[case study](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/case_studies/2026-07-linea-cap-reductions.md)
-contains the cap and quote reconciliation.
+[Linea case study](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/case_studies/2026-07-linea-cap-reductions.md) | [Run manifest](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/manifests/linea-weth-2026-08-18.json)
 
-[Linea run manifest](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/manifests/linea-weth-2026-08-17.json)
+## Result 2: Mainnet wstETH Concentration Versus Instant Depth
 
-## Result 2: Concentration Dominates The August 17 wstETH Snapshot
-
-The August 17 Ethereum snapshot at block 25,773,934 separates USD debt from
-ETH-denominated leveraged staking loops.
-
-The USD-debt book has a rare but severe simulated loss channel under the
-standard two-day calibration:
+The Ethereum snapshot at block 25,780,402 covers 84,427 historical borrower
+candidates and stores 9,526 accounts with at least $10,000 of current debt.
+The target-dominant USD-debt book is near the exploratory $5 million CVaR
+budget under the standard two-day calibration:
 
 ```text
-debt                : $343.19m
-positive-loss draws : 33 / 20,000
-P(bad debt)         : 0.165% (95% Wilson CI 0.118% to 0.232%)
-expected loss       : $8.15k
-loss severity       : $4.94m conditional on positive loss
-CVaR99              : $814.88k
+debt                : $634.47m
+positive-loss draws : 110 / 20,000
+P(bad debt)         : 0.550% (95% Wilson CI 0.457% to 0.662%)
+expected loss       : $47.85k
+loss severity       : $8.70m conditional on positive loss
+CVaR99              : $4.78m
 ```
 
-The August book is not a clean like-for-like successor to July. Discovery
-coverage improved, and 19 addresses absent from July contribute $167.53m of
-August debt. Seeding prevents future dropouts but cannot repair July
-retroactively. The article's main claim below rests on the deterministic
-account and depth comparison.
-
-The combined book exposes a different tail:
+The combined book, which revalues $329.46 million of ETH-denominated debt,
+has $964.28 million of total debt, 3.64% bad-debt probability, and $31.82
+million aggregate-queue CVaR99. Its deterministic concentration test is:
 
 ```text
-total debt                 : $604.47m
-ETH-denominated debt       : $261.08m
-P(bad debt)                : 0.17%
-CVaR99                     : $10.57m
-largest borrower sale      : $276.47m
-max clearable within bonus : $2.71m -> FAIL
+largest borrower sale      : $256.52m
+max clearable within bonus : $2.73m -> FAIL
 ```
 
-Pure ETH/USD crashes are not the main threat to these loopers because both
-collateral and debt fall with ETH. Their relevant channels are the
-wstETH/ETH exchange rate and exit depth. One account is more than one hundred
-times the estimated instant clearance capacity. In this regime, single-account
-concentration is first-order and liquidation mechanics are second-order.
+The sale is about 94 times estimated instant clearance capacity. This is not
+a claim that wstETH is unsafe or that eventual recovery is limited to $2.73
+million. The strict test includes routed on-chain exits only; wstETH can also
+be redeemed over time, and CEX or OTC liquidity may exist. It exposes an
+interpretation problem in the
+[Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114):
+instant depth and horizon liquidation capacity are not the same quantity.
 
-The clearance result is deliberately strict. It measures immediate routed
-on-chain exits only. wstETH liquidators can also use the redemption queue over
-days, so FAIL should not be read as a claim that eventual recovery is limited
-to $2.71 million. It is a claim about immediate clearance under the
-[Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114)
-wording.
+[Ethereum run manifest](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/manifests/ethereum-wsteth-2026-08-18.json)
 
-[Ethereum run manifest](https://github.com/BianchiGiacomo/aave-risk-engine/blob/v0.1.0/docs/manifests/ethereum-wsteth-2026-08-17.json)
+## Result 3: Mechanics Matter, But They Do Not Create Depth
 
-## Result 3: Mechanics Matter Until Concentration Dominates
+The V4 comparison holds the V3 book, scenarios, and depth fixed while changing
+repay-to-target sizing, dynamic bonus, close-factor floors, dust rules, and
+queue execution. It is a mechanics counterfactual, not live V4 borrower data.
+Linear interpolation between documented bonus anchors is an explicit model
+assumption.
 
-The V4 comparison holds the book, scenarios, and depth fixed while changing
-repay-to-target sizing, dynamic bonus, close-factor floors, and queue
-execution. Linear interpolation between documented bonus anchors is an
-explicit modeling assumption.
+On the current combined book, aggregate CVaR99 is $31.82 million for V3,
+$32.85 million for V4 Main, and $32.83 million for V4 Correlated. Ordered
+clearing reduces those values to $15.25 million, $26.87 million, and $22.41
+million respectively. Early transactions can clear before later sales consume
+depth, so queue execution is material. No mechanics choice, however, makes a
+$256.52 million sale fit inside $2.73 million of instant capacity.
 
-On the archived July 16 snapshot, before the latest concentration regime
-dominated, the mechanics were visible. Relative to V3, the V4 Main
-configuration increased the probability of some bad debt from 4.56% to 9.52%,
-while reducing VaR99 from $892,000 to $746,000. Larger repay-to-target sales
-crossed the participation threshold more often, while deeper liquidations
-received a larger bonus and deleveraged more aggressively. In these USD-debt
-rows, ordered clearing reduced CVaR by about 19% to 23% because early tranches
-could still clear before later sales exhausted depth.
+Matched four-day paths also separate terminal stress from evolving
+liquidation. Combined-book V3 CVaR99 is $32.78 million under a terminal-only
+shock and $31.85 million with book evolution. V4 Main moves from $51.08
+million to $47.84 million; V4 Correlated moves from $40.76 million to $39.68
+million. Re-liquidation occurs in 0.21% of V4 Main paths versus 16.84% of V4
+Correlated paths. The target health factors, 1.24 and 1.0137, contribute to
+that contrast, but bonus and floor parameters also differ, so it is not a
+single-parameter causal estimate.
 
-The input is the
-[archived July 16 snapshot at commit `ac9f2ae`](https://github.com/BianchiGiacomo/aave-risk-engine/blob/ac9f2ae/data/snapshots/aave_v3_ethereum_wsteth.json).
-The current CLI with that file and seed 7 reproduces the quoted rows exactly.
-
-By August 17, the combined-book CVaR was approximately $9.95 million to
-$10.57 million across V3, V4 Main, V4 correlated, aggregate, and ordered
-variants. The whale still dominated every mechanics choice.
-
-The multi-period simulator uses matched terminal scenarios. Over its default
-four-day window of eight half-day periods, versus the two-day calibration
-above, August 17 combined-book V3 CVaR99 was $45.96 million under
-terminal-only liquidation and $45.73 million with book evolution. The whale
-never meaningfully deleveraged, so path mechanics did not help. On the
-archived July 16 USD-debt book, restoring health factor to 1.24 produced
-repeat liquidation in 0.17% of paths, versus 10.72% when restoring only to
-1.0137. Target health
-factor matters most when liquidation can clear in the first place.
+Historical replay provides a separate deterministic stress lens. Applying
+the June 2022 ETH and stETH/ETH path to today's combined book produces a
+$42.20 million worst window. This is scenario replay on today's positions,
+not reconstruction of the historical book.
 
 ## Primary Governance Question
 
@@ -177,47 +144,30 @@ factor matters most when liquidation can clear in the first place.
 > liquidity for redeemable collateral, or should it specify a time horizon
 > and recognize primary redemption capacity?
 
-A strict instant test is easy to audit, but it can understate eventual
-capacity for collateral with a primary redemption path. A horizon-adjusted
-test is more economically complete, but it requires explicit assumptions for
-redemption throughput, delay, depth replenishment, and market conditions. The
-framework would be clearer if it specified which interpretation governs.
+A strict instant test is auditable but can understate eventual capacity. A
+horizon-adjusted test is economically richer but requires explicit assumptions
+for redemption throughput, delay, depth replenishment, and market conditions.
+The framework would be clearer if it specified which interpretation governs.
 
 ## Limitations And Next Work
 
-Candidate borrowers combine Borrow events in a recent block window with
-addresses retained from the prior pinned snapshot. An open account absent
-from both sources can still be missed. For each selected target-dominant
-account, the single-asset mapping represents its total collateral as the
-target asset while retaining its on-chain weighted-average liquidation
-threshold. The depth curve excludes CEX liquidity and redemption queues.
+The effective single-asset mapping represents each selected account's total
+collateral as the target asset while retaining its weighted on-chain
+liquidation threshold. It does not separately shock every collateral balance.
+The snapshot stores borrowers above a $10,000 debt floor. Empirical depth is
+flat beyond the final quote and is only a lower bound there. Episode replay is
+not archive backtesting, and plain Monte Carlo remains inefficient for very
+rare losses.
 
-Episode replay deliberately asks a counterfactual question: what would the
-realized 2022 or 2023 market path do to the August 17, 2026 book? It is not an
-archive backtest of the borrowers and liquidity that existed during those
-episodes. Results are model outputs, not forecasts.
+The next two extensions are time-to-exit, separating DEX replenishment from
+primary redemption at explicit horizons, and rare-event sampling with
+uncertainty diagnostics. Lagged peg coupling and V4 Hub risk-premium pricing
+remain later work; no premium recommendation is made here.
 
-Two immediate extensions appear most useful:
-
-1. **Time-to-exit.** Replace binary instant clearance with capacity curves at
-   explicit horizons, separating DEX replenishment from primary redemption.
-2. **Rare-event sampling.** Use stratification or importance sampling to
-   estimate low-frequency bad-debt channels without relying on a handful of
-   positive brute-force draws.
-
-Lagged peg coupling and V4 Hub risk-premium pricing remain later extensions.
-Marginal Hub CVaR is a possible transparent pricing input, particularly
-because the
-[collateral risk premium launched at zero](https://governance.aave.com/t/arfc-aave-v4-activation-on-ethereum-mainnet/24293),
-but no premium recommendation is made here.
-
-Beyond the primary governance question, feedback would be useful on two
-modeling choices:
-
-1. Is bonus-priority ordered clearing a reasonable first approximation to
-   competitive liquidator execution?
-2. Which V4 dynamic-bonus function should replace linear interpolation between
-   the documented anchors?
+Feedback would be especially useful on whether bonus-priority ordered
+clearing is a reasonable first approximation to competitive execution, and
+which V4 dynamic-bonus function should replace linear interpolation between
+the documented anchors.
 
 ## Reproduction
 
@@ -226,8 +176,8 @@ git clone https://github.com/BianchiGiacomo/aave-risk-engine
 cd aave-risk-engine
 pip install -e ".[dev]"
 
-python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --manifest docs/manifests/ethereum-wsteth-2026-08-17.json
-python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure --manifest docs/manifests/linea-weth-2026-08-17.json
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --manifest docs/manifests/ethereum-wsteth-2026-08-18.json
+python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_linea_weth.json --budget 500000 --figure --manifest docs/manifests/linea-weth-2026-08-18.json
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
@@ -235,6 +185,4 @@ python -m streamlit run dashboard.py
 ```
 
 The dashboard is an optional inspection layer; versioned CLI manifests remain
-the canonical evidence. Snapshots, paths, code, tests, and complete results
-are available in the
-[repository](https://github.com/BianchiGiacomo/aave-risk-engine).
+the canonical evidence.

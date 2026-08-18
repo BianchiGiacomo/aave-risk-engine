@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 from types import SimpleNamespace
 
 import numpy as np
@@ -26,12 +25,25 @@ from aave_risk_engine.dashboard_analysis import (
     run_multiperiod_analysis,
     run_v4_analysis,
 )
-from aave_risk_engine.data.aave_v3 import _addr_arg, _word_to_address, _words
+from aave_risk_engine.data.aave_v3 import (
+    CHAINS,
+    _addr_arg,
+    _word_to_address,
+    _words,
+    account_data,
+    token_balances,
+    user_reserve_data,
+)
+from aave_risk_engine.data.account_cache import fetch_account_data
 from aave_risk_engine.data.book import build_real_book, scenario_config_from_snapshot
 from aave_risk_engine.data.build_snapshot import (
-    DEFAULT_SCAN_BLOCKS,
     MARKET_LADDERS_USD,
-    _merge_borrower_addresses,
+)
+from aave_risk_engine.data.borrowers import (
+    BorrowerRegistry,
+    load_registry,
+    save_registry,
+    update_registry,
 )
 from aave_risk_engine.data.clearance import arfc_clearance_test, max_clearable_notional
 from aave_risk_engine.data.depth import fit_depth, quotes_to_slippage_points
@@ -43,6 +55,7 @@ from aave_risk_engine.data.markets import (
 )
 from aave_risk_engine.data.snapshot import (
     AccountRecord,
+    BorrowerDiscovery,
     DepthCalibration,
     MarketSnapshot,
     ReserveState,
@@ -108,6 +121,14 @@ def _snapshot() -> MarketSnapshot:
     return MarketSnapshot(
         chain="ethereum", block=25_000_000, timestamp=1_784_000_000,
         reserve=_reserve(), accounts=accounts, depth=depth, stress=stress,
+        borrower_discovery=BorrowerDiscovery(
+            source="complete Borrow-event registry",
+            from_block=16_291_127,
+            to_block=25_000_000,
+            candidate_count=1_000,
+            active_count=len(accounts),
+            min_debt_usd=10_000.0,
+        ),
     )
 
 
@@ -122,12 +143,136 @@ def test_abi_word_decoding():
     )
 
 
+def test_account_and_balance_reads_use_pinned_block():
+    class FakeRpc:
+        params = []
+
+        @staticmethod
+        def block_tag(block):
+            return hex(block) if isinstance(block, int) else block
+
+        def batch(self, method, params):
+            assert method == "eth_call"
+            self.params.extend(params)
+            account_words = [100 * 10**8, 50 * 10**8, 0, 8_000, 0, 16 * 10**17]
+            account_result = "0x" + "".join(f"{word:064x}" for word in account_words)
+            balance_result = "0x" + f"{2 * 10**18:064x}"
+            return [
+                account_result if "bf92857c" in item[0]["data"] else balance_result
+                for item in params
+            ]
+
+    rpc = FakeRpc()
+    address = "0x" + "11" * 20
+    rows = account_data(rpc, [address], block=123)
+    balances = token_balances(rpc, "0x" + "22" * 20, [address], 18, block=123)
+    assert rows[0]["debt_usd"] == 50.0
+    assert balances[address] == 2.0
+    assert all(params[1] == "0x7b" for params in rpc.params)
+
+
+def test_user_reserve_data_includes_collateral_flag_and_both_debts():
+    class FakeRpc:
+        params = []
+
+        @staticmethod
+        def block_tag(block):
+            return hex(block)
+
+        def batch(self, method, params):
+            assert method == "eth_call"
+            self.params.extend(params)
+            words = [5 * 10**18, 2 * 10**18, 3 * 10**18, 0, 0, 0, 0, 0, 1]
+            return ["0x" + "".join(f"{word:064x}" for word in words)]
+
+    rpc = FakeRpc()
+    user = "0x" + "11" * 20
+    data = user_reserve_data(
+        rpc, "0x" + "22" * 20, "0x" + "33" * 20, [user], 18, block=456
+    )[user]
+    assert data == {
+        "atoken_balance": 5.0,
+        "stable_debt": 2.0,
+        "variable_debt": 3.0,
+        "collateral_enabled": True,
+    }
+    assert rpc.params[0][1] == "0x1c8"
+
+
+def test_account_cache_resumes_only_missing_batch():
+    class FakeRpc:
+        def __init__(self, fail_on_call=None):
+            self.calls = []
+            self.fail_on_call = fail_on_call
+
+        @staticmethod
+        def block_tag(block):
+            return hex(block)
+
+        def batch(self, method, params):
+            assert method == "eth_call"
+            self.calls.append(params)
+            if self.fail_on_call == len(self.calls):
+                raise RuntimeError("simulated RPC interruption")
+            result = []
+            for item in params:
+                debt = int(item[0]["data"][-2:], 16) * 10**8
+                words = [2 * debt, debt, 0, 8_000, 0, 16 * 10**17]
+                result.append("0x" + "".join(f"{word:064x}" for word in words))
+            return result
+
+    users = ["0x" + f"{value:040x}" for value in (1, 2, 3)]
+    chain = CHAINS["ethereum"]
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_account_cache.sqlite3")
+    if os.path.exists(path):
+        os.remove(path)
+    try:
+        interrupted = FakeRpc(fail_on_call=2)
+        try:
+            fetch_account_data(
+                interrupted, users, chain, 123, path, request_batch_size=2
+            )
+        except RuntimeError as exc:
+            assert "interruption" in str(exc)
+        else:
+            raise AssertionError("simulated account RPC failure was ignored")
+
+        resumed = FakeRpc()
+        rows, cached_users = fetch_account_data(
+            resumed, users, chain, 123, path, request_batch_size=2
+        )
+        try:
+            fetch_account_data(
+                resumed, users[:-1], chain, 123, path, request_batch_size=2
+            )
+        except ValueError as exc:
+            assert "candidate set" in str(exc)
+        else:
+            raise AssertionError("account cache accepted a different candidate set")
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
+
+    assert cached_users == users
+    assert len(rows) == 3
+    assert len(resumed.calls) == 1
+    assert len(resumed.calls[0]) == 1
+    assert rows[-1]["debt_usd"] == 3.0
+
+
 def test_snapshot_roundtrip():
     snap = _snapshot()
-    with tempfile.TemporaryDirectory() as tmp:
-        path = os.path.join(tmp, "sub", "snap.json")
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_snapshot_roundtrip.json")
+    try:
         save_snapshot(snap, path)
         loaded = load_snapshot(path)
+    finally:
+        if os.path.exists(path):
+            os.remove(path)
     assert loaded.reserve == snap.reserve
     assert loaded.accounts == snap.accounts
     assert loaded.depth == snap.depth
@@ -141,6 +286,8 @@ def test_snapshot_json_payload_roundtrip():
     assert loaded.block == snap.block
     assert loaded.reserve.symbol == "wstETH"
     assert loaded.accounts[0].address == "0xaa"
+    assert loaded.borrower_discovery is not None
+    assert loaded.borrower_discovery.candidate_count == 1_000
 
 
 def test_build_real_book_filters_and_per_position_lt():
@@ -242,13 +389,18 @@ def test_dashboard_advanced_tabs_expose_scope_and_sparse_event_counts():
     ).layout.title.text
 
 
-def test_zero_loss_episode_rows_do_not_report_arbitrary_market_drivers():
+def test_episode_rows_report_drivers_only_for_positive_losses():
     snap = load_snapshot()
     usd_rows = run_episode_analysis(snap, "USD debt", 0.5)
-    assert all(row["Worst bad debt"] == 0.0 for row in usd_rows)
-    assert all(row["Window"] == "n/a" for row in usd_rows)
-    assert all(row["ETH return"] is None for row in usd_rows)
-    assert all(row["Peg drop"] is None for row in usd_rows)
+    zero_rows = [row for row in usd_rows if row["Worst bad debt"] == 0.0]
+    loss_rows = [row for row in usd_rows if row["Worst bad debt"] > 0.0]
+    assert zero_rows and loss_rows
+    assert all(row["Window"] == "n/a" for row in zero_rows)
+    assert all(row["ETH return"] is None for row in zero_rows)
+    assert all(row["Peg drop"] is None for row in zero_rows)
+    assert all(row["Window"] != "n/a" for row in loss_rows)
+    assert all(row["ETH return"] is not None for row in loss_rows)
+    assert all(row["Peg drop"] is not None for row in loss_rows)
     assert "USD-debt book" in episode_loss_fig(
         usd_rows, "USD-debt"
     ).layout.title.text
@@ -287,9 +439,11 @@ def test_market_report_manifest_records_snapshot_and_tail_diagnostics():
         min_target_share=0.5,
         ordered=False,
     )
-    with tempfile.TemporaryDirectory() as tmp:
-        snapshot_path = os.path.join(tmp, "snapshot.json")
-        manifest_path = os.path.join(tmp, "manifest.json")
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    snapshot_path = os.path.join(runtime, "test_manifest_snapshot.json")
+    manifest_path = os.path.join(runtime, "test_manifest.json")
+    try:
         save_snapshot(snap, snapshot_path)
         _write_manifest(
             manifest_path,
@@ -307,6 +461,10 @@ def test_market_report_manifest_records_snapshot_and_tail_diagnostics():
         )
         with open(manifest_path, encoding="utf-8") as fh:
             manifest = json.load(fh)
+    finally:
+        for path in (snapshot_path, manifest_path):
+            if os.path.exists(path):
+                os.remove(path)
 
     assert manifest["snapshot"]["block"] == snap.block
     assert len(manifest["snapshot"]["sha256"]) == 64
@@ -795,19 +953,143 @@ def test_chain_configs_are_well_formed():
         assert chain.paraswap_network is not None or chain.kyber_slug is not None
     assert CHAINS["ethereum"].tokens is TOKENS
     assert CHAINS["ethereum"].pool.lower() == "0x87870bca3f3fd6335c3f4ce8392d69350b4fa4e2"
-    assert CHAINS["linea"].log_chunk_blocks <= 10_000
+    assert CHAINS["linea"].log_chunk_blocks == 1_000_000
+    assert "tenderly" in CHAINS["linea"].log_endpoints[0]
 
 
-def test_refresh_borrower_seed_retains_dormant_accounts():
-    discovered = ["0x" + "11" * 20, "0x" + "22" * 20]
-    seeded = ["0x" + "22" * 20, "0x" + "AA" * 20]
-    merged = _merge_borrower_addresses(discovered, tuple(seeded))
-    assert merged == sorted({address.lower() for address in discovered + seeded})
+def test_borrower_registry_increment_retains_dormant_accounts():
+    from aave_risk_engine.data import borrowers
+
+    chain = CHAINS["ethereum"]
+    first = "0x" + "11" * 20
+    dormant = "0x" + "22" * 20
+    newcomer = "0x" + "33" * 20
+    calls = []
+    original = borrowers.discover_borrowers
+
+    def fake_discover(rpc, start, end, **kwargs):
+        del rpc, kwargs
+        calls.append((start, end))
+        if start == chain.borrower_registry_start_block:
+            return {first, dormant}
+        return {first, newcomer}
+
+    borrowers.discover_borrowers = fake_discover
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_registry_increment.json")
+    for candidate in (path, path + ".tmp"):
+        if os.path.exists(candidate):
+            os.remove(candidate)
+    try:
+        initial_end = chain.borrower_registry_start_block + 9
+        first_registry = update_registry(
+            object(), chain, initial_end, path, chunk_blocks=10
+        )
+        assert first_registry.users == sorted([first, dormant])
+        second_registry = update_registry(
+            object(), chain, initial_end + 10, path, chunk_blocks=10
+        )
+        loaded = load_registry(path, chain)
+    finally:
+        borrowers.discover_borrowers = original
+        for candidate in (path, path + ".tmp"):
+            if os.path.exists(candidate):
+                os.remove(candidate)
+
+    assert calls == [
+        (chain.borrower_registry_start_block, initial_end),
+        (initial_end + 1, initial_end + 10),
+    ]
+    assert second_registry.users == sorted([first, dormant, newcomer])
+    assert loaded == second_registry
+
+
+def test_borrower_registry_validation_rejects_incomplete_start():
+    chain = CHAINS["ethereum"]
+    registry = BorrowerRegistry(
+        version=1,
+        chain=chain.name,
+        pool=chain.pool.lower(),
+        from_block=chain.borrower_registry_start_block + 1,
+        to_block=chain.borrower_registry_start_block + 10,
+        users=[],
+    )
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_registry_validation.json")
+    try:
+        save_registry(registry, path)
+        try:
+            load_registry(path, chain)
+        except ValueError as exc:
+            assert "does not match" in str(exc)
+        else:
+            raise AssertionError("incomplete borrower registry was accepted")
+    finally:
+        for candidate in (path, path + ".tmp"):
+            if os.path.exists(candidate):
+                os.remove(candidate)
+
+
+def test_borrower_registry_save_rejects_block_regression():
+    chain = CHAINS["ethereum"]
+    base = BorrowerRegistry(
+        1,
+        chain.name,
+        chain.pool.lower(),
+        chain.borrower_registry_start_block,
+        chain.borrower_registry_start_block + 100,
+        [],
+    )
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_registry_regression.json")
+    try:
+        save_registry(base, path)
+        base.to_block -= 1
+        try:
+            save_registry(base, path)
+        except RuntimeError as exc:
+            assert "backward" in str(exc)
+        else:
+            raise AssertionError("borrower registry block regression was accepted")
+    finally:
+        for candidate in (path, path + ".tmp"):
+            if os.path.exists(candidate):
+                os.remove(candidate)
+
+
+def test_borrower_registry_rejects_older_target_without_rebuild():
+    chain = CHAINS["ethereum"]
+    registry = BorrowerRegistry(
+        1,
+        chain.name,
+        chain.pool.lower(),
+        chain.borrower_registry_start_block,
+        chain.borrower_registry_start_block + 100,
+        [],
+    )
+    runtime = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".runtime")
+    os.makedirs(runtime, exist_ok=True)
+    path = os.path.join(runtime, "test_registry_historical_target.json")
+    try:
+        save_registry(registry, path)
+        try:
+            update_registry(object(), chain, registry.to_block - 1, path)
+        except ValueError as exc:
+            assert "already extends" in str(exc)
+        else:
+            raise AssertionError("future borrower candidates leaked into an older block")
+    finally:
+        for candidate in (path, path + ".tmp"):
+            if os.path.exists(candidate):
+                os.remove(candidate)
 
 
 def test_linea_refresh_uses_small_market_quote_ladder():
     assert MARKET_LADDERS_USD[("linea", "WETH")][:3] == (5e3, 15e3, 41e3)
-    assert DEFAULT_SCAN_BLOCKS["linea"] == 1_200_000
+    assert CHAINS["linea"].borrower_registry_start_block == 12_430_836
 
 
 def test_committed_snapshot_loads_offline():

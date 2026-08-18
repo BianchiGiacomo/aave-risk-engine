@@ -12,20 +12,22 @@ LST/underlying peg history.
 from __future__ import annotations
 
 import argparse
-import json
+import hashlib
 import os
-import time
+import shutil
 
 from . import aave_v3, depth, markets
+from .account_cache import fetch_account_data
 from .aave_v3 import CHAINS, ChainConfig
+from .borrowers import default_registry_path, update_registry
 from .rpc import EthRpc
 from .snapshot import (
     AccountRecord,
+    BorrowerDiscovery,
     MarketSnapshot,
     ReserveState,
     StressCalibration,
     default_snapshot_path,
-    load_snapshot,
     save_snapshot,
 )
 
@@ -47,17 +49,17 @@ MARKET_LADDERS_USD = {
     ("linea", "WETH"): (5e3, 15e3, 41e3, 100e3, 300e3, 1e6),
 }
 
-# Market-specific Borrow-event scan windows. Linea uses a wider window because
-# its small target book is more sensitive to borrowers aging out of discovery.
-DEFAULT_SCAN_BLOCKS = {"ethereum": 100_000, "linea": 1_200_000}
 
-
-def build_reserve_state(rpc: EthRpc, chain: ChainConfig, symbol: str, asset: str) -> ReserveState:
-    data_provider, oracle = aave_v3.resolve_contracts(rpc, chain)
-    config = aave_v3.reserve_configuration(rpc, data_provider, asset)
-    caps = aave_v3.reserve_caps(rpc, data_provider, asset)
-    usage = aave_v3.reserve_usage(rpc, data_provider, asset, config["decimals"])
-    price = aave_v3.asset_price_usd(rpc, oracle, asset)
+def build_reserve_state(
+    rpc: EthRpc, chain: ChainConfig, symbol: str, asset: str, block: int
+) -> ReserveState:
+    data_provider, oracle = aave_v3.resolve_contracts(rpc, chain, block)
+    config = aave_v3.reserve_configuration(rpc, data_provider, asset, block)
+    caps = aave_v3.reserve_caps(rpc, data_provider, asset, block)
+    usage = aave_v3.reserve_usage(
+        rpc, data_provider, asset, config["decimals"], block
+    )
+    price = aave_v3.asset_price_usd(rpc, oracle, asset, block)
     return ReserveState(
         symbol=symbol,
         address=asset,
@@ -74,86 +76,73 @@ def build_reserve_state(rpc: EthRpc, chain: ChainConfig, symbol: str, asset: str
     )
 
 
-def _load_borrower_cache(path: str, head: int, blocks: int, max_age_blocks: int = 3_000) -> list[str] | None:
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding="utf-8") as fh:
-        cache = json.load(fh)
-    fresh = head - cache.get("head", 0) <= max_age_blocks
-    wide_enough = cache.get("blocks", 0) >= blocks
-    return cache["users"] if fresh and wide_enough else None
-
-
-def _merge_borrower_addresses(
-    discovered: list[str], seed_addresses: tuple[str, ...] = ()
-) -> list[str]:
-    """Retain known borrowers when they fall outside the rolling event window."""
-    return sorted({address.lower() for address in (*discovered, *seed_addresses)})
-
-
 def build_accounts(
     rpc: EthRpc,
     chain: ChainConfig,
     reserve: ReserveState,
-    blocks: int,
-    chunk_blocks: int,
+    users: list[str],
+    block: int,
     min_debt_usd: float,
-    top_n: int,
-    cache_path: str | None = None,
-    seed_addresses: tuple[str, ...] = (),
-) -> list[AccountRecord]:
-    data_provider, oracle = aave_v3.resolve_contracts(rpc, chain)
-    atoken = aave_v3.atoken_address(rpc, data_provider, reserve.address)
+    top_n: int | None,
+    account_cache_path: str | None = None,
+    account_request_batch_size: int = 200,
+) -> tuple[list[AccountRecord], int, int]:
+    data_provider, oracle = aave_v3.resolve_contracts(rpc, chain, block)
     weth = chain.tokens["WETH"]
-    weth_debt_token = aave_v3.variable_debt_token_address(rpc, data_provider, weth)
-    weth_price = aave_v3.asset_price_usd(rpc, oracle, weth)
-    head = rpc.block_number()
+    weth_price = aave_v3.asset_price_usd(rpc, oracle, weth, block)
 
-    users = _load_borrower_cache(cache_path, head, blocks) if cache_path else None
-    scanned = users is None
-    if users is not None:
-        print(f"reusing {len(users)} cached borrowers ({cache_path})")
-    else:
-        print(f"scanning Borrow events over {blocks:,} blocks ...")
-        users = sorted(
-            aave_v3.discover_borrowers(rpc, head - blocks, head, chunk_blocks, chain=chain)
+    print(f"fetching account data for {len(users):,} historical borrowers ...")
+    if account_cache_path:
+        raw_accounts, users = fetch_account_data(
+            rpc,
+            users,
+            chain,
+            block,
+            account_cache_path,
+            request_batch_size=account_request_batch_size,
         )
-        print(f"  {len(users)} unique borrowers")
-
-    discovered_count = len(users)
-    users = _merge_borrower_addresses(users, seed_addresses)
-    retained_count = len(users) - discovered_count
-    if retained_count:
-        print(f"  retained {retained_count} borrowers from the seed snapshot")
-    if cache_path and (scanned or retained_count):
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        with open(cache_path, "w", encoding="utf-8") as fh:
-            json.dump({"head": head, "blocks": blocks, "users": users}, fh)
-
-    print("fetching account data ...")
+    else:
+        raw_accounts = aave_v3.account_data(rpc, users, chain=chain, block=block)
     accounts = [
-        a for a in aave_v3.account_data(rpc, users, chain=chain) if a["debt_usd"] >= min_debt_usd
+        a
+        for a in raw_accounts
+        if a["debt_usd"] >= min_debt_usd
     ]
     accounts.sort(key=lambda a: a["debt_usd"], reverse=True)
-    accounts = accounts[:top_n]
-    print(f"  {len(accounts)} accounts with debt >= ${min_debt_usd:,.0f}")
+    active_count = len(accounts)
+    print(f"  {active_count:,} accounts with debt >= ${min_debt_usd:,.0f}")
 
     print(f"fetching {reserve.symbol} collateral and WETH debt balances ...")
     addresses = [a["address"] for a in accounts]
-    balances = aave_v3.token_balances(rpc, atoken, addresses, reserve.decimals)
-    weth_debts = aave_v3.token_balances(rpc, weth_debt_token, addresses, 18)
-    return [
+    target_data = aave_v3.user_reserve_data(
+        rpc, data_provider, reserve.address, addresses, reserve.decimals, block=block
+    )
+    weth_data = aave_v3.user_reserve_data(
+        rpc, data_provider, weth, addresses, 18, block=block
+    )
+    records = [
         AccountRecord(
             address=a["address"],
             collateral_usd=a["collateral_usd"],
             debt_usd=a["debt_usd"],
             avg_liquidation_threshold=a["avg_liquidation_threshold"],
             health_factor=a["health_factor"],
-            target_collateral_usd=balances[a["address"]] * reserve.price_usd,
-            eth_debt_usd=weth_debts[a["address"]] * weth_price,
+            target_collateral_usd=(
+                target_data[a["address"]]["atoken_balance"] * reserve.price_usd
+                if target_data[a["address"]]["collateral_enabled"]
+                else 0.0
+            ),
+            eth_debt_usd=(
+                weth_data[a["address"]]["stable_debt"]
+                + weth_data[a["address"]]["variable_debt"]
+            )
+            * weth_price,
         )
         for a in accounts
     ]
+    if top_n is not None:
+        records = records[:top_n]
+    return records, active_count, len(users)
 
 
 def build_stress_calibration(
@@ -220,17 +209,22 @@ def build_market_snapshot(
     chain_name: str = "ethereum",
     asset: str = "wstETH",
     pair_dest: str | None = None,
-    blocks: int | None = None,
     chunk_blocks: int | None = None,
-    top: int = 400,
+    top: int | None = None,
     min_debt_usd: float = 10_000.0,
     ladder_usd: tuple[float, ...] | None = None,
     lookback_days: int = 365,
     kraken_pair: str | None = None,
     peg_coin: str | None = None,
     calibrate_peg: bool = True,
-    cache_path: str | None = None,
-    seed_addresses: tuple[str, ...] = (),
+    borrower_registry_path: str | None = None,
+    rebuild_borrower_registry: bool = False,
+    log_pause_s: float = 0.0,
+    registry_checkpoint_chunks: int = 10,
+    rpc_batch_size: int = 1_000,
+    account_cache_dir: str | None = None,
+    account_request_batch_size: int = 200,
+    block: int | None = None,
     rpc_timeout: float = 30.0,
     rpc_retries: int = 4,
 ) -> MarketSnapshot:
@@ -249,7 +243,7 @@ def build_market_snapshot(
     rpc = chain.make_rpc()
     rpc.timeout = rpc_timeout
     rpc.retries_per_endpoint = rpc_retries
-    scan_blocks = blocks or DEFAULT_SCAN_BLOCKS.get(chain.name, 100_000)
+    rpc.batch_size = rpc_batch_size
     log_chunk = chunk_blocks or chain.log_chunk_blocks
     dest_symbol = pair_dest or ("USDC" if asset == "WETH" else "WETH")
     quote_ladder = ladder_usd or MARKET_LADDERS_USD.get(
@@ -258,23 +252,56 @@ def build_market_snapshot(
     default_pair, default_peg = ASSET_CALIBRATION.get(asset, ("ETHUSD", None))
     resolved_pair = kraken_pair or default_pair
     resolved_peg = (peg_coin or default_peg) if calibrate_peg else None
+    head = rpc.block_number()
+    block = head if block is None else block
+    if block > head:
+        raise ValueError(f"requested block {block:,} is above chain head {head:,}")
+    timestamp = rpc.block_timestamp(block)
+
+    registry_path = borrower_registry_path or default_registry_path(chain.name)
+    print(
+        f"updating complete borrower registry from block "
+        f"{chain.borrower_registry_start_block:,} through {block:,} ..."
+    )
+    registry = update_registry(
+        rpc,
+        chain,
+        block,
+        registry_path,
+        chunk_blocks=log_chunk,
+        pause_s=log_pause_s,
+        rebuild=rebuild_borrower_registry,
+        checkpoint_chunks=registry_checkpoint_chunks,
+    )
+    print(f"  {len(registry.users):,} unique historical borrowers")
 
     print(f"reading {asset} reserve state on {chain.name} ...")
-    reserve = build_reserve_state(rpc, chain, asset, address)
+    reserve = build_reserve_state(rpc, chain, asset, address, block)
     print(
         f"  price ${reserve.price_usd:,.2f} | LT {reserve.liquidation_threshold:.2%} "
         f"| bonus {reserve.liquidation_bonus:.2%} | supplied {reserve.total_supplied_tokens:,.0f}"
     )
-    accounts = build_accounts(
+    registry_fingerprint = hashlib.sha256(
+        "\n".join(registry.users).encode("ascii")
+    ).hexdigest()[:12]
+    account_cache_path = (
+        os.path.join(
+            account_cache_dir,
+            f"accounts_{chain.name}_{block}_{registry_fingerprint}.sqlite3",
+        )
+        if account_cache_dir
+        else None
+    )
+    accounts, active_count, candidate_count = build_accounts(
         rpc,
         chain,
         reserve,
-        scan_blocks,
-        log_chunk,
+        registry.users,
+        block,
         min_debt_usd,
         top,
-        cache_path=cache_path,
-        seed_addresses=seed_addresses,
+        account_cache_path=account_cache_path,
+        account_request_batch_size=account_request_batch_size,
     )
 
     print("calibrating stress from price history ...")
@@ -302,22 +329,27 @@ def build_market_snapshot(
 
     return MarketSnapshot(
         chain=chain.name,
-        block=rpc.block_number(),
-        timestamp=int(time.time()),
+        block=block,
+        timestamp=timestamp,
         reserve=reserve,
         accounts=accounts,
         depth=fitted,
         stress=stress,
-        notes=(
-            f"Candidate borrowers combine Borrow events over the last {scan_blocks:,} blocks"
-            + (
-                f" with {len(seed_addresses):,} addresses from a prior snapshot; "
-                if seed_addresses
-                else "; "
-            )
-            + "dormant borrowers absent from both sources may be missed."
+        borrower_discovery=BorrowerDiscovery(
+            source="complete Borrow-event registry",
+            from_block=registry.from_block,
+            to_block=block,
+            candidate_count=candidate_count,
+            active_count=active_count,
+            min_debt_usd=min_debt_usd,
+            account_limit=top,
         ),
-        scan_blocks=scan_blocks,
+        notes=(
+            f"Complete Borrow-event registry from Pool deployment block "
+            f"{registry.from_block:,} through snapshot block {block:,}; "
+            f"{candidate_count:,} historical candidates queried at the pinned block."
+        ),
+        scan_blocks=None,
     )
 
 
@@ -326,9 +358,10 @@ def main() -> None:
     parser.add_argument("--chain", default="ethereum", choices=sorted(CHAINS))
     parser.add_argument("--asset", default="wstETH")
     parser.add_argument("--pair-dest", default=None, help="quote destination token symbol")
-    parser.add_argument("--blocks", type=int, default=None, help="borrower scan window")
     parser.add_argument("--chunk-blocks", type=int, default=None)
-    parser.add_argument("--top", type=int, default=400, help="accounts kept, by debt")
+    parser.add_argument(
+        "--top", type=int, default=None, help="optional output cap, ranked by total debt"
+    )
     parser.add_argument("--min-debt", type=float, default=10_000.0)
     parser.add_argument("--ladder-usd", default=None, help="comma-separated quote sizes in USD")
     parser.add_argument("--lookback-days", type=int, default=365)
@@ -336,12 +369,27 @@ def main() -> None:
     parser.add_argument("--peg-coin", default=None, help="'none' to skip the peg check")
     parser.add_argument("--rpc-timeout", type=float, default=30.0)
     parser.add_argument("--rpc-retries", type=int, default=4)
-    parser.add_argument("--no-borrower-cache", action="store_true")
+    parser.add_argument("--rpc-batch-size", type=int, default=1_000)
     parser.add_argument(
-        "--seed-snapshot",
+        "--account-cache-dir",
         default=None,
-        help="retain borrower addresses from a prior snapshot during the rolling event scan",
+        help="SQLite checkpoint directory for resumable block-pinned account reads",
     )
+    parser.add_argument("--account-request-batch-size", type=int, default=200)
+    parser.add_argument("--block", type=int, default=None, help="pin all on-chain reads")
+    parser.add_argument(
+        "--borrower-registry",
+        default=None,
+        help="complete registry JSON; defaults to data/borrowers/aave_v3_<chain>.json",
+    )
+    parser.add_argument(
+        "--registry-out",
+        default=None,
+        help="update a copy of --borrower-registry instead of modifying the source",
+    )
+    parser.add_argument("--rebuild-borrower-registry", action="store_true")
+    parser.add_argument("--registry-checkpoint-chunks", type=int, default=10)
+    parser.add_argument("--log-pause", type=float, default=0.0)
     parser.add_argument("--out", default=None)
     args = parser.parse_args()
 
@@ -350,23 +398,19 @@ def main() -> None:
         if args.ladder_usd
         else None
     )
-    cache_path = None
-    if not args.no_borrower_cache:
-        cache_path = os.path.join(
-            os.path.dirname(__file__), "snapshots", f".borrowers_cache_{args.chain}.json"
-        )
-    seed_addresses: tuple[str, ...] = ()
-    if args.seed_snapshot:
-        seed_snapshot = load_snapshot(args.seed_snapshot)
-        if seed_snapshot.chain != args.chain or seed_snapshot.reserve.symbol != args.asset:
-            parser.error("--seed-snapshot chain and asset must match --chain and --asset")
-        seed_addresses = tuple(account.address for account in seed_snapshot.accounts)
-        print(f"seeding borrower discovery with {len(seed_addresses)} prior accounts")
+    registry_source = args.borrower_registry or default_registry_path(args.chain)
+    registry_path = args.registry_out or registry_source
+    if args.registry_out and not os.path.exists(args.registry_out):
+        if not os.path.exists(registry_source):
+            parser.error("--registry-out requires an existing source registry")
+        directory = os.path.dirname(args.registry_out)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        shutil.copyfile(registry_source, args.registry_out)
     snapshot = build_market_snapshot(
         chain_name=args.chain,
         asset=args.asset,
         pair_dest=args.pair_dest,
-        blocks=args.blocks,
         chunk_blocks=args.chunk_blocks,
         top=args.top,
         min_debt_usd=args.min_debt,
@@ -375,8 +419,14 @@ def main() -> None:
         kraken_pair=args.kraken_pair,
         peg_coin=None if args.peg_coin == "none" else args.peg_coin,
         calibrate_peg=args.peg_coin != "none",
-        cache_path=cache_path,
-        seed_addresses=seed_addresses,
+        borrower_registry_path=registry_path,
+        rebuild_borrower_registry=args.rebuild_borrower_registry,
+        log_pause_s=args.log_pause,
+        registry_checkpoint_chunks=args.registry_checkpoint_chunks,
+        rpc_batch_size=args.rpc_batch_size,
+        account_cache_dir=args.account_cache_dir,
+        account_request_batch_size=args.account_request_batch_size,
+        block=args.block,
         rpc_timeout=args.rpc_timeout,
         rpc_retries=args.rpc_retries,
     )

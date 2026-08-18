@@ -38,7 +38,9 @@ _MARKETS = {
         "chain": "ethereum",
         "asset": "wstETH",
         "pair_dest": "WETH",
-        "blocks": 100_000,
+        "registry": os.path.join(
+            _PACKAGE_DIR, "data", "borrowers", "aave_v3_ethereum.json"
+        ),
         "ladder_usd": (25e3, 100e3, 500e3, 2e6, 8e6, 25e6),
         "budget": 5_000_000.0,
     },
@@ -47,12 +49,14 @@ _MARKETS = {
         "chain": "linea",
         "asset": "WETH",
         "pair_dest": "USDC",
-        "blocks": 1_200_000,
+        "registry": os.path.join(
+            _PACKAGE_DIR, "data", "borrowers", "aave_v3_linea.json"
+        ),
         "ladder_usd": (5e3, 15e3, 41e3, 100e3, 300e3, 1e6),
         "budget": 500_000.0,
     },
 }
-_LIVE_REFRESH_TIMEOUT_S = 360
+_LIVE_REFRESH_TIMEOUT_S = 900
 _V4_MODEL_VERSION = "spoke-severity-v2"
 _MULTIPERIOD_MODEL_VERSION = "ou-peg-v3"
 
@@ -75,6 +79,9 @@ def _refresh_snapshot(market: dict):
     parent_dir = os.path.dirname(_PACKAGE_DIR)
     os.makedirs(_RUNTIME_DIR, exist_ok=True)
     output_path = os.path.join(_RUNTIME_DIR, f"snapshot_{uuid.uuid4().hex}.json")
+    runtime_registry = os.path.join(
+        _RUNTIME_DIR, f"borrowers_{market['chain']}.json"
+    )
     try:
         command = [
             sys.executable,
@@ -86,17 +93,20 @@ def _refresh_snapshot(market: dict):
             market["asset"],
             "--pair-dest",
             market["pair_dest"],
-            "--blocks",
-            str(market["blocks"]),
             "--ladder-usd",
             ",".join(str(value) for value in market["ladder_usd"]),
             "--rpc-timeout",
             "12",
             "--rpc-retries",
             "1",
-            "--no-borrower-cache",
-            "--seed-snapshot",
-            market["path"],
+            "--borrower-registry",
+            market["registry"],
+            "--registry-out",
+            runtime_registry,
+            "--account-cache-dir",
+            _RUNTIME_DIR,
+            "--account-request-batch-size",
+            "100",
             "--out",
             output_path,
         ]
@@ -225,7 +235,7 @@ def _active_snapshot(market_name: str, market: dict):
         st.caption(
             f"{source} | block {active.block:,} | {_snapshot_date(active)}"
         )
-        st.caption("Live refresh is an explicit network action and may take up to six minutes.")
+        st.caption("Live refresh is an explicit network action and may take up to 15 minutes.")
         if st.button("Refresh from public sources", width="stretch"):
             try:
                 with st.spinner("Reading Aave state, borrowers, prices, and routed depth..."):
@@ -941,10 +951,29 @@ def _data_tab(snapshot, payload: str, source: str) -> None:
     source_rows.append(
         {
             "Input": "Borrower discovery",
-            "Source": snapshot.notes
-            or f"Borrow events over {snapshot.scan_blocks or 0:,} blocks",
+            "Source": snapshot.notes or "Legacy snapshot without discovery metadata",
         }
     )
+    discovery = snapshot.borrower_discovery
+    if discovery is not None:
+        source_rows.extend(
+            [
+                {
+                    "Input": "Borrower registry coverage",
+                    "Source": (
+                        f"blocks {discovery.from_block:,} to {discovery.to_block:,}; "
+                        f"{discovery.candidate_count:,} historical addresses"
+                    ),
+                },
+                {
+                    "Input": "Active account filter",
+                    "Source": (
+                        f"{discovery.active_count:,} accounts with debt >= "
+                        f"{_fmt_usd(discovery.min_debt_usd)}"
+                    ),
+                },
+            ]
+        )
     st.dataframe(pd.DataFrame(source_rows), width="stretch", hide_index=True)
     st.download_button(
         "Download snapshot JSON",
@@ -953,8 +982,8 @@ def _data_tab(snapshot, payload: str, source: str) -> None:
         mime="application/json",
     )
     st.caption(
-        "Dormant borrowers absent from the event scan and prior snapshot may be missed. "
-        "Real books use an effective single-asset mapping."
+        "The complete registry retains dormant borrowers after their first Borrow event. "
+        "Real books still use an effective single-asset mapping."
     )
 
 

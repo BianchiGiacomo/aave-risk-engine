@@ -140,6 +140,11 @@ def _write_manifest(
             "block": snapshot.block,
             "timestamp": snapshot.timestamp,
             "asset": snapshot.reserve.symbol,
+            "borrower_discovery": (
+                dataclasses.asdict(snapshot.borrower_discovery)
+                if snapshot.borrower_discovery is not None
+                else None
+            ),
         },
         "run": {
             "n_scenarios": args.n_scenarios,
@@ -262,7 +267,20 @@ def main() -> None:
         f"Aave V3 {reserve.symbol} market report ({snapshot.chain}) "
         f"| block {snapshot.block:,} ({date})"
     )
-    if snapshot.scan_blocks:
+    if snapshot.borrower_discovery is not None:
+        discovery = snapshot.borrower_discovery
+        limit = (
+            f"; capped at {discovery.account_limit:,} stored accounts"
+            if discovery.account_limit is not None
+            else ""
+        )
+        print(
+            f"borrower registry: blocks {discovery.from_block:,} to "
+            f"{discovery.to_block:,} | {discovery.candidate_count:,} candidates | "
+            f"{discovery.active_count:,} with debt >= "
+            f"{_fmt(discovery.min_debt_usd)}{limit}"
+        )
+    elif snapshot.scan_blocks:
         chain = CHAINS.get(snapshot.chain)
         block_time = chain.block_time_s if chain else 12.0
         days = snapshot.scan_blocks * block_time / 86_400

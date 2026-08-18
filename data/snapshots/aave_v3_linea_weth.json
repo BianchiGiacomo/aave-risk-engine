@@ -1,217 +1,532 @@
 {
  "chain": "linea",
- "block": 31741470,
- "timestamp": 1786959261,
+ "block": 31749322,
+ "timestamp": 1787037146,
  "reserve": {
   "symbol": "WETH",
   "address": "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f",
   "decimals": 18,
-  "price_usd": 1892.9402,
+  "price_usd": 1904.77,
   "ltv": 0.8,
   "liquidation_threshold": 0.83,
   "liquidation_bonus": 0.06000000000000005,
   "reserve_factor": 0.15,
   "borrow_cap_tokens": 2370.0,
   "supply_cap_tokens": 6250.0,
-  "total_supplied_tokens": 4641.4270926385125,
-  "total_debt_tokens": 2371.0072595910497
+  "total_supplied_tokens": 4639.120459887414,
+  "total_debt_tokens": 2371.090373186923
  },
  "accounts": [
   {
+   "address": "0x744fa79bd9335c60aa67c3dc7841fe2ea0fe96ea",
+   "collateral_usd": 1158941.76142554,
+   "debt_usd": 1037537.98983289,
+   "avg_liquidation_threshold": 0.93,
+   "health_factor": 1.0388206009684036,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 1037537.9898328864
+  },
+  {
    "address": "0x19f1a5fc62476e5a2b68377501302a3370746edc",
-   "collateral_usd": 751693.68907743,
-   "debt_usd": 696365.58457031,
+   "collateral_usd": 756433.92315023,
+   "debt_usd": 700742.03658945,
    "avg_liquidation_threshold": 0.9299,
-   "health_factor": 1.0038909824541928,
-   "target_collateral_usd": 4.33441689131115e-06,
-   "eth_debt_usd": 696365.5845703073
+   "health_factor": 1.0039122983875364,
+   "target_collateral_usd": 4.36157092897862e-06,
+   "eth_debt_usd": 700742.0365894486
   },
   {
    "address": "0xba482cae263659b3226c919b9229a27c76217d7d",
-   "collateral_usd": 668058.05043941,
-   "debt_usd": 619512.2504362,
+   "collateral_usd": 672271.06123417,
+   "debt_usd": 623405.70194985,
    "avg_liquidation_threshold": 0.93,
-   "health_factor": 1.0028760310570077,
+   "health_factor": 1.0028976074365028,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 619512.2504361924
+   "eth_debt_usd": 623405.7019498497
   },
   {
    "address": "0xe7cd2fa44cce16e70867338f7b9fd60ad3b9d4b5",
-   "collateral_usd": 681043.01521153,
-   "debt_usd": 612317.665901,
+   "collateral_usd": 685337.72109061,
+   "debt_usd": 616165.90157586,
    "avg_liquidation_threshold": 0.93,
-   "health_factor": 1.0343813994240152,
+   "health_factor": 1.034403362769982,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 612317.665900998
+   "eth_debt_usd": 616165.9015758581
   },
   {
    "address": "0x738264d3a846d52d401dda048228d9bee0ffdbef",
-   "collateral_usd": 740989.88021205,
-   "debt_usd": 531050.02244796,
+   "collateral_usd": 745663.48655197,
+   "debt_usd": 534387.51498709,
    "avg_liquidation_threshold": 0.8796,
-   "health_factor": 1.2273603762654106,
+   "health_factor": 1.227387725188059,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 531050.0224479571
+   "eth_debt_usd": 534387.5149870828
   },
   {
    "address": "0x1a557354c5b8d7df38ea914209e416dc7065b158",
-   "collateral_usd": 493009.99692856,
-   "debt_usd": 457380.30644625,
+   "collateral_usd": 496118.95316916,
+   "debt_usd": 460254.80657954,
    "avg_liquidation_threshold": 0.9299,
-   "health_factor": 1.0024465213772171,
-   "target_collateral_usd": 7.290250324146202e-07,
-   "eth_debt_usd": 457380.3064462479
+   "health_factor": 1.002467806639863,
+   "target_collateral_usd": 7.3359219203928e-07,
+   "eth_debt_usd": 460254.80657953245
+  },
+  {
+   "address": "0x1362f1369a5e52f933861163132699aadec12cb2",
+   "collateral_usd": 2989782.24142408,
+   "debt_usd": 283462.46581124,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 8.754313391299046,
+   "target_collateral_usd": 2989782.2414240884,
+   "eth_debt_usd": 0.0
   },
   {
    "address": "0xf17ee8afce3cdab7f3596f792806c910c6954eda",
-   "collateral_usd": 198101.13261297,
-   "debt_usd": 178065.10062246,
+   "collateral_usd": 199350.37249926,
+   "debt_usd": 179184.18718622,
    "avg_liquidation_threshold": 0.93,
-   "health_factor": 1.0346443670659629,
+   "health_factor": 1.0346663359955766,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 178065.1006224582
+   "eth_debt_usd": 179184.18718621854
   },
   {
    "address": "0x8e585229fc2753ed87ea5219b8b66e973800d6c9",
-   "collateral_usd": 294805.81075455,
-   "debt_usd": 176184.78404336,
-   "avg_liquidation_threshold": 0.8015,
-   "health_factor": 1.34117589704664,
-   "target_collateral_usd": 105595.93762538671,
+   "collateral_usd": 297391.76567171,
+   "debt_usd": 176200.66815022,
+   "avg_liquidation_threshold": 0.8014,
+   "health_factor": 1.3527283316623406,
+   "target_collateral_usd": 106257.46979445279,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0x671730450c132914662dfa6beda90f8a1a4cf84a",
-   "collateral_usd": 114901.94534564,
-   "debt_usd": 103188.16687597,
+   "collateral_usd": 115626.52521677,
+   "debt_usd": 103836.67402693,
    "avg_liquidation_threshold": 0.93,
-   "health_factor": 1.035572318092318,
+   "health_factor": 1.0355943067254594,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 103188.16687596319
+   "eth_debt_usd": 103836.67402692248
+  },
+  {
+   "address": "0x63fb158a5d8215d0c5bd6e12ec0bd76b3ff4cd2e",
+   "collateral_usd": 207542.43625647,
+   "debt_usd": 98189.63297015,
+   "avg_liquidation_threshold": 0.8265,
+   "health_factor": 1.747038152139281,
+   "target_collateral_usd": 193158.69326717465,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xffecf9405a4fc5dbf6e4fd399765ef201043aef9",
+   "collateral_usd": 144685.44619149,
+   "debt_usd": 70240.97811267,
+   "avg_liquidation_threshold": 0.7801,
+   "health_factor": 1.6069507067192181,
+   "target_collateral_usd": 382.82778884711917,
+   "eth_debt_usd": 32534.794264936216
+  },
+  {
+   "address": "0xafea1b4c582cb9617e6aafdb5d99faa39c4c3723",
+   "collateral_usd": 113032.12902556,
+   "debt_usd": 68168.12442759,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.3762541932757641,
+   "target_collateral_usd": 113032.1290255648,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x671be92d915c712c57f122851f418f19e2fb4213",
+   "collateral_usd": 92737.49332475,
+   "debt_usd": 67133.79954815,
+   "avg_liquidation_threshold": 0.75,
+   "health_factor": 1.0360372936091202,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 67133.79954814893
+  },
+  {
+   "address": "0x8a7e1cfddea41282c5c28f4267d17b1f4046d695",
+   "collateral_usd": 262079.55086719,
+   "debt_usd": 61723.97153758,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 3.524174187128079,
+   "target_collateral_usd": 262079.55086719256,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xdd9b9a7b7814b718282967dde9489e68894bdf84",
+   "collateral_usd": 99719.93200127,
+   "debt_usd": 61496.50892447,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.345890116505787,
+   "target_collateral_usd": 99719.93200127015,
+   "eth_debt_usd": 0.0
   },
   {
    "address": "0x5c4408f21d05877c240e9673d04eaa9eeb8fa5f1",
-   "collateral_usd": 112612.1346865,
-   "debt_usd": 56646.92972952,
+   "collateral_usd": 114319.17852539,
+   "debt_usd": 56653.70026469,
    "avg_liquidation_threshold": 0.78,
-   "health_factor": 1.5506129895279372,
+   "health_factor": 1.5739300139832115,
    "target_collateral_usd": 0.0,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0xc8caec7ae8b36676c5c60d11423c6dac8343eb19",
-   "collateral_usd": 180349.29211336,
-   "debt_usd": 55591.79992316,
+   "collateral_usd": 182245.95674944,
+   "debt_usd": 55665.83855323,
    "avg_liquidation_threshold": 0.7852,
-   "health_factor": 2.547470887413411,
+   "health_factor": 2.5707662532524487,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 11143.135991109855
+   "eth_debt_usd": 11213.167309555825
   },
   {
    "address": "0x207f9952bb1cc519b2709132d6d79017a06bb18a",
-   "collateral_usd": 76083.45402511,
-   "debt_usd": 43920.43966278,
+   "collateral_usd": 76560.09785728,
+   "debt_usd": 43928.51806037,
    "avg_liquidation_threshold": 0.83,
-   "health_factor": 1.4378104437409949,
-   "target_collateral_usd": 76083.45402511956,
+   "health_factor": 1.446551899024093,
+   "target_collateral_usd": 76560.09785728889,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x473668e5f99e0e0bfa66c2c979e9cd26761f2f62",
+   "collateral_usd": 74234.90784052,
+   "debt_usd": 43602.60273877,
+   "avg_liquidation_threshold": 0.802,
+   "health_factor": 1.3655212739539706,
+   "target_collateral_usd": 32741.070478974398,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0x6fda6f746366b66a1aedd4fae34cba12c217ca9a",
-   "collateral_usd": 101107.60289316,
-   "debt_usd": 42198.47847293,
+   "collateral_usd": 101114.40830709,
+   "debt_usd": 42463.6834463,
    "avg_liquidation_threshold": 0.78,
-   "health_factor": 1.8688808959606305,
+   "health_factor": 1.8573338928373708,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 42198.478472920266
+   "eth_debt_usd": 42463.68344629851
+  },
+  {
+   "address": "0x6e6f566c707fdef5c9188058900a47ac21795654",
+   "collateral_usd": 128352.93477433,
+   "debt_usd": 41836.9935343,
+   "avg_liquidation_threshold": 0.7896,
+   "health_factor": 2.422614391794172,
+   "target_collateral_usd": 24792.270432352394,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x2adca908d795a4e92e14bb2d646f5a4867fd9256",
+   "collateral_usd": 53586.69564609,
+   "debt_usd": 37713.06580131,
+   "avg_liquidation_threshold": 0.78,
+   "health_factor": 1.1083061457840513,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x3912acfb549a8221772d6e68b6165acb26bcb7d6",
+   "collateral_usd": 77411.8991335,
+   "debt_usd": 30939.67731898,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 2.076682171516688,
+   "target_collateral_usd": 77411.89913350224,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x1257b6871bfca1da593ff5586e73eb1731b494fc",
+   "collateral_usd": 68483.41780731,
+   "debt_usd": 29943.72220347,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.8982689057100692,
+   "target_collateral_usd": 68483.41780731363,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xd42f1662854a20ed43913192bb3d085679545080",
+   "collateral_usd": 54577.31656909,
+   "debt_usd": 28738.10762405,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.5762754230356932,
+   "target_collateral_usd": 54577.3165690936,
+   "eth_debt_usd": 0.0
   },
   {
    "address": "0x64d9d8cbc9d0dfb202d2a4ac7a301b60a6e84e41",
-   "collateral_usd": 45910.77200898,
-   "debt_usd": 26880.72321263,
+   "collateral_usd": 46392.5813483,
+   "debt_usd": 26979.17988741,
    "avg_liquidation_threshold": 0.78,
-   "health_factor": 1.3321963804224866,
+   "health_factor": 1.3412643973125558,
    "target_collateral_usd": 0.0,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x94858aa4ef7e74cc872209f3b48f1449c7ff829b",
+   "collateral_usd": 90233.19010564,
+   "debt_usd": 25738.11701308,
+   "avg_liquidation_threshold": 0.7895,
+   "health_factor": 2.7678657127844093,
+   "target_collateral_usd": 32334.06615405119,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x190f252b87a8efc1354126953178ca5bd3da100e",
+   "collateral_usd": 55042.65926144,
+   "debt_usd": 22421.31761979,
+   "avg_liquidation_threshold": 0.7976,
+   "health_factor": 1.95818417037783,
+   "target_collateral_usd": 20055.895986982236,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x2dd4c68737f3a8e5af57143f3d9446a1308589f5",
+   "collateral_usd": 130904.34913844,
+   "debt_usd": 22141.83840095,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 4.907027493265578,
+   "target_collateral_usd": 130904.34913844123,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xacf2a5f7f651b4ba48fe4558e29c75a1bb7bec1d",
+   "collateral_usd": 24623.7006663,
+   "debt_usd": 22124.53561135,
+   "avg_liquidation_threshold": 0.93,
+   "health_factor": 1.0350518547341243,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 22124.5356113438
+  },
+  {
+   "address": "0x7b32f8fb1ce20b228c1949d0139ff7ade86b12b5",
+   "collateral_usd": 19702.77271251,
+   "debt_usd": 17543.22387762,
+   "avg_liquidation_threshold": 0.93,
+   "health_factor": 1.0444818324418583,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 17543.22387761526
+  },
+  {
+   "address": "0x01087080dca984b607e1ebf263330431f979e528",
+   "collateral_usd": 28772.918726,
+   "debt_usd": 17484.32747566,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.3658816775095046,
+   "target_collateral_usd": 28772.918726001866,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x5d606a1e7096a4b7bb693e31e5533a4e73142c58",
+   "collateral_usd": 40022.25440609,
+   "debt_usd": 17196.49585759,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.9317000063354823,
+   "target_collateral_usd": 40022.25440609071,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0x933a7c11cc5f034300370016b2ed1e83f2017b0f",
-   "collateral_usd": 16898.4392027,
-   "debt_usd": 15965.36176109,
+   "collateral_usd": 17005.0571809,
+   "debt_usd": 16065.6993442,
    "avg_liquidation_threshold": 0.955,
-   "health_factor": 1.0108138907261888,
+   "health_factor": 1.0108386357685926,
    "target_collateral_usd": 0.0,
-   "eth_debt_usd": 15965.361761082493
+   "eth_debt_usd": 16065.699344190834
+  },
+  {
+   "address": "0xcf885a9d47959e199c4dfe0e367e7dd3ba95ea6c",
+   "collateral_usd": 29685.91980463,
+   "debt_usd": 16062.49106796,
+   "avg_liquidation_threshold": 0.7962,
+   "health_factor": 1.471507671836058,
+   "target_collateral_usd": 4605.054741099081,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x8e1dfeb00c819b4d3b47ccbd97b248dc9f59ca8e",
+   "collateral_usd": 17425.87159409,
+   "debt_usd": 15639.91353,
+   "avg_liquidation_threshold": 0.93,
+   "health_factor": 1.0361988607812782,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 15639.913529997915
+  },
+  {
+   "address": "0xf622101e8f0e955ed714799ad17c21992c8f243b",
+   "collateral_usd": 38534.60459769,
+   "debt_usd": 14587.79702817,
+   "avg_liquidation_threshold": 0.7942,
+   "health_factor": 2.098081810473791,
+   "target_collateral_usd": 18734.291731072248,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x1244813a56a6c86b0177e9fc233d870e33f0d408",
+   "collateral_usd": 20063.53572869,
+   "debt_usd": 14484.58081698,
+   "avg_liquidation_threshold": 0.8058,
+   "health_factor": 1.1162244635518004,
+   "target_collateral_usd": 10369.71167656116,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x531bbe2b4e3c9a0f0e1b67054be7fed2110b303b",
+   "collateral_usd": 24925.7379484,
+   "debt_usd": 14188.57476107,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.4581001154489341,
+   "target_collateral_usd": 24925.73794840353,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x7072836fab40e8156899ae05e23fb9ff35e3624c",
+   "collateral_usd": 25794.77114038,
+   "debt_usd": 14154.11918187,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.5126098467461695,
+   "target_collateral_usd": 25794.77114038645,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x2bf34d519f96257a046ff0076675d80f91445c64",
+   "collateral_usd": 23339.61204669,
+   "debt_usd": 13156.73774521,
+   "avg_liquidation_threshold": 0.8212,
+   "health_factor": 1.4568929860686566,
+   "target_collateral_usd": 19261.230882467644,
+   "eth_debt_usd": 0.0
   },
   {
    "address": "0x68134acd9d7375ee7b4aa02832d1d1488fce3509",
-   "collateral_usd": 23896.94329238,
-   "debt_usd": 12961.0929389,
+   "collateral_usd": 24046.65167214,
+   "debt_usd": 12962.2614579,
    "avg_liquidation_threshold": 0.83,
-   "health_factor": 1.5303079012068823,
-   "target_collateral_usd": 23896.943292389675,
+   "health_factor": 1.539756079809062,
+   "target_collateral_usd": 24046.65167214143,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0x4adba49d91782faa7d3693830b4609c75aeb5578",
-   "collateral_usd": 21275.01592529,
-   "debt_usd": 12062.56859312,
+   "collateral_usd": 21421.79117067,
+   "debt_usd": 12063.79812627,
    "avg_liquidation_threshold": 0.8,
-   "health_factor": 1.4111104797780913,
-   "target_collateral_usd": 5720.442381184591,
+   "health_factor": 1.4206789156011874,
+   "target_collateral_usd": 5756.2795236120555,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xe221546221c0f58c78458b1b16014dc88417c063",
+   "collateral_usd": 22222.50526929,
+   "debt_usd": 11930.76510915,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.5459762391403564,
+   "target_collateral_usd": 22222.50526929145,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x1e6d8458a7c141e38f0ea35d804b0cfa94a6373e",
+   "collateral_usd": 54755.79523752,
+   "debt_usd": 11767.59276611,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 3.8620736586013815,
+   "target_collateral_usd": 54755.795237520164,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x911fc51264e6c27d4603382a9a50264fb0c373d1",
+   "collateral_usd": 19354.43910176,
+   "debt_usd": 10940.65530791,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.4683018523439388,
+   "target_collateral_usd": 19354.439101767814,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xc11b66907322cb5b430e7dc9809bc0341f4219ab",
+   "collateral_usd": 24683.35450751,
+   "debt_usd": 10883.37905326,
+   "avg_liquidation_threshold": 0.78,
+   "health_factor": 1.76902930805215,
+   "target_collateral_usd": 0.0,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0xaf6d03f4eb0ba021a0495cd33ab0041d843e1872",
+   "collateral_usd": 20053.80178561,
+   "debt_usd": 10747.19987318,
+   "avg_liquidation_threshold": 0.83,
+   "health_factor": 1.548743456757848,
+   "target_collateral_usd": 20053.80178561132,
+   "eth_debt_usd": 0.0
+  },
+  {
+   "address": "0x3fe2e08a1f7766606574a91a5cfaf3342d023947",
+   "collateral_usd": 25475.08578028,
+   "debt_usd": 10142.40033495,
+   "avg_liquidation_threshold": 0.7959,
+   "health_factor": 1.9993302115956721,
+   "target_collateral_usd": 3817.2410335615173,
    "eth_debt_usd": 0.0
   },
   {
    "address": "0x80333e73ccc7e49d213f808955de5291cd993961",
-   "collateral_usd": 27745.56281854,
-   "debt_usd": 10136.38480644,
+   "collateral_usd": 27919.38183816,
+   "debt_usd": 10138.80771739,
    "avg_liquidation_threshold": 0.83,
-   "health_factor": 2.2718964975320577,
-   "target_collateral_usd": 27745.56281854787,
-   "eth_debt_usd": 0.00016729634473135627
+   "health_factor": 2.2855830361519245,
+   "target_collateral_usd": 27919.381838162328,
+   "eth_debt_usd": 0.00016834775284443263
   }
  ],
  "depth": {
   "source": "kyberswap",
   "pair": "WETH/USDC",
-  "quoted_at": 1786959261,
+  "quoted_at": 1787037900,
   "points": [
    [
     15000.0,
-    0.007599116678279949
+    0.007125367306131669
    ],
    [
     41000.0,
-    0.045851722534742456
+    0.04064358810706681
    ],
    [
     100000.0,
-    0.32808340970242933
+    0.3134612732958485
    ],
    [
     300000.0,
-    0.7316517035085277
+    0.7225047344758214
    ],
    [
-    999999.9999999999,
-    0.9173039005796699
+    1000000.0000000001,
+    0.9143108285139471
    ]
   ],
-  "liquidity": 4707.199960231344,
-  "ref_notional_usd": 999999.9999999999,
-  "ref_slippage": 0.8300129091235908
+  "liquidity": 5018.337614861476,
+  "ref_notional_usd": 1000000.0000000001,
+  "ref_slippage": 0.8203319774284045
  },
  "stress": {
   "source": "kraken:ETHUSD",
   "lookback_days": 365,
-  "annual_vol": 0.6404666974055295,
-  "t_dof": 5.8665263943313475,
+  "annual_vol": 0.6398517945764117,
+  "t_dof": 5.8532575224247845,
   "peg_pass": null,
   "peg_worst_deviation": null,
   "peg_max_run_days": null,
   "peg_daily_vol": null,
   "peg_mean_reversion_speed": null
  },
- "notes": "Candidate borrowers combine Borrow events over the last 1,200,000 blocks with 17 addresses from a prior snapshot; dormant borrowers absent from both sources may be missed.",
- "scan_blocks": 1200000
+ "borrower_discovery": {
+  "source": "complete Borrow-event registry",
+  "from_block": 12430836,
+  "to_block": 31749322,
+  "candidate_count": 13397,
+  "active_count": 51,
+  "min_debt_usd": 10000.0,
+  "account_limit": null
+ },
+ "notes": "Complete Borrow-event registry from Pool deployment block 12,430,836 through snapshot block 31,749,322; 13,397 historical candidates queried at the pinned block.",
+ "scan_blocks": null
 }

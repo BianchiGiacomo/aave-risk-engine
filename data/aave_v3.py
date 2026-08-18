@@ -11,7 +11,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from .rpc import DEFAULT_ENDPOINTS, LOG_ENDPOINTS, EthRpc
+from .rpc import DEFAULT_ENDPOINTS, LOG_ENDPOINTS, EthRpc, RpcError
 
 POOL = "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
 ADDRESSES_PROVIDER = "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
@@ -26,6 +26,7 @@ SELECTOR = {
     "getReserveCaps(address)": "0x46fbe558",
     "getReserveData(address)": "0x35ea6a75",
     "getReserveTokensAddresses(address)": "0xd2493b6c",
+    "getUserReserveData(address,address)": "0x28dd2d01",
     "getUserAccountData(address)": "0xbf92857c",
     "getAssetPrice(address)": "0xb3596f07",
     "balanceOf(address)": "0x70a08231",
@@ -52,6 +53,7 @@ class ChainConfig:
     pool: str
     rpc_endpoints: tuple[str, ...]
     log_endpoints: tuple[str, ...]
+    borrower_registry_start_block: int
     tokens: dict[str, str] = field(default_factory=dict)
     log_chunk_blocks: int = 5_000
     block_time_s: float = 12.0
@@ -70,8 +72,9 @@ CHAINS: dict[str, ChainConfig] = {
         pool=POOL,
         rpc_endpoints=DEFAULT_ENDPOINTS,
         log_endpoints=LOG_ENDPOINTS,
+        borrower_registry_start_block=16_291_127,
         tokens=TOKENS,
-        log_chunk_blocks=5_000,
+        log_chunk_blocks=100_000,
         paraswap_network=1,
         kyber_slug="ethereum",
     ),
@@ -86,8 +89,13 @@ CHAINS: dict[str, ChainConfig] = {
             "https://linea.drpc.org",
             "https://1rpc.io/linea",
         ),
-        # Public Linea endpoints cap eth_getLogs ranges at 10k blocks.
-        log_endpoints=("https://rpc.linea.build",),
+        # Tenderly serves wide archive ranges; the official public RPC is the
+        # 10k-block fallback used by the adaptive splitter.
+        log_endpoints=(
+            "https://gateway.tenderly.co/public/linea",
+            "https://rpc.linea.build",
+        ),
+        borrower_registry_start_block=12_430_836,
         tokens={
             "WETH": "0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f",
             "WBTC": "0x3aAB2285ddcDdaD8edf438C1bAB47e1a9D05a9b4",
@@ -96,7 +104,7 @@ CHAINS: dict[str, ChainConfig] = {
             "wstETH": "0xB5beDd42000b71FddE22D3eE8a79Bd49A568fC8F",
             "weETH": "0x1Bf74C010E6320bab11e2e5A532b5AC15e0b8aA6",
         },
-        log_chunk_blocks=10_000,
+        log_chunk_blocks=1_000_000,
         block_time_s=2.0,
         paraswap_network=None,
         kyber_slug="linea",
@@ -120,16 +128,32 @@ def _word_to_address(word: int) -> str:
     return "0x" + f"{word:040x}"
 
 
-def resolve_contracts(rpc: EthRpc, chain: ChainConfig | None = None) -> tuple[str, str]:
-    """Resolve the current (PoolDataProvider, AaveOracle) from the provider."""
+def resolve_contracts(
+    rpc: EthRpc,
+    chain: ChainConfig | None = None,
+    block: int | str | None = None,
+) -> tuple[str, str]:
+    """Resolve the (PoolDataProvider, AaveOracle) at one block."""
     provider = (chain or CHAINS["ethereum"]).addresses_provider
-    dp = _word_to_address(_words(rpc.eth_call(provider, SELECTOR["getPoolDataProvider()"]))[0])
-    oracle = _word_to_address(_words(rpc.eth_call(provider, SELECTOR["getPriceOracle()"]))[0])
+    dp = _word_to_address(
+        _words(rpc.eth_call(provider, SELECTOR["getPoolDataProvider()"], block))[0]
+    )
+    oracle = _word_to_address(
+        _words(rpc.eth_call(provider, SELECTOR["getPriceOracle()"], block))[0]
+    )
     return dp, oracle
 
 
-def reserve_configuration(rpc: EthRpc, data_provider: str, asset: str) -> dict:
-    w = _words(rpc.eth_call(data_provider, SELECTOR["getReserveConfigurationData(address)"] + _addr_arg(asset)))
+def reserve_configuration(
+    rpc: EthRpc, data_provider: str, asset: str, block: int | str | None = None
+) -> dict:
+    w = _words(
+        rpc.eth_call(
+            data_provider,
+            SELECTOR["getReserveConfigurationData(address)"] + _addr_arg(asset),
+            block,
+        )
+    )
     return {
         "decimals": w[0],
         "ltv": w[1] / 1e4,
@@ -144,13 +168,29 @@ def reserve_configuration(rpc: EthRpc, data_provider: str, asset: str) -> dict:
     }
 
 
-def reserve_caps(rpc: EthRpc, data_provider: str, asset: str) -> dict:
-    w = _words(rpc.eth_call(data_provider, SELECTOR["getReserveCaps(address)"] + _addr_arg(asset)))
+def reserve_caps(
+    rpc: EthRpc, data_provider: str, asset: str, block: int | str | None = None
+) -> dict:
+    w = _words(
+        rpc.eth_call(
+            data_provider, SELECTOR["getReserveCaps(address)"] + _addr_arg(asset), block
+        )
+    )
     return {"borrow_cap_tokens": float(w[0]), "supply_cap_tokens": float(w[1])}
 
 
-def reserve_usage(rpc: EthRpc, data_provider: str, asset: str, decimals: int) -> dict:
-    w = _words(rpc.eth_call(data_provider, SELECTOR["getReserveData(address)"] + _addr_arg(asset)))
+def reserve_usage(
+    rpc: EthRpc,
+    data_provider: str,
+    asset: str,
+    decimals: int,
+    block: int | str | None = None,
+) -> dict:
+    w = _words(
+        rpc.eth_call(
+            data_provider, SELECTOR["getReserveData(address)"] + _addr_arg(asset), block
+        )
+    )
     scale = 10.0**decimals
     return {
         "total_supplied_tokens": w[2] / scale,
@@ -158,23 +198,47 @@ def reserve_usage(rpc: EthRpc, data_provider: str, asset: str, decimals: int) ->
     }
 
 
-def atoken_address(rpc: EthRpc, data_provider: str, asset: str) -> str:
-    w = _words(rpc.eth_call(data_provider, SELECTOR["getReserveTokensAddresses(address)"] + _addr_arg(asset)))
+def atoken_address(
+    rpc: EthRpc, data_provider: str, asset: str, block: int | str | None = None
+) -> str:
+    w = _words(
+        rpc.eth_call(
+            data_provider,
+            SELECTOR["getReserveTokensAddresses(address)"] + _addr_arg(asset),
+            block,
+        )
+    )
     return _word_to_address(w[0])
 
 
-def variable_debt_token_address(rpc: EthRpc, data_provider: str, asset: str) -> str:
-    w = _words(rpc.eth_call(data_provider, SELECTOR["getReserveTokensAddresses(address)"] + _addr_arg(asset)))
+def variable_debt_token_address(
+    rpc: EthRpc, data_provider: str, asset: str, block: int | str | None = None
+) -> str:
+    w = _words(
+        rpc.eth_call(
+            data_provider,
+            SELECTOR["getReserveTokensAddresses(address)"] + _addr_arg(asset),
+            block,
+        )
+    )
     return _word_to_address(w[2])
 
 
-def token_decimals(rpc: EthRpc, token: str) -> int:
-    return _words(rpc.eth_call(token, SELECTOR["decimals()"]))[0]
+def token_decimals(
+    rpc: EthRpc, token: str, block: int | str | None = None
+) -> int:
+    return _words(rpc.eth_call(token, SELECTOR["decimals()"], block))[0]
 
 
-def asset_price_usd(rpc: EthRpc, oracle: str, asset: str) -> float:
+def asset_price_usd(
+    rpc: EthRpc, oracle: str, asset: str, block: int | str | None = None
+) -> float:
     """Aave oracle price; mainnet base currency is USD with 8 decimals."""
-    w = _words(rpc.eth_call(oracle, SELECTOR["getAssetPrice(address)"] + _addr_arg(asset)))
+    w = _words(
+        rpc.eth_call(
+            oracle, SELECTOR["getAssetPrice(address)"] + _addr_arg(asset), block
+        )
+    )
     return w[0] / 1e8
 
 
@@ -183,29 +247,51 @@ def discover_borrowers(
     from_block: int,
     to_block: int,
     chunk_blocks: int = 5_000,
-    pause_s: float = 1.5,
+    pause_s: float = 0.0,
     chain: ChainConfig | None = None,
 ) -> set[str]:
-    """Unique onBehalfOf addresses from Borrow events in a block window.
-
-    This sees only recently active borrowers; dormant whales are missed.
-    Widen the window (at RPC cost) to reduce that bias.
-    """
+    """Unique onBehalfOf addresses from Borrow events in an inclusive range."""
     pool = (chain or CHAINS["ethereum"]).pool
     users: set[str] = set()
     for start in range(from_block, to_block + 1, chunk_blocks):
         end = min(start + chunk_blocks - 1, to_block)
-        logs = rpc.get_logs(pool, [BORROW_TOPIC0], start, end)
+        logs = _borrow_logs(rpc, pool, start, end)
         users.update("0x" + log["topics"][2][26:] for log in logs)
-        time.sleep(pause_s)
+        if pause_s > 0.0:
+            time.sleep(pause_s)
     return users
 
 
-def account_data(rpc: EthRpc, users: list[str], chain: ChainConfig | None = None) -> list[dict]:
+def _borrow_logs(
+    rpc: EthRpc, pool: str, from_block: int, to_block: int
+) -> list[dict]:
+    """Read logs, splitting ranges when a public provider rejects the span."""
+    try:
+        return rpc.get_logs(pool, [BORROW_TOPIC0], from_block, to_block)
+    except RpcError as exc:
+        message = str(exc).lower()
+        range_limited = "range" in message or "limited to" in message
+        if from_block >= to_block or not range_limited:
+            raise
+        midpoint = (from_block + to_block) // 2
+        return _borrow_logs(rpc, pool, from_block, midpoint) + _borrow_logs(
+            rpc, pool, midpoint + 1, to_block
+        )
+
+
+def account_data(
+    rpc: EthRpc,
+    users: list[str],
+    chain: ChainConfig | None = None,
+    block: int | str | None = None,
+) -> list[dict]:
     """Batched Pool.getUserAccountData; base-currency figures in USD."""
     pool = (chain or CHAINS["ethereum"]).pool
     params = [
-        [{"to": pool, "data": SELECTOR["getUserAccountData(address)"] + _addr_arg(u)}, "latest"]
+        [
+            {"to": pool, "data": SELECTOR["getUserAccountData(address)"] + _addr_arg(u)},
+            rpc.block_tag(block),
+        ]
         for u in users
     ]
     out = []
@@ -223,10 +309,55 @@ def account_data(rpc: EthRpc, users: list[str], chain: ChainConfig | None = None
     return out
 
 
-def token_balances(rpc: EthRpc, token: str, users: list[str], decimals: int) -> dict[str, float]:
+def token_balances(
+    rpc: EthRpc,
+    token: str,
+    users: list[str],
+    decimals: int,
+    block: int | str | None = None,
+) -> dict[str, float]:
     params = [
-        [{"to": token, "data": SELECTOR["balanceOf(address)"] + _addr_arg(u)}, "latest"]
+        [
+            {"to": token, "data": SELECTOR["balanceOf(address)"] + _addr_arg(u)},
+            rpc.block_tag(block),
+        ]
         for u in users
     ]
     scale = 10.0**decimals
     return {u: _words(r)[0] / scale for u, r in zip(users, rpc.batch("eth_call", params))}
+
+
+def user_reserve_data(
+    rpc: EthRpc,
+    data_provider: str,
+    asset: str,
+    users: list[str],
+    decimals: int,
+    block: int | str | None = None,
+) -> dict[str, dict]:
+    """Per-user reserve balances and collateral-use flag at one block."""
+    params = [
+        [
+            {
+                "to": data_provider,
+                "data": (
+                    SELECTOR["getUserReserveData(address,address)"]
+                    + _addr_arg(asset)
+                    + _addr_arg(user)
+                ),
+            },
+            rpc.block_tag(block),
+        ]
+        for user in users
+    ]
+    scale = 10.0**decimals
+    output = {}
+    for user, raw in zip(users, rpc.batch("eth_call", params)):
+        words = _words(raw)
+        output[user] = {
+            "atoken_balance": words[0] / scale,
+            "stable_debt": words[1] / scale,
+            "variable_debt": words[2] / scale,
+            "collateral_enabled": bool(words[8]),
+        }
+    return output

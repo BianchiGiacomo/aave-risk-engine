@@ -44,6 +44,13 @@ collateral share and a minimum debt size. This keeps the mapping focused on
 target-dominant accounts, but it does not model correlated shocks to each
 non-target collateral balance separately.
 
+The candidate universe is a persistent set of every `Borrow` event
+`onBehalfOf` address observed from the configured Pool proxy deployment through
+the snapshot block. Every candidate is re-queried at that same block. The
+snapshot stores accounts whose current total debt exceeds the configured
+floor, which is $10,000 for the release evidence. Target collateral is counted
+only when its reserve-level collateral flag is enabled for that user.
+
 For the combined book, debt may have a stable and an ETH-denominated part:
 
 $$
@@ -438,7 +445,9 @@ Economic invariants and regression cases are in `tests/test_engine.py`,
 
 The current implementation does not provide:
 
-- complete borrower discovery beyond the event scan and prior-snapshot seed;
+- coverage for debt positions, if any, that did not emit a `Borrow` event
+  through the configured Pool proxy history, or accounts below the snapshot's
+  current-debt floor;
 - borrower-level correlated shocks across every collateral and debt asset;
 - CEX, OTC, redemption-queue, or time-to-exit capacity;
 - importance sampling for rare losses;

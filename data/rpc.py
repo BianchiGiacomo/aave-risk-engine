@@ -15,10 +15,10 @@ DEFAULT_ENDPOINTS: tuple[str, ...] = (
     "https://1rpc.io/eth",
 )
 
-# Endpoints that serve eth_getLogs over multi-thousand-block ranges; log
-# scans rotate across them to spread rate-limit pressure.
+# Endpoints that serve eth_getLogs over wide historical block ranges. The
+# second endpoint is a fallback if the first rejects a request.
 LOG_ENDPOINTS: tuple[str, ...] = (
-    "https://eth.drpc.org",
+    "https://gateway.tenderly.co/public/mainnet",
     "https://rpc.mevblocker.io",
 )
 
@@ -40,7 +40,6 @@ class EthRpc:
     retry_wait_s: float = 1.0
     rate_limit_wait_s: float = 12.0
     batch_size: int = 100
-    _log_rotation: int = 0
 
     def _post(self, payload, endpoints: tuple[str, ...] | None = None) -> object:
         body = json.dumps(payload).encode()
@@ -92,19 +91,25 @@ class EthRpc:
                 results.append(item["result"])
         return results
 
+    @staticmethod
+    def block_tag(block: int | str | None = None) -> str:
+        if block is None:
+            return "latest"
+        return hex(block) if isinstance(block, int) else block
+
     def block_number(self) -> int:
         return int(self.call("eth_blockNumber", []), 16)
 
-    def eth_call(self, to: str, data: str) -> str:
-        return self.call("eth_call", [{"to": to, "data": data}, "latest"])
+    def block_timestamp(self, block: int | str) -> int:
+        raw = self.call("eth_getBlockByNumber", [self.block_tag(block), False])
+        return int(raw["timestamp"], 16)
+
+    def eth_call(self, to: str, data: str, block: int | str | None = None) -> str:
+        return self.call(
+            "eth_call", [{"to": to, "data": data}, self.block_tag(block)]
+        )
 
     def get_logs(self, address: str, topics: list[str], from_block: int, to_block: int) -> list[dict]:
-        # Rotate the starting endpoint across calls so long scans spread
-        # their request rate over every log-capable provider.
-        n = len(self.log_endpoints)
-        start = self._log_rotation % n
-        self._log_rotation += 1
-        rotated = self.log_endpoints[start:] + self.log_endpoints[:start]
         out = self._post(
             {
                 "jsonrpc": "2.0",
@@ -119,6 +124,6 @@ class EthRpc:
                     }
                 ],
             },
-            endpoints=rotated,
+            endpoints=self.log_endpoints,
         )
         return out["result"]

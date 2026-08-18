@@ -8,6 +8,7 @@ from .book import build_real_book, scale_book
 from .clearance import ClearanceResult, arfc_clearance_test
 from .snapshot import (
     AccountRecord,
+    BorrowerDiscovery,
     DepthCalibration,
     MarketSnapshot,
     ReserveState,
@@ -21,6 +22,7 @@ from .snapshot import (
 
 __all__ = [
     "AccountRecord",
+    "BorrowerDiscovery",
     "ClearanceResult",
     "DepthCalibration",
     "MarketSnapshot",

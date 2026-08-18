@@ -111,11 +111,24 @@ rather than assumption:
   WETH-denominated (leveraged staking loops) are excluded, because their
   debt leg falls with ETH-correlated collateral in a USD crash. The
   combined book instead models the split explicitly: the ETH-denominated
-  portion of scenario debt scales with the ETH return, so loopers are
-  stressed by what actually threatens them, the LST/underlying exchange
-  rate (the peg terms, with idiosyncratic peg volatility calibrated from
-  ratio history) and depth evaporation, while stable-debt accounts keep
-  the full USD price shock. The report shows both views.
+  portion of scenario debt scales with the ETH return, so a pure ETH/USD move
+  revalues both legs while stable-debt accounts keep the full USD price shock.
+  Under the live mainnet wstETH oracle, the relative trigger is canonical-rate
+  impairment; the secondary-market peg terms are only its counterfactual proxy,
+  as detailed below. Exit depth matters once liquidation begins. The report
+  shows both debt views.
+- **Peg channel versus the live oracle**: the peg series is the
+  secondary-market LST/underlying ratio, but Aave's mainnet wstETH feed is an
+  exchange-rate feed. At block 25,780,402 the oracle price equals Lido's
+  `stEthPerToken()` times ETH/USD when calculated with unrounded inputs
+  (rounded values: rate 1.24188444, ETH/USD $1,898.3475, wstETH feed
+  $2,357.5282). A secondary-market stETH discount therefore does not move the
+  feed and does not by itself trigger liquidation. The peg terms are a
+  counterfactual proxy for canonical-rate impairment, such as slashing, or for
+  a change of oracle design. They are not a calibrated estimate of
+  present-oracle liquidation frequency or severity. Withdrawal-queue
+  congestion affects exit time and secondary liquidity instead. Conditional
+  on liquidation, the clearance test still measures the relevant exit depth.
 - **Peg persistence**: refreshed pegged-asset snapshots estimate a no-intercept
   AR(1) coefficient on cleaned below-par deviations and convert it to a daily
   OU speed. The August 18 Ethereum snapshot calibrates `0.0961/day`, equivalent
@@ -259,7 +272,10 @@ peg window drives $42.20m of combined-book loss even though the corresponding
 two-day ETH return is positive. The stressed-depth FTX window produces a much
 smaller $381.42k loss, and the modeled USDC window produces none. This exposes
 a limitation of contemporaneous Monte Carlo peg coupling: realized peg stress
-can lead or lag the largest ETH price move.
+can lead or lag the largest ETH price move. Because that window is peg-driven,
+it should be read through the oracle caveat above: on today's exchange-rate
+feed it represents a counterfactual canonical-rate impairment of the same
+magnitude, not the 2022 secondary-market discount itself.
 
 ## ARFC Checks
 

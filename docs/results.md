@@ -69,12 +69,14 @@ better than prior vintages, while conditional severity remains a model output
 that should be stress-tested with targeted tail sampling.
 
 The combined book exposes the LST looper channel. Its tail is materially
-larger because peg and depth stress can reach ETH-denominated debt positions.
-The deterministic clearance test is stricter still: the largest sale is
-about 94 times the instant clearable amount. The 74.10% slippage is the final
-Paraswap ladder point and only a lower bound beyond $25 million. The test
-excludes CEX, OTC, and wstETH redemption capacity, so FAIL is a statement
-about immediate routed liquidity rather than eventual recovery.
+larger because modeled relative-value and depth stress can reach
+ETH-denominated debt positions. Under the live mainnet oracle, the former is a
+counterfactual canonical-rate impairment, not an ordinary secondary-market
+depeg trigger. The deterministic clearance test is stricter still: the largest
+sale is about 94 times the instant clearable amount. The 74.10% slippage is the
+final Paraswap point and only a lower bound beyond $25 million. The test
+excludes CEX, OTC, and redemption capacity, so FAIL concerns immediate routed
+liquidity rather than eventual recovery.
 
 ## 2. Linea WETH Reproduction
 
@@ -150,12 +152,14 @@ Episode: usdc-depeg-2023
   USD-debt and combined books: $0
 ```
 
-The June 2022 peg window activates the ETH-looper channel even though its
-two-day ETH return is positive. This is the timing result: realized peg stress
-can lead or lag the largest ETH price move, while a contemporaneous crash-beta
-model forces the channels together. The FTX stressed-depth loss is small
-relative to the book and the USDC episode is outside the modeled collateral
-channels.
+The June 2022 market-discount window activates the modeled ETH-looper channel
+even though its two-day ETH return is positive. Under today's exchange-rate
+oracle, the $42.20 million result is a counterfactual canonical-rate impairment
+of the same magnitude, not a replay of the actual 2022 liquidation trigger.
+The timing result still shows that relative-value stress can lead or lag the
+largest ETH move, while a contemporaneous crash-beta model forces the channels
+together. The FTX stressed-depth loss is small and the USDC episode is outside
+the modeled collateral channels.
 
 ## 4. V3 And V4 Liquidation Mechanics
 

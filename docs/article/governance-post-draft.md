@@ -19,26 +19,34 @@ This note asks a narrow question: when stressed collateral reaches the
 liquidation queue, is immediate market depth sufficient to clear the relevant
 borrowers within the liquidation bonus?
 
-All primary results are frozen at the August 18, 2026 blocks stated below.
-Earlier July and August 17 snapshots used incomplete rolling borrower
-discovery. They are not used for current book-level claims; the July Linea
-quote ladders remain useful because depth measurement does not depend on the
-borrower sample.
+Primary results are frozen at the August 18, 2026 blocks below. Earlier books
+used incomplete borrower discovery and are not used for current exposure
+claims; their quote ladders remain valid depth observations.
+
+## Summary
+
+- **Reproduced decision.** A KyberSwap ladder puts Linea WETH's maximum
+  clearable size at $43,195, close to LlamaRisk's approximately $41,000 July
+  estimate.
+- **Mainnet concentration.** The largest wstETH borrower would, if liquidated,
+  put a $256.52 million sale into a market whose instant routed depth clears
+  $2.73 million within the bonus, about 94 times smaller. That is a statement
+  about immediate on-chain exits, not about eventual recovery.
+- **Policy question.** Should the Aave Risk Framework's clearance requirement
+  be read against instant routed depth, or against a horizon-adjusted capacity
+  that credits primary redemption and depth replenishment?
 
 ## Method
 
-The pipeline uses keyless public sources: Aave JSON-RPC state, Paraswap or
-KyberSwap routed quotes, Kraken prices, and DefiLlama LST ratios. A persistent
-registry replays every `Borrow` event from each configured Pool deployment,
-then re-queries all historical candidates at one pinned block. Candidates
-still carrying at least $10,000 of debt at that block are stored in the
-snapshot. Target-collateral-share and debt-denomination filters then construct
-the USD-debt and combined analysis books. The engine simulates collateral
-returns, peg moves, and depth evaporation; clears liquidations sequentially by
-bonus and seize size; and reports loss frequency, expected loss,
-conditional severity, VaR, and CVaR. Liquidators participate while slippage is
-below `bonus / (1 + bonus)`. Snapshots, hashes, seeds, and parameters are
-committed for offline reproduction.
+The pipeline uses keyless Aave JSON-RPC state, routed quotes, Kraken prices,
+and DefiLlama LST ratios. A persistent registry replays `Borrow` events and
+re-queries every candidate at one pinned block. Accounts with at least $10,000
+of debt enter the snapshot; target-share and debt-denomination filters form the
+USD-debt and combined books. The engine simulates returns, relative-value
+moves, and depth evaporation, then clears liquidations sequentially by bonus
+and seize size. Liquidators participate while slippage is below
+`bonus / (1 + bonus)`. Versioned snapshots and manifests preserve inputs,
+hashes, seeds, parameters, and results.
 
 The repository includes deterministic market reports, V3 and V4 liquidation
 mechanics, ordered queue clearing, historical episode replay, multi-period
@@ -65,10 +73,9 @@ max clearable within bonus     : $43.20k -> FAIL
 max clearable, 50% haircut     : $21.60k -> FAIL
 ```
 
-The independent depth estimate agrees with LlamaRisk in magnitude. Complete
-borrower discovery also finds a current sale far above that threshold, so a
-formal largest-borrower clearance test reaches the same risk direction as the
-cap reduction.
+The estimate agrees with LlamaRisk in magnitude. Complete discovery also finds
+a current sale above the threshold, so the formal clearance test supports the
+same risk direction as the cap reduction.
 
 The Monte Carlo row shows why frequency and severity must accompany CVaR in a
 sparse book: six positive draws have mean severity of $82,020, while CVaR99
@@ -94,23 +101,40 @@ CVaR99              : $4.78m
 
 The combined book, which revalues $329.46 million of ETH-denominated debt,
 has $964.28 million of total debt, 3.64% bad-debt probability, and $31.82
-million aggregate-queue CVaR99. Its deterministic concentration test is:
+million aggregate-queue CVaR99. Its deterministic concentration test, which
+measures instant routed capacity only, is:
 
 ```text
 largest borrower sale      : $256.52m
 max clearable within bonus : $2.73m -> FAIL
 ```
 
-The sale is about 94 times estimated instant clearance capacity. That
-borrower's debt is entirely ETH-denominated, so it is a leveraged staking
-loop: its debt falls with its collateral, and it is stressed by the
-wstETH/ETH exchange rate and by exit depth rather than by the USD price of
-ETH. Its collateral still sells on the same depth curve once liquidated,
-which is why the clearance test includes it. This is not a claim that wstETH
-is unsafe or that eventual recovery is limited to $2.73 million. The strict
-test includes routed on-chain exits only; wstETH can also be redeemed over
-time, and CEX or OTC liquidity may exist. It exposes an interpretation
-problem in the
+The sale is about 94 times instant capacity. The borrower is a leveraged
+staking loop with entirely ETH-denominated debt, so an ETH/USD move revalues
+both legs; relative wstETH/ETH value and exit depth are the relevant channels.
+
+The liquidation trigger requires care. At the snapshot block Aave's wstETH
+feed matches Lido's canonical wstETH/stETH rate times ETH/USD: rounded inputs
+are 1.24188444, $1,898.3475, and $2,357.5282. A secondary-market stETH/ETH
+discount does not by itself reduce this feed or the borrower's health factor.
+Because the model calibrates its relative-value factor on that market ratio,
+peg-driven losses are counterfactual canonical-rate impairment scenarios, not
+calibrated liquidation probabilities under the live oracle.
+
+That channel is not hypothetical. Chaos Labs' March 2026
+[post-mortem on wstETH exchange-rate misalignment](https://governance.aave.com/t/post-mortem-exchange-rate-misallignment-on-wsteth-core-and-prime-instances/24269)
+reports a CAPO parameter mismatch that lowered the effective exchange rate by
+about 2.85% and liquidated roughly 10,938 wstETH across 34 accounts on the
+Core and Prime instances, the same Core instance this snapshot reads. Slashing
+or an adapter fault can impair the canonical rate; withdrawal-queue congestion
+instead affects exit time and secondary liquidity. Conditional on liquidation,
+the clearance test is unchanged because seized wstETH still reaches the routed
+market.
+
+`FAIL` is therefore a conditional instant-capacity result, not a live bad-debt
+estimate or a claim that wstETH is unsafe. Redemption over time and CEX or OTC
+liquidity may increase eventual capacity. This exposes an interpretation issue
+in the
 [Aave Risk Framework](https://governance.aave.com/t/arfc-aave-risk-framework/25114):
 instant depth and horizon liquidation capacity are not the same quantity.
 
@@ -118,17 +142,12 @@ instant depth and horizon liquidation capacity are not the same quantity.
 
 ## Result 3: Mechanics Matter, But They Do Not Create Depth
 
-The V4 comparison holds the V3 book, scenarios, and depth fixed while changing
-repay-to-target sizing, dynamic bonus, close-factor floors, dust rules, and
-queue execution. V4 Main is the general-asset Spoke configuration, repaying a
-liquidated position to health factor 1.24 with a 60% close-factor floor, a
-0.90 bonus factor, and a 0.90 health-factor anchor for maximum bonus. V4
-Correlated is the tight-band configuration for assets that track each other,
-such as an LST against ETH, repaying to 1.0137 with a 35% floor, a 1.0 bonus
-factor, and a 0.99 maximum-bonus anchor. Both use a modeled maximum bonus 1.11
-times the V3 bonus. This is a mechanics counterfactual, not live V4 borrower
-data. Linear interpolation between documented bonus anchors is an explicit
-model assumption.
+The V4 comparison holds the V3 book, scenarios, and depth fixed. V4 repays to
+a target health factor; modeled V3 repays 50%, or 100% below HF 0.95. Main uses
+target HF 1.24, a 60% close-factor floor, 0.90 bonus factor, and 0.90
+maximum-bonus HF; Correlated uses 1.0137, 35%, 1.0, and 0.99. Both use a
+maximum bonus 1.11 times V3. This is a mechanics counterfactual, not live V4
+borrower data, and linear interpolation between bonus anchors is an assumption.
 
 On the current combined book, aggregate CVaR99 is $31.82 million for V3,
 $32.85 million for V4 Main, and $32.83 million for V4 Correlated. Ordered
@@ -146,10 +165,11 @@ Correlated paths. The higher repay target contributes to that contrast, but
 bonus and floor parameters also differ, so it is not a single-parameter
 causal estimate.
 
-Historical replay provides a separate deterministic stress lens. Applying
-the June 2022 ETH and stETH/ETH path to today's combined book produces a
-$42.20 million worst window. This is scenario replay on today's positions,
-not reconstruction of the historical book.
+Applying the June 2022 ETH and stETH/ETH path to today's combined book produces
+a $42.20 million worst window. Because the historical loss driver was a market
+discount, the oracle-consistent reading is a counterfactual canonical-rate
+impairment of the same magnitude. This replays market paths on today's
+positions; it does not reconstruct the historical book.
 
 ## Primary Governance Question
 
@@ -164,23 +184,29 @@ The framework would be clearer if it specified which interpretation governs.
 
 ## Limitations And Next Work
 
-The effective single-asset mapping represents each selected account's total
-collateral as the target asset while retaining its weighted on-chain
-liquidation threshold. It does not separately shock every collateral balance.
-The snapshot stores borrowers above a $10,000 debt floor. Empirical depth is
-flat beyond the final quote and is only a lower bound there. Episode replay is
-not archive backtesting, and plain Monte Carlo remains inefficient for very
-rare losses.
+The single-asset mapping applies the target shock to all collateral in selected
+accounts while retaining each weighted liquidation threshold. Empirical depth
+is a lower bound beyond the final quote. Episode replay is not archive
+backtesting, and plain Monte Carlo is inefficient for rare losses. Most
+importantly, secondary-market peg calibration does not estimate canonical-rate
+impairment probabilities under the current wstETH oracle.
 
-The next two extensions are time-to-exit, separating DEX replenishment from
-primary redemption at explicit horizons, and rare-event sampling with
-uncertainty diagnostics. Lagged peg coupling and V4 Hub risk-premium pricing
-remain later work; no premium recommendation is made here.
+Next work is time-to-exit, separating DEX replenishment from redemption, and
+rare-event sampling with uncertainty diagnostics. A direct canonical-rate
+model should accompany it. V4 Hub premium pricing remains later work; no
+premium recommendation is made here.
 
-Feedback would be especially useful on whether bonus-priority ordered
-clearing is a reasonable first approximation to competitive execution, and
-which V4 dynamic-bonus function should replace linear interpolation between
-the documented anchors.
+## Discussion And Feedback Requested
+
+Feedback from Risk Stewards and service providers would be useful on:
+
+1. Is bonus-priority ordered clearing a reasonable first approximation to
+   competitive liquidator execution?
+2. Which V4 dynamic-bonus function should replace linear interpolation between
+   the documented anchors?
+3. For exchange-rate-oracled collateral, is a canonical-rate impairment
+   scenario the right way to stress the correlated-asset channel, and what
+   magnitude would be considered plausible?
 
 ## Reproduction
 

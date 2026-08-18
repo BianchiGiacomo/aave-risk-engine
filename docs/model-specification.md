@@ -59,8 +59,9 @@ $$
 
 The USD-debt book excludes accounts whose ETH-denominated debt share exceeds
 50%. The combined book retains them. Consequently, a wstETH/WETH loop is
-primarily exposed to the wstETH/ETH exchange rate and liquidation depth, not
-to a pure ETH/USD move.
+not primarily exposed to a pure ETH/USD move. Under the live mainnet oracle,
+its liquidation trigger is sensitive to canonical wstETH/stETH rate impairment;
+after a trigger, recovery remains sensitive to liquidation depth.
 
 When the engine tests a different aggregate exposure, debt, collateral, and
 ETH debt are scaled by the same factor. This preserves each account's health
@@ -122,7 +123,12 @@ P_H = P_0(1 + R^{ETH}_H)(1 - g_H).
 $$
 
 This construction couples ETH downside, peg dislocation, and depth loss
-contemporaneously. It does not yet model a lagged peg response.
+contemporaneously. It does not yet model a lagged peg response. For mainnet
+wstETH, $g_H$ is not an ordinary secondary-market stETH/ETH discount under the
+live exchange-rate oracle. It is a counterfactual canonical-rate impairment
+whose magnitude is proxied by secondary-market history; that history does not
+calibrate its probability. Withdrawal-queue congestion instead belongs in exit
+depth and time-to-exit.
 
 ## 3. Multi-Period Stress Paths
 

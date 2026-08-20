@@ -16,6 +16,15 @@ horizon, capacity, and required-throughput assumptions. Its `$25m/day`
 redemption input is an illustrative sensitivity, not a live Lido queue
 measurement.
 
+`ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json` extends the same
+snapshot into a full-upfront, capacity-first warehouse sensitivity. It records
+funding, hedge, return-hurdle, residual-basis, DEX, and redemption assumptions
+together with profit, capital, minimum-bonus, and break-even-basis outputs. It
+does not claim that the modeled liquidator capital or redemption throughput is
+available. The canonical manifest matches quiet and stressed redemption at
+`$25m/day`; the CLI exposes a separate stressed-redemption input for correlated
+stress sensitivities.
+
 ## Verifying A Snapshot Hash
 
 Each manifest records the SHA-256 of the snapshot file it consumed. For the

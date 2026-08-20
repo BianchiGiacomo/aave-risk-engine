@@ -267,6 +267,81 @@ Those values are not forecasts of whole-account bad debt. The stronger output
 is the required-throughput curve: governance can compare it with a separately
 validated redemption-capacity estimate without changing the liquidation model.
 
+## 7. Mainnet wstETH Liquidator Balance Sheet
+
+Command:
+
+```bash
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --figure docs/assets/wsteth_liquidator_balance_sheet.png --manifest docs/manifests/ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json
+```
+
+This deterministic extension keeps the strict instant `FAIL` and tests a
+different question: can a liquidator repay `$242.00m` at time zero, warehouse
+the `$256.52m` of seized collateral, hedge ETH/USD, and earn its required
+return while exiting over time? The publication sensitivity assumes 10%
+annual funding, a 10% annual capital hurdle, 0.10% hedge entry, 2% annual hedge
+carry, and a 1% DEX execution-loss ceiling. These are assumptions, not observed
+liquidator terms. It is a capacity-first strategy, not a profit-maximizing
+route optimizer, and V3 close factors may split repayment across transactions.
+Funding and hurdle both use the same capital-days base, so the stated 10% plus
+10% rates represent a 20% annual economic capital charge.
+
+Trimmed CLI output, with rows unchanged:
+
+```text
+Profit after hurdle by residual basis loss
+  basis |    quiet DEX |   stress DEX | quiet + red. | stress + red.
+--------------------------------------------------------------------
+  0.0% |       $9.58m |      -$6.07m |      $12.90m |       $13.31m
+  2.0% |       $4.47m |     -$11.49m |       $7.77m |        $8.17m
+  4.0% |    -$655.26k |     -$16.92m |       $2.65m |        $3.03m
+  6.0% |      -$5.78m |     -$22.34m |      -$2.48m |       -$2.11m
+  8.0% |     -$10.90m |     -$27.77m |      -$7.61m |       -$7.25m
+ 10.0% |     -$16.02m |     -$33.19m |     -$12.73m |      -$12.39m
+
+Current-bonus residual-basis threshold
+  quiet DEX: 3.74%
+  stressed DEX: not profitable at zero basis loss
+  quiet + redemption: 5.03%
+  stressed + redemption: 5.18%
+```
+
+At 4% residual basis loss, the quiet DEX-only path takes 30.11 days and
+requires a 6.29% minimum bonus. The stressed DEX-only path takes 241.88 days
+and requires 13.49%. Adding the illustrative `$25m/day` redemption channel
+reduces exit time to 8.35 and 10.76 days and the minimum bonus to 4.86% and
+4.69%, respectively.
+
+```text
+Economic-clearance decision at 4.0% residual basis loss
+  quiet DEX              : FAIL | current 6.00% | minimum 6.29% | gap +29 bps
+  stressed DEX           : FAIL | current 6.00% | minimum 13.49% | gap +749 bps
+  quiet + redemption     : PASS | current 6.00% | minimum 4.86% | gap -114 bps
+  stressed + redemption  : PASS | current 6.00% | minimum 4.69% | gap -131 bps
+```
+
+![Ethereum wstETH liquidator warehouse sensitivity](assets/wsteth_liquidator_balance_sheet.png)
+
+The slightly higher profit in the stressed blended path is a route-mix effect,
+not evidence that stress helps liquidators. Redemption capacity is held fixed
+while DEX capacity falls, so less collateral pays the assumed 1% DEX loss and
+more exits through the zero-loss illustrative redemption route. This result
+makes primary-redemption calibration decision-relevant. It does not establish
+that `$25m/day` of stress throughput or `$242m` of financing is available.
+
+The canonical run holds redemption at `$25m/day` in both regimes to isolate
+DEX stress. This is not an independence assumption. An explicit correlated
+stress run is:
+
+```bash
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --stressed-redemption-usd-per-day 12500000 --basis-losses 0.04
+```
+
+Halving stressed redemption throughput lowers stressed blended profit from
+`$3.03m` to `$2.29m`, increases exit time from 10.76 to 19.77 days, and raises
+the minimum bonus from 4.69% to 5.01%. This is still an illustrative stress,
+not a calibrated Lido queue response.
+
 ## Interpretation
 
 The corrected borrower universe changes the quantitative narrative. The USD
@@ -276,7 +351,9 @@ robust governance observations are deterministic: the independent Linea depth
 estimate continues to reproduce LlamaRisk's figure, and the Ethereum largest
 borrower remains far beyond instant routed depth. The time-to-exit extension
 turns that second observation into explicit refill and redemption-throughput
-requirements rather than a claim that eventual recovery is impossible.
+requirements rather than a claim that eventual recovery is impossible. The
+warehouse extension then shows which combination of capital duration, basis
+risk, exit route, and liquidation bonus would make that delayed exit economic.
 
 ## Synthetic Demo Figure Guide
 

@@ -329,6 +329,67 @@ This is not a forecast of whole-account bad debt. Refill time, redemption
 delay, and throughput are transparent sensitivities rather than measurements
 of live Lido, CEX, or OTC capacity.
 
+## Liquidator Warehouse Economics
+
+The strict instant test remains unchanged. A separate economic-clearance test
+asks whether a liquidator can repay debt at time zero, warehouse the seized
+collateral, hedge ETH/USD, and exit over the selected DEX and redemption
+capacity paths. For repaid debt `D`, bonus `b`, and seized collateral value
+`Q = D * (1 + b)`, each exited tranche `q_j` realizes:
+
+```text
+recovery_j = q_j * (1 - basis_loss) * (1 - route_loss_j)
+```
+
+The residual basis term is wstETH/ETH, canonical-rate, or oracle-to-recovery
+risk after the ETH/USD hedge. It is not a second ETH price shock. DEX and
+redemption capacities are independent route ceilings, but collateral is
+assigned only once, so their sum cannot double count the seized amount.
+
+The time-zero cash balance is debt repayment plus hedge-entry and fixed costs.
+While it remains negative, funding accrues on the outstanding cash deficit.
+Hedge carry accrues on unresolved collateral. Capital employed is the integral
+of the cash deficit over time, and the return hurdle is charged against that
+capital-days measure. Economic profit is:
+
+```text
+economic_profit = realized_recovery
+                - debt_repaid
+                - funding_cost
+                - hedge_entry_cost
+                - hedge_carry_cost
+                - fixed_cost
+                - capital_hurdle
+```
+
+Economic clearance passes only if all collateral exits within the maximum
+horizon and economic profit is non-negative. The report also solves for the
+minimum bonus and the largest residual basis loss consistent with that test.
+This is a proposed horizon-adjusted incentive criterion, not a replacement for
+the Risk Framework's strict instant routed-depth requirement.
+
+Funding and hurdle both accrue on the same capital-days measure, so the rates
+add economically. The default 10% funding rate plus 10% hurdle is a 20% annual
+economic capital charge: funding is the modeled cash expense and the hurdle is
+the additional required return. They remain separate in the report so their
+roles and dollar contributions are visible.
+
+The current implementation is a full-upfront, capacity-first warehouse
+strategy. Peak capital is therefore at least the selected debt repayment before
+costs. It does not establish that this capital, flash liquidity, hedge size, or
+primary-redemption throughput is available. V3 close factors may split the
+repayment across transactions. The liquidator uses capacity as soon as it
+appears; it does not optimize whether waiting for a lower-cost redemption route
+would improve profit. A 1% DEX execution-loss ceiling gives a different instant
+capacity from the strict ARFC ceiling of `bonus / (1 + bonus)`; the two reports
+must not be compared as if their capacity threshold were identical.
+
+Quiet and stressed redemption throughput are separate inputs. The default
+stress value equals the quiet value to preserve a matched-throughput comparison,
+but this independence is not a claim about market behavior. DEX depth and the
+Lido withdrawal queue may deteriorate together. A lower stressed-redemption
+input is therefore the appropriate sensitivity until joint stress is calibrated.
+
 ## Hub Allocation
 
 A V4-style Hub aggregates liquidity and allocates credit lines to Spokes. The model uses one systemic factor `Z` and one idiosyncratic factor per Spoke:

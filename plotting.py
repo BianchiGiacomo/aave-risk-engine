@@ -192,3 +192,62 @@ def plot_time_to_exit_capacity(
     ax.legend(ncols=2)
     fig.tight_layout()
     return fig
+
+
+def plot_liquidator_balance_sheet_sensitivity(
+    basis_losses: list[float],
+    economic_profit: dict[str, list[float]],
+    required_bonus: dict[str, list[float]],
+    current_bonus: float,
+    title: str = "Liquidator economics under residual basis risk",
+):
+    """Plot economic profit and required bonus across residual basis loss."""
+    x = 100.0 * np.asarray(basis_losses, dtype=float)
+    styles = {
+        "quiet DEX": ("steelblue", ":"),
+        "stressed DEX": ("crimson", ":"),
+        "quiet + redemption": ("seagreen", "-"),
+        "stressed + redemption": ("darkorange", "-"),
+    }
+    fig, (profit_ax, bonus_ax) = plt.subplots(
+        2, 1, figsize=(8.2, 7.0), sharex=True
+    )
+    for label, values in economic_profit.items():
+        color, linestyle = styles.get(label, (None, "-"))
+        profit_ax.plot(
+            x,
+            np.asarray(values, dtype=float) / 1e6,
+            marker="o",
+            color=color,
+            linestyle=linestyle,
+            label=label,
+        )
+    profit_ax.axhline(0.0, color="black", linewidth=1.0)
+    profit_ax.set_ylabel("profit after hurdle ($m)")
+    profit_ax.set_title(title)
+    profit_ax.grid(alpha=0.3)
+    profit_ax.legend()
+
+    for label, values in required_bonus.items():
+        color, linestyle = styles.get(label, (None, "-"))
+        bonus_ax.plot(
+            x,
+            100.0 * np.asarray(values, dtype=float),
+            marker="o",
+            color=color,
+            linestyle=linestyle,
+            label=label,
+        )
+    bonus_ax.axhline(
+        100.0 * current_bonus,
+        color="black",
+        linewidth=1.0,
+        linestyle=":",
+        label=f"current bonus ({100.0 * current_bonus:.2f}%)",
+    )
+    bonus_ax.set_xlabel("residual wstETH/ETH basis loss (%)")
+    bonus_ax.set_ylabel("minimum bonus (%)")
+    bonus_ax.grid(alpha=0.3)
+    bonus_ax.legend()
+    fig.tight_layout()
+    return fig

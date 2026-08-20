@@ -7,13 +7,14 @@ describes the equations implemented in the repository, the accounting
 conventions behind reported bad debt, and the boundaries of the current
 model. It is not a production risk policy or a parameter recommendation.
 
-The engine has five related components:
+The engine has six related components:
 
 1. a single-period Monte Carlo model for one target collateral reserve;
 2. deterministic largest-borrower clearance tests;
 3. deterministic time-to-exit capacity sensitivities;
-4. an evolving multi-period liquidation simulator;
-5. a synthetic V4 Hub allocation model.
+4. liquidator warehouse cash-flow and incentive sensitivities;
+5. an evolving multi-period liquidation simulator;
+6. a synthetic V4 Hub allocation model.
 
 The real-market reports use committed Aave V3 snapshots. A V4 comparison
 applies alternative V4 liquidation rules to the same V3 borrower book and
@@ -446,7 +447,95 @@ $$
 This deterministic mark is not whole-account bad debt. Refill and redemption
 inputs are sensitivity assumptions, not live-capacity estimates.
 
-## 13. V4 Hub Allocation
+## 13. Liquidator Warehouse Balance Sheet
+
+The strict instant clearance test asks whether sale $Q$ executes within the
+liquidation bonus. The warehouse extension instead assumes that the
+liquidator repays debt $D$ at time zero, receives collateral
+
+$$
+Q=D(1+b),
+$$
+
+and exits it through the DEX and primary-redemption capacity paths. This is a
+full-upfront, capacity-first strategy. It does not assume that the seized
+collateral must be sold atomically with the liquidation.
+
+For tranche $q_k$ assigned to route $j$, residual basis loss $\beta$, and
+route execution or recovery loss $e_j$, realized cash is
+
+$$
+X_k=q_k(1-\beta)(1-e_j).
+$$
+
+The ETH/USD exposure is assumed hedged. Therefore $\beta$ is the residual
+wstETH/ETH, canonical-rate, or oracle-to-recovery basis, not another ETH/USD
+shock. DEX and redemption capacities are tracked separately, but each unit of
+collateral can be assigned to only one route.
+
+Let $h_0$ be the hedge-entry cost fraction, $F$ fixed costs, $r_f$ the annual
+funding rate, $r_h$ annual hedge carry, $U_k$ unresolved collateral, and
+$Y=365\times24$ hours. Initial cash is
+
+$$
+B_0=-[D+h_0Q+F].
+$$
+
+For interval $\Delta t_k$, outstanding financed capital is
+$K_k=\max(-B_k,0)$ and the cash balance evolves as
+
+$$
+B_{k+1}=B_k
+-K_k r_f\frac{\Delta t_k}{Y}
+-U_k r_h\frac{\Delta t_k}{Y}
++X_k.
+$$
+
+Peak capital is $\max_k K_k$. The capital-days measure is
+
+$$
+A=\sum_k K_k\frac{\Delta t_k}{24}.
+$$
+
+For annual required return $r_*$, accounting and economic profit after full
+exit are
+
+$$
+\Pi_{acct}=B_T,
+\qquad
+\Pi_{econ}=B_T-r_*\frac{A}{365}.
+$$
+
+Funding and hurdle apply to the same capital-days base. Their economic rates
+therefore add: a 10% funding rate and 10% hurdle impose a 20% annualized capital
+charge, although only funding enters the cash balance and the hurdle remains a
+required-return deduction.
+
+Economic clearance passes when all collateral exits within the configured
+maximum horizon and $\Pi_{econ}\ge0$. The minimum-bonus and break-even-basis
+outputs numerically solve this same condition. When funding, hedge, hurdle,
+and basis costs are zero and exit is instant, it reduces to the original
+condition
+
+$$
+(1+b)(1-s)\ge1
+\quad\Longleftrightarrow\quad
+s\le\frac{b}{1+b}.
+$$
+
+The balance-sheet report can use a stricter DEX execution-loss ceiling than
+the ARFC bonus threshold. For example, the publication run uses 1%, so its
+instant DEX capacity differs from maximum notional clearing at 5.66%.
+Available capacity is used as soon as it appears; the implementation does not
+optimize the trade-off between faster DEX recovery and slower, potentially
+cheaper primary redemption. V3 close factors can also split the selected
+full-repayment sensitivity across transactions.
+
+Quiet and stressed primary-redemption rates are independent inputs. The
+default sets them equal for a matched-throughput comparison; this does not
+assume that withdrawal capacity is independent of DEX stress.
+
+## 14. V4 Hub Allocation
 
 The Hub module is a synthetic allocation experiment. It is not yet connected
 to the real-market borrower snapshots. For Spoke $k$, one systemic factor $Z$
@@ -468,7 +557,7 @@ $$
 The greedy discrete procedure approximately, not exactly, equalizes marginal
 risk across funded Spokes.
 
-## 14. Implementation Map
+## 15. Implementation Map
 
 | Model component | Implementation |
 |---|---|
@@ -480,14 +569,15 @@ risk across funded Spokes.
 | Largest-borrower clearance | `data/clearance.py` |
 | Multi-period state evolution | `multiperiod.py` |
 | Time-to-exit capacity | `time_to_exit.py` |
+| Liquidator warehouse economics | `liquidator_balance_sheet.py` |
 | Historical episode replay | `data/episodes.py` |
 | Synthetic Hub allocation | `hub.py` |
 
 Economic invariants and regression cases are in `tests/test_engine.py`,
 `tests/test_data.py`, `tests/test_multiperiod.py`, `tests/test_time_to_exit.py`,
-and `tests/test_hub.py`.
+`tests/test_liquidator_balance_sheet.py`, and `tests/test_hub.py`.
 
-## 15. Current Model Boundaries
+## 16. Current Model Boundaries
 
 The current implementation does not provide:
 
@@ -496,6 +586,8 @@ The current implementation does not provide:
   current-debt floor;
 - borrower-level correlated shocks across every collateral and debt asset;
 - measured CEX, OTC, redemption-queue, or endogenous DEX refill capacity;
+- measured liquidator capital, flash-liquidity, hedge-size, or financing
+  availability;
 - importance sampling for rare losses;
 - archive reconstruction of historical borrower books;
 - lagged coupling between ETH returns and peg dislocation;

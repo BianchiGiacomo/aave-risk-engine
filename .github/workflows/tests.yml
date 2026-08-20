@@ -30,3 +30,4 @@ jobs:
           python -m aave_risk_engine.tests.test_data
           python -m aave_risk_engine.tests.test_multiperiod
           python -m aave_risk_engine.tests.test_time_to_exit
+          python -m aave_risk_engine.tests.test_liquidator_balance_sheet

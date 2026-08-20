@@ -52,6 +52,8 @@ live market on the day this page is read.
   replenishment through matched multi-period paths.
 - Converts instant clearance into time-to-exit curves with explicit DEX refill,
   redemption delay, throughput, and unresolved-tranche loss assumptions.
+- Extends clearance into a full-upfront liquidator warehouse balance sheet
+  with funding, hedge, residual basis, exit-route, and return-hurdle costs.
 - Reports loss frequency, expected loss, conditional severity, Wilson
   intervals, VaR, CVaR, positive-loss counts, and sparse-tail warnings.
 - Exports snapshot hash, parameters, seed, results, cap sweep, and clearance
@@ -80,6 +82,7 @@ vintage.
 | Ethereum combined book | `$964.28m` debt, including `$329.46m` ETH-denominated; `P(loss) 3.64%`; aggregate `CVaR99 $31.82m`; ordered `CVaR99 $15.25m` |
 | Strict wstETH clearance | `$256.52m` largest sale versus `$2.73m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
 | wstETH time-to-exit | DEX-only: `23.21d` quiet, `186.72d` stressed; a seven-day pass requires `$29.54m/day` or `$40.93m/day` of redemption throughput under the two refill regimes |
+| Liquidator warehouse sensitivity | At 4% residual basis loss, quiet DEX-only minimum bonus is `6.29%` versus the current `6.00%`; stressed DEX-only requires `13.49%`, while an illustrative `$25m/day` redemption route lowers the two requirements to `4.86%` and `4.69%` |
 | Linea WETH reproduction | `$43.20k` independently clearable versus LlamaRisk's approximately `$41k`; `$300.47k` largest sale: `FAIL` |
 | Historical replay | June 2022 worst combined-book window: `$42.20m`; stressed FTX window: `$381.42k`; modeled USDC window: zero |
 | Four-day matched paths | Combined-book V3: `$32.78m` terminal-only CVaR99 versus `$31.85m` evolving-book CVaR99 |
@@ -107,6 +110,24 @@ The horizon figure uses equivalent DEX refills every six hours in quiet
 conditions and every 24 hours after a 50% depth haircut. Its redemption curves
 use an illustrative `$25m/day` benchmark after a 24-hour delay, not a
 measurement of live Lido queue capacity.
+
+![Ethereum wstETH liquidator warehouse sensitivity](docs/assets/wsteth_liquidator_balance_sheet.png)
+
+The warehouse figure assumes the liquidator repays `$242.00m` at time zero,
+hedges ETH/USD, and exits the seized collateral over time. It reports profit
+after funding, hedge carry, and a capital-return hurdle. Residual basis loss is
+the unhedged wstETH/ETH or canonical-rate channel. Every cost and capacity
+input is illustrative; the figure does not demonstrate that this amount of
+liquidator capital or Lido throughput is available. The strategy uses capacity
+as soon as it appears; it does not optimize between faster DEX execution and a
+slower, potentially cheaper redemption route.
+
+Funding and hurdle both accrue on the same capital-days measure, so their
+rates add economically. The default 10% funding rate plus 10% hurdle is a 20%
+annual capital charge. The canonical figure keeps redemption throughput at
+`$25m/day` in both regimes as a controlled comparison. Use
+`--stressed-redemption-usd-per-day` to model correlated DEX and redemption
+stress independently.
 
 See the [consolidated results](docs/results.md), the
 [Linea cap-reduction case study](docs/case_studies/2026-07-linea-cap-reductions.md),
@@ -180,6 +201,7 @@ python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
 python -m aave_risk_engine.run_time_to_exit --redemption-usd-per-day 25000000
+python -m aave_risk_engine.run_liquidator_balance_sheet --redemption-usd-per-day 25000000
 ```
 
 Add `--ordered` to `run_market_report` for the dashboard queue convention.
@@ -212,6 +234,7 @@ python -m aave_risk_engine.run_episode_replay --snapshot .runtime/ethereum-wstet
 python -m aave_risk_engine.run_v4_comparison --snapshot .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_multiperiod --snapshot .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_time_to_exit --snapshot .runtime/ethereum-wsteth-live.json --redemption-usd-per-day 25000000
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot .runtime/ethereum-wsteth-live.json --redemption-usd-per-day 25000000
 ```
 
 For Linea, replace the build command with:
@@ -253,6 +276,9 @@ snapshot reserve + target-dominant borrower accounts
   consume depth; stalled tranches do not.
 - Slippage is a liquidator cost while participation remains profitable. It
   becomes a protocol recovery cost only when liquidation stalls.
+- Economic clearance complements rather than replaces the strict ARFC test.
+  The warehouse model asks whether delayed recovery covers financing, hedge,
+  exit, and required-return costs after a full upfront debt repayment.
 - Multi-period runs do not reset price, peg, or the prevailing depth haircut
   after liquidation. Only consumed depth replenishes.
 - V4 Main and V4 Correlated parameters are applied to V3 positions as a
@@ -274,6 +300,7 @@ slippage.py               analytic and empirical execution curves
 engine.py                 single-period simulation and risk metrics
 multiperiod.py            evolving paths and book-state transitions
 time_to_exit.py           horizon capacity and conditional unresolved loss
+liquidator_balance_sheet.py  liquidator warehouse cash flows and economics
 hub.py                    synthetic V4 Hub allocation experiment
 dashboard.py              Streamlit application and snapshot controls
 dashboard_analysis.py     cached dashboard analysis adapters
@@ -286,6 +313,7 @@ run_episode_replay.py     historical path replay on a snapshot book
 run_v4_comparison.py      matched V3/V4 mechanics comparison
 run_multiperiod.py        matched terminal and evolving path comparison
 run_time_to_exit.py       DEX refill and redemption horizon sensitivity
+run_liquidator_balance_sheet.py  warehouse economics and required bonus
 tests/                    economics invariants and offline regressions
 ```
 
@@ -297,11 +325,12 @@ python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
 python -m aave_risk_engine.tests.test_time_to_exit
+python -m aave_risk_engine.tests.test_liquidator_balance_sheet
 ```
 
-The project contains 94 offline tests: 23 engine, 5 Hub, 48 data, 10
-multi-period, and 8 time-to-exit. GitHub Actions runs the same suites on Python
-3.11 and 3.12.
+The project contains 105 offline tests: 23 engine, 5 Hub, 48 data, 10
+multi-period, 8 time-to-exit, and 11 liquidator balance-sheet tests. GitHub
+Actions runs the same suites on Python 3.11 and 3.12.
 
 ## Honest Limitations
 
@@ -312,6 +341,11 @@ multi-period, and 8 time-to-exit. GitHub Actions runs the same suites on Python
   debt asset separately.
 - Time-to-exit does not measure live CEX, OTC, or redemption capacity. DEX
   refill and primary redemption are explicit sensitivity assumptions.
+- The warehouse model assumes full debt repayment at time zero, sufficient
+  financing or flash liquidity, an ETH/USD hedge, and deterministic exits. It
+  does not measure actual liquidator capital, hedge capacity, or Lido stress
+  throughput. V3 close factors can split the modeled repayment, and the current
+  capacity-first route policy is not a profit-maximizing liquidator strategy.
 - Empirical slippage is flat beyond the final quote and is only a lower bound
   there.
 - Rare-loss CVaR and conditional severity remain low-sample estimates until

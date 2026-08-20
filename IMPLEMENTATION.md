@@ -14,6 +14,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `engine.py` | Single-Spoke Monte Carlo engine |
 | `multiperiod.py` | Multi-period simulation with book-state evolution |
 | `time_to_exit.py` | Deterministic horizon capacity and conditional unresolved-tranche loss |
+| `liquidator_balance_sheet.py` | Full-upfront warehouse cash flows, capital use, residual basis risk, and economic clearance |
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
 | `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
@@ -32,6 +33,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
 | `run_multiperiod.py` | Multi-period stress paths with re-liquidation |
 | `run_time_to_exit.py` | DEX refill, redemption, and required-throughput horizon report |
+| `run_liquidator_balance_sheet.py` | Liquidator funding, hedge, route, and required-bonus sensitivity report |
 | `dashboard.py` | Streamlit dashboard |
 | `dashboard_analysis.py` | Cached dashboard analysis adapters and table builders |
 | `dashboard_charts.py` | Plotly charts |
@@ -52,6 +54,7 @@ python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
 python -m aave_risk_engine.tests.test_time_to_exit
+python -m aave_risk_engine.tests.test_liquidator_balance_sheet
 ```
 
 The tests check:
@@ -66,6 +69,8 @@ The tests check:
   residual variance scaling,
 - time-to-exit refill, redemption-delay, throughput, and conditional-loss
   invariants,
+- liquidator cash-flow conservation, funding-delay, route-allocation,
+  break-even basis, and minimum-bonus invariants,
 - Hub diversification,
 - correlation sensitivity,
 - deeper-liquidity allocation,

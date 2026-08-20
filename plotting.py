@@ -150,3 +150,45 @@ def plot_ltv_sweep(sweep: dict):
     ax.grid(alpha=0.3)
     fig.tight_layout()
     return fig
+
+
+def plot_time_to_exit_capacity(
+    horizon_labels: list[str],
+    series: dict[str, list[float]],
+    largest_sale_usd: float,
+    title: str = "Liquidation capacity by exit horizon",
+):
+    """Plot cumulative liquidation capacity against the largest sale."""
+    x = np.arange(len(horizon_labels))
+    styles = {
+        "quiet DEX": ("steelblue", ":"),
+        "stressed DEX": ("darkorange", ":"),
+        "quiet + redemption": ("seagreen", "-"),
+        "stressed + redemption": ("crimson", "-"),
+    }
+    fig, ax = plt.subplots(figsize=(8.2, 4.8))
+    for label, values in series.items():
+        color, linestyle = styles.get(label, (None, "-"))
+        ax.plot(
+            x,
+            np.asarray(values) / 1e6,
+            marker="o",
+            color=color,
+            linestyle=linestyle,
+            label=label,
+        )
+    ax.axhline(
+        largest_sale_usd / 1e6,
+        color="black",
+        linewidth=1.3,
+        label=f"largest sale ({_fmt_usd(largest_sale_usd)})",
+    )
+    ax.set_xticks(x)
+    ax.set_xticklabels(horizon_labels)
+    ax.set_xlabel("exit horizon")
+    ax.set_ylabel("cumulative capacity ($m)")
+    ax.set_title(title)
+    ax.grid(alpha=0.3)
+    ax.legend(ncols=2)
+    fig.tight_layout()
+    return fig

@@ -13,6 +13,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `slippage.py` | Analytic and empirical liquidation-slippage curves |
 | `engine.py` | Single-Spoke Monte Carlo engine |
 | `multiperiod.py` | Multi-period simulation with book-state evolution |
+| `time_to_exit.py` | Deterministic horizon capacity and conditional unresolved-tranche loss |
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
 | `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
@@ -30,6 +31,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_episode_replay.py` | Historical stress paths through a selected snapshot book |
 | `run_v4_comparison.py` | V3 vs V4 liquidation mechanics on the same book |
 | `run_multiperiod.py` | Multi-period stress paths with re-liquidation |
+| `run_time_to_exit.py` | DEX refill, redemption, and required-throughput horizon report |
 | `dashboard.py` | Streamlit dashboard |
 | `dashboard_analysis.py` | Cached dashboard analysis adapters and table builders |
 | `dashboard_charts.py` | Plotly charts |
@@ -49,6 +51,7 @@ python -m aave_risk_engine.tests.test_engine
 python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
+python -m aave_risk_engine.tests.test_time_to_exit
 ```
 
 The tests check:
@@ -61,6 +64,8 @@ The tests check:
 - return-law dispatch and tail shape,
 - terminal-law preservation, matched multi-period endpoints, and OU peg
   residual variance scaling,
+- time-to-exit refill, redemption-delay, throughput, and conditional-loss
+  invariants,
 - Hub diversification,
 - correlation sensitivity,
 - deeper-liquidity allocation,

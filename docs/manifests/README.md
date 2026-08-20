@@ -10,6 +10,12 @@ rolling borrower discovery was incomplete, so their borrower-book totals must
 not be interpreted as a like-for-like market time series. Their direct reserve
 state and routed-depth observations remain useful historical evidence.
 
+`ethereum-wsteth-time-to-exit-2026-08-18.json` is a deterministic analysis of
+the publication snapshot. It records refill, redemption, delay, drawdown,
+horizon, capacity, and required-throughput assumptions. Its `$25m/day`
+redemption input is an illustrative sensitivity, not a live Lido queue
+measurement.
+
 ## Verifying A Snapshot Hash
 
 Each manifest records the SHA-256 of the snapshot file it consumed. For the

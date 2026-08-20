@@ -293,6 +293,42 @@ are evaluated directly:
   quiet and stressed depth. The break-even is hit at `Q* = sqrt(P) * L * bonus`,
   which the report quotes as maximum clearable notional.
 
+## Time-To-Exit Sensitivity
+
+The strict ARFC result is extended from an instant verdict to explicit
+horizons. Let `C0` be instant clearable DEX capacity and `tau` the assumed time
+for one equivalent refill. Cumulative DEX capacity at hour `t` is:
+
+```text
+C_dex(t) = C0 * (1 + t / tau)
+```
+
+Under stress, the depth haircut reduces `C0` and a separate, longer refill time
+is used. If primary redemption starts after delay `d` with throughput `R` per
+day:
+
+```text
+C_redemption(t) = R * max(0, t - d) / 24
+C_total(t) = C_dex(t) + C_redemption(t)
+```
+
+The report evaluates instant, one-hour, six-hour, one-day, three-day, and
+seven-day horizons. It also solves for the minimum `R` needed to clear by each
+horizon, which is the decision-relevant output when live redemption capacity
+is unknown.
+
+If sale notional `U` remains unresolved, it corresponds to debt
+`U / (1 + bonus)`. Under an additional collateral drawdown `delta`, the
+conditional stalled-tranche mark is:
+
+```text
+L_unresolved = max(0, U / (1 + bonus) - U * (1 - delta))
+```
+
+This is not a forecast of whole-account bad debt. Refill time, redemption
+delay, and throughput are transparent sensitivities rather than measurements
+of live Lido, CEX, or OTC capacity.
+
 ## Hub Allocation
 
 A V4-style Hub aggregates liquidity and allocates credit lines to Spokes. The model uses one systemic factor `Z` and one idiosyncratic factor per Spoke:

@@ -1,0 +1,394 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-20T13:43:22.164773+00:00",
+  "command": [
+    "python",
+    "-m",
+    "aave_risk_engine.run_time_to_exit",
+    "--snapshot",
+    "data/snapshots/aave_v3_ethereum_wsteth.json",
+    "--redemption-usd-per-day",
+    "25000000",
+    "--figure",
+    "docs/assets/wsteth_time_to_exit.png",
+    "--manifest",
+    "docs/manifests/ethereum-wsteth-time-to-exit-2026-08-18.json"
+  ],
+  "snapshot": {
+    "file": "data/snapshots/aave_v3_ethereum_wsteth.json",
+    "sha256": "ee83cd344d2bd684e322421ba3c75c6ee876681e05e2b9cd5756c5094d42a778",
+    "chain": "ethereum",
+    "block": 25780402,
+    "timestamp": 1787037143,
+    "asset": "wstETH",
+    "borrower_discovery": {
+      "source": "complete Borrow-event registry",
+      "from_block": 16291127,
+      "to_block": 25780402,
+      "candidate_count": 84427,
+      "active_count": 9526,
+      "min_debt_usd": 10000.0,
+      "account_limit": null
+    }
+  },
+  "largest_borrower": {
+    "account": "0x893aa69fbaa1ee81b536f0fbe3a3453e86290080",
+    "sale_usd": 256518754.54425496,
+    "debt_usd": 241998825.04174995,
+    "target_collateral_usd": 273237516.654077
+  },
+  "liquidation_bonus": 0.06000000000000005,
+  "horizons_hours": [
+    0.0,
+    1.0,
+    6.0,
+    24.0,
+    72.0,
+    168.0
+  ],
+  "strict_instant_pass": false,
+  "curves": {
+    "quiet DEX": {
+      "assumptions": {
+        "instant_dex_capacity_usd": 2733040.370265864,
+        "dex_refill_hours": 6.0,
+        "redemption_capacity_usd_per_day": 0.0,
+        "redemption_delay_hours": 24.0,
+        "stalled_drawdown": 0.1
+      },
+      "time_to_clear_hours": 557.1503083563338,
+      "points": [
+        {
+          "horizon_hours": 0.0,
+          "dex_capacity_usd": 2733040.370265864,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 2733040.370265864,
+          "cleared_sale_usd": 2733040.370265864,
+          "unresolved_sale_usd": 253785714.1739891,
+          "unresolved_debt_at_risk_usd": 239420485.069801,
+          "conditional_bad_debt_usd": 11013342.313210815,
+          "passes": false
+        },
+        {
+          "horizon_hours": 1.0,
+          "dex_capacity_usd": 3188547.098643508,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 3188547.098643508,
+          "cleared_sale_usd": 3188547.098643508,
+          "unresolved_sale_usd": 253330207.44561145,
+          "unresolved_debt_at_risk_usd": 238990761.74114287,
+          "conditional_bad_debt_usd": 10993575.040092558,
+          "passes": false
+        },
+        {
+          "horizon_hours": 6.0,
+          "dex_capacity_usd": 5466080.740531728,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 5466080.740531728,
+          "cleared_sale_usd": 5466080.740531728,
+          "unresolved_sale_usd": 251052673.80372322,
+          "unresolved_debt_at_risk_usd": 236842145.09785208,
+          "conditional_bad_debt_usd": 10894738.67450118,
+          "passes": false
+        },
+        {
+          "horizon_hours": 24.0,
+          "dex_capacity_usd": 13665201.85132932,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 13665201.85132932,
+          "cleared_sale_usd": 13665201.85132932,
+          "unresolved_sale_usd": 242853552.69292563,
+          "unresolved_debt_at_risk_usd": 229107125.18200532,
+          "conditional_bad_debt_usd": 10538927.758372247,
+          "passes": false
+        },
+        {
+          "horizon_hours": 72.0,
+          "dex_capacity_usd": 35529524.81345623,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 35529524.81345623,
+          "cleared_sale_usd": 35529524.81345623,
+          "unresolved_sale_usd": 220989229.73079872,
+          "unresolved_debt_at_risk_usd": 208480405.40641388,
+          "conditional_bad_debt_usd": 9590098.648695022,
+          "passes": false
+        },
+        {
+          "horizon_hours": 168.0,
+          "dex_capacity_usd": 79258170.73771006,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 79258170.73771006,
+          "cleared_sale_usd": 79258170.73771006,
+          "unresolved_sale_usd": 177260583.8065449,
+          "unresolved_debt_at_risk_usd": 167226965.85523102,
+          "conditional_bad_debt_usd": 7692440.429340601,
+          "passes": false
+        }
+      ]
+    },
+    "stressed DEX": {
+      "assumptions": {
+        "instant_dex_capacity_usd": 1366520.185132932,
+        "dex_refill_hours": 24.0,
+        "redemption_capacity_usd_per_day": 0.0,
+        "redemption_delay_hours": 24.0,
+        "stalled_drawdown": 0.1
+      },
+      "time_to_clear_hours": 4481.20246685067,
+      "points": [
+        {
+          "horizon_hours": 0.0,
+          "dex_capacity_usd": 1366520.185132932,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1366520.185132932,
+          "cleared_sale_usd": 1366520.185132932,
+          "unresolved_sale_usd": 255152234.35912204,
+          "unresolved_debt_at_risk_usd": 240709655.0557755,
+          "conditional_bad_debt_usd": 11072644.132565647,
+          "passes": false
+        },
+        {
+          "horizon_hours": 1.0,
+          "dex_capacity_usd": 1423458.5261801374,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1423458.5261801374,
+          "cleared_sale_usd": 1423458.5261801374,
+          "unresolved_sale_usd": 255095296.0180748,
+          "unresolved_debt_at_risk_usd": 240655939.6396932,
+          "conditional_bad_debt_usd": 11070173.223425865,
+          "passes": false
+        },
+        {
+          "horizon_hours": 6.0,
+          "dex_capacity_usd": 1708150.231416165,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1708150.231416165,
+          "cleared_sale_usd": 1708150.231416165,
+          "unresolved_sale_usd": 254810604.3128388,
+          "unresolved_debt_at_risk_usd": 240387362.55928186,
+          "conditional_bad_debt_usd": 11057818.677726924,
+          "passes": false
+        },
+        {
+          "horizon_hours": 24.0,
+          "dex_capacity_usd": 2733040.370265864,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 2733040.370265864,
+          "cleared_sale_usd": 2733040.370265864,
+          "unresolved_sale_usd": 253785714.1739891,
+          "unresolved_debt_at_risk_usd": 239420485.069801,
+          "conditional_bad_debt_usd": 11013342.313210815,
+          "passes": false
+        },
+        {
+          "horizon_hours": 72.0,
+          "dex_capacity_usd": 5466080.740531728,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 5466080.740531728,
+          "cleared_sale_usd": 5466080.740531728,
+          "unresolved_sale_usd": 251052673.80372322,
+          "unresolved_debt_at_risk_usd": 236842145.09785208,
+          "conditional_bad_debt_usd": 10894738.67450118,
+          "passes": false
+        },
+        {
+          "horizon_hours": 168.0,
+          "dex_capacity_usd": 10932161.481063455,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 10932161.481063455,
+          "cleared_sale_usd": 10932161.481063455,
+          "unresolved_sale_usd": 245586593.0631915,
+          "unresolved_debt_at_risk_usd": 231685465.15395424,
+          "conditional_bad_debt_usd": 10657531.397081882,
+          "passes": false
+        }
+      ]
+    },
+    "quiet + redemption": {
+      "assumptions": {
+        "instant_dex_capacity_usd": 2733040.370265864,
+        "dex_refill_hours": 6.0,
+        "redemption_capacity_usd_per_day": 25000000.0,
+        "redemption_delay_hours": 24.0,
+        "stalled_drawdown": 0.1
+      },
+      "time_to_clear_hours": 186.20803381677652,
+      "points": [
+        {
+          "horizon_hours": 0.0,
+          "dex_capacity_usd": 2733040.370265864,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 2733040.370265864,
+          "cleared_sale_usd": 2733040.370265864,
+          "unresolved_sale_usd": 253785714.1739891,
+          "unresolved_debt_at_risk_usd": 239420485.069801,
+          "conditional_bad_debt_usd": 11013342.313210815,
+          "passes": false
+        },
+        {
+          "horizon_hours": 1.0,
+          "dex_capacity_usd": 3188547.098643508,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 3188547.098643508,
+          "cleared_sale_usd": 3188547.098643508,
+          "unresolved_sale_usd": 253330207.44561145,
+          "unresolved_debt_at_risk_usd": 238990761.74114287,
+          "conditional_bad_debt_usd": 10993575.040092558,
+          "passes": false
+        },
+        {
+          "horizon_hours": 6.0,
+          "dex_capacity_usd": 5466080.740531728,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 5466080.740531728,
+          "cleared_sale_usd": 5466080.740531728,
+          "unresolved_sale_usd": 251052673.80372322,
+          "unresolved_debt_at_risk_usd": 236842145.09785208,
+          "conditional_bad_debt_usd": 10894738.67450118,
+          "passes": false
+        },
+        {
+          "horizon_hours": 24.0,
+          "dex_capacity_usd": 13665201.85132932,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 13665201.85132932,
+          "cleared_sale_usd": 13665201.85132932,
+          "unresolved_sale_usd": 242853552.69292563,
+          "unresolved_debt_at_risk_usd": 229107125.18200532,
+          "conditional_bad_debt_usd": 10538927.758372247,
+          "passes": false
+        },
+        {
+          "horizon_hours": 72.0,
+          "dex_capacity_usd": 35529524.81345623,
+          "redemption_capacity_usd": 50000000.0,
+          "total_capacity_usd": 85529524.81345624,
+          "cleared_sale_usd": 85529524.81345624,
+          "unresolved_sale_usd": 170989229.73079872,
+          "unresolved_debt_at_risk_usd": 161310594.08565918,
+          "conditional_bad_debt_usd": 7420287.327940315,
+          "passes": false
+        },
+        {
+          "horizon_hours": 168.0,
+          "dex_capacity_usd": 79258170.73771006,
+          "redemption_capacity_usd": 150000000.0,
+          "total_capacity_usd": 229258170.73771006,
+          "cleared_sale_usd": 229258170.73771006,
+          "unresolved_sale_usd": 27260583.8065449,
+          "unresolved_debt_at_risk_usd": 25717531.892966885,
+          "conditional_bad_debt_usd": 1183006.467076473,
+          "passes": false
+        }
+      ]
+    },
+    "stressed + redemption": {
+      "assumptions": {
+        "instant_dex_capacity_usd": 1366520.185132932,
+        "dex_refill_hours": 24.0,
+        "redemption_capacity_usd_per_day": 25000000.0,
+        "redemption_delay_hours": 24.0,
+        "stalled_drawdown": 0.1
+      },
+      "time_to_clear_hours": 255.00724317842062,
+      "points": [
+        {
+          "horizon_hours": 0.0,
+          "dex_capacity_usd": 1366520.185132932,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1366520.185132932,
+          "cleared_sale_usd": 1366520.185132932,
+          "unresolved_sale_usd": 255152234.35912204,
+          "unresolved_debt_at_risk_usd": 240709655.0557755,
+          "conditional_bad_debt_usd": 11072644.132565647,
+          "passes": false
+        },
+        {
+          "horizon_hours": 1.0,
+          "dex_capacity_usd": 1423458.5261801374,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1423458.5261801374,
+          "cleared_sale_usd": 1423458.5261801374,
+          "unresolved_sale_usd": 255095296.0180748,
+          "unresolved_debt_at_risk_usd": 240655939.6396932,
+          "conditional_bad_debt_usd": 11070173.223425865,
+          "passes": false
+        },
+        {
+          "horizon_hours": 6.0,
+          "dex_capacity_usd": 1708150.231416165,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 1708150.231416165,
+          "cleared_sale_usd": 1708150.231416165,
+          "unresolved_sale_usd": 254810604.3128388,
+          "unresolved_debt_at_risk_usd": 240387362.55928186,
+          "conditional_bad_debt_usd": 11057818.677726924,
+          "passes": false
+        },
+        {
+          "horizon_hours": 24.0,
+          "dex_capacity_usd": 2733040.370265864,
+          "redemption_capacity_usd": 0.0,
+          "total_capacity_usd": 2733040.370265864,
+          "cleared_sale_usd": 2733040.370265864,
+          "unresolved_sale_usd": 253785714.1739891,
+          "unresolved_debt_at_risk_usd": 239420485.069801,
+          "conditional_bad_debt_usd": 11013342.313210815,
+          "passes": false
+        },
+        {
+          "horizon_hours": 72.0,
+          "dex_capacity_usd": 5466080.740531728,
+          "redemption_capacity_usd": 50000000.0,
+          "total_capacity_usd": 55466080.74053173,
+          "cleared_sale_usd": 55466080.74053173,
+          "unresolved_sale_usd": 201052673.80372322,
+          "unresolved_debt_at_risk_usd": 189672333.77709737,
+          "conditional_bad_debt_usd": 8724927.353746474,
+          "passes": false
+        },
+        {
+          "horizon_hours": 168.0,
+          "dex_capacity_usd": 10932161.481063455,
+          "redemption_capacity_usd": 150000000.0,
+          "total_capacity_usd": 160932161.48106346,
+          "cleared_sale_usd": 160932161.48106346,
+          "unresolved_sale_usd": 95586593.0631915,
+          "unresolved_debt_at_risk_usd": 90176031.19169009,
+          "conditional_bad_debt_usd": 4148097.4348177314,
+          "passes": false
+        }
+      ]
+    }
+  },
+  "required_redemption_usd_per_day": {
+    "instant": {
+      "quiet": null,
+      "stressed": null
+    },
+    "1h": {
+      "quiet": null,
+      "stressed": null
+    },
+    "6h": {
+      "quiet": null,
+      "stressed": null
+    },
+    "1d": {
+      "quiet": null,
+      "stressed": null
+    },
+    "3d": {
+      "quiet": 110494614.86539936,
+      "stressed": 125526336.90186161
+    },
+    "7d": {
+      "quiet": 29543430.63442415,
+      "stressed": 40931098.84386525
+    }
+  },
+  "notes": [
+    "Refill and redemption inputs are sensitivities, not live queue calibration.",
+    "Conditional loss marks only the unresolved liquidation tranche."
+  ]
+}

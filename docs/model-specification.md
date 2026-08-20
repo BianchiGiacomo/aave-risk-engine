@@ -7,12 +7,13 @@ describes the equations implemented in the repository, the accounting
 conventions behind reported bad debt, and the boundaries of the current
 model. It is not a production risk policy or a parameter recommendation.
 
-The engine has four related components:
+The engine has five related components:
 
 1. a single-period Monte Carlo model for one target collateral reserve;
 2. deterministic largest-borrower clearance tests;
-3. an evolving multi-period liquidation simulator;
-4. a synthetic V4 Hub allocation model.
+3. deterministic time-to-exit capacity sensitivities;
+4. an evolving multi-period liquidation simulator;
+5. a synthetic V4 Hub allocation model.
 
 The real-market reports use committed Aave V3 snapshots. A V4 comparison
 applies alternative V4 liquidation rules to the same V3 borrower book and
@@ -408,7 +409,44 @@ primary redemption capacity. For redeemable collateral, FAIL identifies a
 time-horizon question rather than proving that eventual recovery is
 insufficient.
 
-## 12. V4 Hub Allocation
+## 12. Time-To-Exit Capacity
+
+Let $C_0$ be the instant notional that clears within the liquidation bonus and
+$\tau$ the assumed hours per equivalent DEX refill. Cumulative DEX capacity is
+
+$$
+C_{DEX}(t)=C_0\left(1+\frac{t}{\tau}\right).
+$$
+
+Stress applies the selected depth haircut to $C_0$ and uses a separate refill
+time. For primary-redemption throughput $R$ per day after delay $d$ hours,
+
+$$
+C_{red}(t)=R\frac{\max(0,t-d)}{24},
+\qquad C_{total}(t)=C_{DEX}(t)+C_{red}(t).
+$$
+
+The time to clear sale $Q$ is the first $t$ such that
+$C_{total}(t)\ge Q$. Conversely, required redemption throughput at horizon $H$
+is
+
+$$
+R_{req}(H)=
+\frac{\max[0,Q-C_{DEX}(H)]}{(H-d)/24}, \qquad H>d.
+$$
+
+For unresolved sale $U=\max[0,Q-C_{total}(H)]$, the corresponding debt at risk
+is $U/(1+b)$. With an additional stalled-collateral drawdown $\delta$, the
+conditional tranche-level loss is
+
+$$
+L_U=\max\left[0,\frac{U}{1+b}-U(1-\delta)\right].
+$$
+
+This deterministic mark is not whole-account bad debt. Refill and redemption
+inputs are sensitivity assumptions, not live-capacity estimates.
+
+## 13. V4 Hub Allocation
 
 The Hub module is a synthetic allocation experiment. It is not yet connected
 to the real-market borrower snapshots. For Spoke $k$, one systemic factor $Z$
@@ -430,7 +468,7 @@ $$
 The greedy discrete procedure approximately, not exactly, equalizes marginal
 risk across funded Spokes.
 
-## 13. Implementation Map
+## 14. Implementation Map
 
 | Model component | Implementation |
 |---|---|
@@ -441,13 +479,15 @@ risk across funded Spokes.
 | Single-period metrics and cap sizing | `engine.py` |
 | Largest-borrower clearance | `data/clearance.py` |
 | Multi-period state evolution | `multiperiod.py` |
+| Time-to-exit capacity | `time_to_exit.py` |
 | Historical episode replay | `data/episodes.py` |
 | Synthetic Hub allocation | `hub.py` |
 
 Economic invariants and regression cases are in `tests/test_engine.py`,
-`tests/test_data.py`, `tests/test_multiperiod.py`, and `tests/test_hub.py`.
+`tests/test_data.py`, `tests/test_multiperiod.py`, `tests/test_time_to_exit.py`,
+and `tests/test_hub.py`.
 
-## 14. Current Model Boundaries
+## 15. Current Model Boundaries
 
 The current implementation does not provide:
 
@@ -455,7 +495,7 @@ The current implementation does not provide:
   through the configured Pool proxy history, or accounts below the snapshot's
   current-debt floor;
 - borrower-level correlated shocks across every collateral and debt asset;
-- CEX, OTC, redemption-queue, or time-to-exit capacity;
+- measured CEX, OTC, redemption-queue, or endogenous DEX refill capacity;
 - importance sampling for rare losses;
 - archive reconstruction of historical borrower books;
 - lagged coupling between ETH returns and peg dislocation;

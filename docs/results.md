@@ -230,6 +230,43 @@ re-liquidation contrast remains informative: restoring positions toward HF
 the rows also differ in bonus and floor parameters, so the comparison is not
 a pure target-HF experiment.
 
+## 6. Mainnet wstETH Time-To-Exit
+
+Command:
+
+```bash
+python -m aave_risk_engine.run_time_to_exit --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --figure docs/assets/wsteth_time_to_exit.png --manifest docs/manifests/ethereum-wsteth-time-to-exit-2026-08-18.json
+```
+
+The deterministic sensitivity starts from the same `$256.52m` sale and
+`$2.73m` instant capacity. Quiet DEX depth receives one equivalent refill every
+six hours. The stressed regime applies a 50% depth haircut and a 24-hour
+refill. The `$25m/day` redemption line starts after 24 hours and is explicitly
+illustrative, not a live Lido queue estimate.
+
+```text
+Estimated time to clear
+  quiet DEX              : 23.21d
+  stressed DEX           : 186.72d
+  quiet + redemption     : 7.76d
+  stressed + redemption  : 10.63d
+
+Required primary-redemption throughput to clear by horizon
+ horizon |      quiet DEX |   stressed DEX
+--------------------------------------------
+      3d |   $110.49m/day |   $125.53m/day
+      7d |    $29.54m/day |    $40.93m/day
+```
+
+![Ethereum wstETH time-to-exit](assets/wsteth_time_to_exit.png)
+
+The benchmark misses a seven-day pass in both regimes. Under the selected 10%
+post-trigger collateral drawdown, the unresolved seven-day tranche marks to
+`$1.18m` of conditional loss in quiet conditions and `$4.15m` under stress.
+Those values are not forecasts of whole-account bad debt. The stronger output
+is the required-throughput curve: governance can compare it with a separately
+validated redemption-capacity estimate without changing the liquidation model.
+
 ## Interpretation
 
 The corrected borrower universe changes the quantitative narrative. The USD
@@ -237,9 +274,9 @@ book is near the chosen budget rather than comfortably below it, the combined
 tail is larger, and ordered execution materially changes CVaR. The two most
 robust governance observations are deterministic: the independent Linea depth
 estimate continues to reproduce LlamaRisk's figure, and the Ethereum largest
-borrower remains far beyond instant routed depth. For redeemable collateral,
-that second result motivates a time-to-exit model rather than a claim that
-eventual recovery is impossible.
+borrower remains far beyond instant routed depth. The time-to-exit extension
+turns that second observation into explicit refill and redemption-throughput
+requirements rather than a claim that eventual recovery is impossible.
 
 ## Synthetic Demo Figure Guide
 

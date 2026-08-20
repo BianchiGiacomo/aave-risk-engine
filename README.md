@@ -50,6 +50,8 @@ live market on the day this page is read.
 - Replays historical ETH and stETH/ETH paths on a selected snapshot book.
 - Evolves debt, collateral, repeated liquidation, peg persistence, and depth
   replenishment through matched multi-period paths.
+- Converts instant clearance into time-to-exit curves with explicit DEX refill,
+  redemption delay, throughput, and unresolved-tranche loss assumptions.
 - Reports loss frequency, expected loss, conditional severity, Wilson
   intervals, VaR, CVaR, positive-loss counts, and sparse-tail warnings.
 - Exports snapshot hash, parameters, seed, results, cap sweep, and clearance
@@ -77,6 +79,7 @@ vintage.
 | Ethereum USD-debt book | `$634.47m` debt; 110 positive losses in 20,000 draws; `P(loss) 0.55%`; `$8.70m` conditional severity; `CVaR99 $4.78m` |
 | Ethereum combined book | `$964.28m` debt, including `$329.46m` ETH-denominated; `P(loss) 3.64%`; aggregate `CVaR99 $31.82m`; ordered `CVaR99 $15.25m` |
 | Strict wstETH clearance | `$256.52m` largest sale versus `$2.73m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
+| wstETH time-to-exit | DEX-only: `23.21d` quiet, `186.72d` stressed; a seven-day pass requires `$29.54m/day` or `$40.93m/day` of redemption throughput under the two refill regimes |
 | Linea WETH reproduction | `$43.20k` independently clearable versus LlamaRisk's approximately `$41k`; `$300.47k` largest sale: `FAIL` |
 | Historical replay | June 2022 worst combined-book window: `$42.20m`; stressed FTX window: `$381.42k`; modeled USDC window: zero |
 | Four-day matched paths | Combined-book V3: `$32.78m` terminal-only CVaR99 versus `$31.85m` evolving-book CVaR99 |
@@ -97,6 +100,13 @@ The V4 counterfactual uses the governed
 The black point is LlamaRisk's `$41k` reference. The orange point is the
 `$300.47k` largest borrower sale, above the 5.66% liquidator
 break-even line.
+
+![Ethereum wstETH time-to-exit](docs/assets/wsteth_time_to_exit.png)
+
+The horizon figure uses equivalent DEX refills every six hours in quiet
+conditions and every 24 hours after a 50% depth haircut. Its redemption curves
+use an illustrative `$25m/day` benchmark after a 24-hour delay, not a
+measurement of live Lido queue capacity.
 
 See the [consolidated results](docs/results.md), the
 [Linea cap-reduction case study](docs/case_studies/2026-07-linea-cap-reductions.md),
@@ -169,6 +179,7 @@ python -m aave_risk_engine.run_market_report --snapshot data/snapshots/aave_v3_l
 python -m aave_risk_engine.run_episode_replay
 python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
+python -m aave_risk_engine.run_time_to_exit --redemption-usd-per-day 25000000
 ```
 
 Add `--ordered` to `run_market_report` for the dashboard queue convention.
@@ -200,6 +211,7 @@ python -m aave_risk_engine.run_market_report --snapshot .runtime/ethereum-wsteth
 python -m aave_risk_engine.run_episode_replay --snapshot .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_v4_comparison --snapshot .runtime/ethereum-wsteth-live.json
 python -m aave_risk_engine.run_multiperiod --snapshot .runtime/ethereum-wsteth-live.json
+python -m aave_risk_engine.run_time_to_exit --snapshot .runtime/ethereum-wsteth-live.json --redemption-usd-per-day 25000000
 ```
 
 For Linea, replace the build command with:
@@ -261,6 +273,7 @@ liquidation.py            V3/V4 sizing, ordered clearing, and bad debt
 slippage.py               analytic and empirical execution curves
 engine.py                 single-period simulation and risk metrics
 multiperiod.py            evolving paths and book-state transitions
+time_to_exit.py           horizon capacity and conditional unresolved loss
 hub.py                    synthetic V4 Hub allocation experiment
 dashboard.py              Streamlit application and snapshot controls
 dashboard_analysis.py     cached dashboard analysis adapters
@@ -272,6 +285,7 @@ run_market_report.py      market report, depth figure, and manifest export
 run_episode_replay.py     historical path replay on a snapshot book
 run_v4_comparison.py      matched V3/V4 mechanics comparison
 run_multiperiod.py        matched terminal and evolving path comparison
+run_time_to_exit.py       DEX refill and redemption horizon sensitivity
 tests/                    economics invariants and offline regressions
 ```
 
@@ -282,10 +296,12 @@ python -m aave_risk_engine.tests.test_engine
 python -m aave_risk_engine.tests.test_hub
 python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
+python -m aave_risk_engine.tests.test_time_to_exit
 ```
 
-The current release contains 86 offline tests: 23 engine, 5 Hub, 48 data, and
-10 multi-period. GitHub Actions runs the same suites on Python 3.11 and 3.12.
+The project contains 94 offline tests: 23 engine, 5 Hub, 48 data, 10
+multi-period, and 8 time-to-exit. GitHub Actions runs the same suites on Python
+3.11 and 3.12.
 
 ## Honest Limitations
 
@@ -294,7 +310,8 @@ The current release contains 86 offline tests: 23 engine, 5 Hub, 48 data, and
   block. It assumes debt positions originate through that Pool event history.
 - The effective single-asset mapping does not simulate every collateral and
   debt asset separately.
-- Instant depth excludes CEX, OTC, and primary redemption capacity.
+- Time-to-exit does not measure live CEX, OTC, or redemption capacity. DEX
+  refill and primary redemption are explicit sensitivity assumptions.
 - Empirical slippage is flat beyond the final quote and is only a lower bound
   there.
 - Rare-loss CVaR and conditional severity remain low-sample estimates until

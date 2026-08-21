@@ -281,8 +281,11 @@ the `$256.52m` of seized collateral, hedge ETH/USD, and earn its required
 return while exiting over time? The publication sensitivity assumes 10%
 annual funding, a 10% annual capital hurdle, 0.10% hedge entry, 2% annual hedge
 carry, and a 1% DEX execution-loss ceiling. These are assumptions, not observed
-liquidator terms. It is a capacity-first strategy, not a profit-maximizing
-route optimizer, and V3 close factors may split repayment across transactions.
+liquidator terms. The default strategy chooses one total DEX/redemption split
+that maximizes economic profit and then executes each assigned route at its
+earliest modeled capacity. This is a static allocation against deterministic
+capacity, not an adaptive execution policy. V3 close factors may split
+repayment across transactions.
 Funding and hurdle both use the same capital-days base, so the stated 10% plus
 10% rates represent a 20% annual economic capital charge.
 
@@ -299,39 +302,44 @@ Trimmed CLI output, with rows unchanged:
 Profit after hurdle by canonical recovery loss (DEX market discount fixed at 0.0%)
  canon. |    quiet DEX |   stress DEX | quiet + red. | stress + red.
 --------------------------------------------------------------------
-  0.0% |       $9.58m |      -$6.07m |      $12.90m |       $13.31m
-  2.0% |       $4.47m |     -$11.49m |       $7.77m |        $8.17m
-  4.0% |    -$655.26k |     -$16.92m |       $2.65m |        $3.03m
-  6.0% |      -$5.78m |     -$22.34m |      -$2.48m |       -$2.11m
-  8.0% |     -$10.90m |     -$27.77m |      -$7.61m |       -$7.25m
- 10.0% |     -$16.02m |     -$33.19m |     -$12.73m |      -$12.39m
+  0.0% |       $9.58m |      -$6.07m |      $13.40m |       $13.40m
+  2.0% |       $4.47m |     -$11.49m |       $8.25m |        $8.25m
+  4.0% |    -$655.26k |     -$16.92m |       $3.11m |        $3.11m
+  6.0% |      -$5.78m |     -$22.34m |      -$2.04m |       -$2.04m
+  8.0% |     -$10.90m |     -$27.77m |      -$7.18m |       -$7.18m
+ 10.0% |     -$16.02m |     -$33.19m |     -$12.33m |      -$12.33m
 
 Current-bonus canonical-loss threshold (DEX market discount fixed at 0.0%)
   quiet DEX              : 3.74%
   stressed DEX           : not profitable at zero loss
-  quiet + redemption     : 5.03%
-  stressed + redemption  : 5.18%
+  quiet + redemption     : 5.21%
+  stressed + redemption  : 5.21%
 
 Current-bonus DEX-discount threshold at zero canonical loss
   quiet DEX              : 3.74%
   stressed DEX           : not profitable at zero loss
-  quiet + redemption     : 17.88%
+  quiet + redemption     : >=99.50% (search ceiling)
   stressed + redemption  : >=99.50% (search ceiling)
 ```
 
+The blended DEX-discount thresholds hit the search ceiling because the
+optimizer can assign zero collateral to DEX at the assumed redemption rate.
+This is route avoidance, not evidence that DEX execution can absorb a 99.5%
+discount.
+
 At 4% canonical loss and zero DEX market discount, the quiet DEX-only path
-takes 30.11 days and
-requires a 6.29% minimum bonus. The stressed DEX-only path takes 241.88 days
-and requires 13.49%. Adding the illustrative `$25m/day` redemption channel
-reduces exit time to 8.35 and 10.76 days and the minimum bonus to 4.86% and
-4.69%, respectively.
+takes 30.11 days and requires a 6.29% minimum bonus. The stressed DEX-only path
+takes 241.88 days and requires 13.49%. With the illustrative `$25m/day`
+redemption channel, the optimizer assigns the full `$256.52m` to redemption.
+Both matched-throughput regimes then take 11.26 days, produce `$3.11m` of
+economic profit, and require a 4.66% minimum bonus.
 
 ```text
 Economic-clearance decision at 4.0% canonical loss and 0.0% DEX market discount
   quiet DEX              : FAIL | current 6.00% | minimum 6.29% | gap +29 bps
   stressed DEX           : FAIL | current 6.00% | minimum 13.49% | gap +749 bps
-  quiet + redemption     : PASS | current 6.00% | minimum 4.86% | gap -114 bps
-  stressed + redemption  : PASS | current 6.00% | minimum 4.69% | gap -131 bps
+  quiet + redemption     : PASS | current 6.00% | minimum 4.66% | gap -134 bps
+  stressed + redemption  : PASS | current 6.00% | minimum 4.66% | gap -134 bps
 ```
 
 ![Ethereum wstETH liquidator warehouse sensitivity](assets/wsteth_liquidator_balance_sheet.png)
@@ -349,31 +357,45 @@ route, primary recovery avoids that discount:
 
 ```text
 Warehouse balance sheet at 0.0% canonical loss and 4.0% DEX market discount
-  quiet DEX              : clear 30.11d | average exit 14.95d | peak $242.26m | economic profit -$655.26k | ROI -0.27% | min bonus 6.29%
-  stressed DEX           : clear 241.88d | average exit 120.46d | peak $242.26m | economic profit -$16.92m | ROI -6.98% | min bonus 13.49%
-  quiet + redemption     : clear 8.35d | average exit 4.52d | peak $242.26m | economic profit $10.01m | ROI 4.13% | min bonus 1.80%
-  stressed + redemption  : clear 10.76d | average exit 5.86d | peak $242.26m | economic profit $12.82m | ROI 5.29% | min bonus 0.68%
+  quiet DEX              : clear 30.11d | average exit 14.95d | DEX $256.52m | red. $0 | peak $242.26m | economic profit -$655.26k | ROI -0.27% | min bonus 6.29%
+  stressed DEX           : clear 241.88d | average exit 120.46d | DEX $256.52m | red. $0 | peak $242.26m | economic profit -$16.92m | ROI -6.98% | min bonus 13.49%
+  quiet + redemption     : clear 11.26d | average exit 6.15d | DEX $0 | red. $256.52m | peak $242.34m | economic profit $13.40m | ROI 5.53% | min bonus 0.46%
+  stressed + redemption  : clear 11.26d | average exit 6.15d | DEX $0 | red. $256.52m | peak $242.34m | economic profit $13.40m | ROI 5.53% | min bonus 0.46%
 ```
 
-The slightly higher profit in the stressed blended path is a route-mix effect,
-not evidence that stress helps liquidators. Redemption capacity is held fixed
-while DEX capacity falls, so less collateral pays the assumed 1% DEX loss and
-more exits through the zero-loss illustrative redemption route. This result
-makes primary-redemption calibration decision-relevant. It does not establish
-that `$25m/day` of stress throughput or `$242m` of financing is available.
+The original capacity-first benchmark remains reproducible:
 
-The canonical run holds redemption at `$25m/day` in both regimes to isolate
-DEX stress. This is not an independence assumption. An explicit correlated
-stress run is:
+```bash
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --canonical-losses 0.04 --route-strategy capacity_first
+```
+
+```text
+Warehouse balance sheet at 4.0% canonical loss and 0.0% DEX market discount
+  quiet + redemption     : clear 8.35d | average exit 4.52d | DEX $72.69m | red. $183.83m | peak $242.26m | economic profit $2.65m | ROI 1.09% | min bonus 4.86%
+  stressed + redemption  : clear 10.76d | average exit 5.86d | DEX $12.42m | red. $244.09m | peak $242.26m | economic profit $3.03m | ROI 1.25% | min bonus 4.69%
+```
+
+This explains the old counterintuitive ordering. Capacity-first forced the
+quiet path to sell more through the costlier DEX, while the depth haircut sent
+more stressed collateral to zero-loss redemption. The optimizer removes that
+artifact by selecting full redemption in both matched-throughput regimes. It
+does not establish that `$25m/day` of throughput or `$242m` of financing is
+available.
+
+The canonical run holds redemption at `$25m/day` in both regimes as a
+matched-throughput comparison. Because the optimizer selects full redemption,
+the blended rows then do not load on DEX depth stress. This is not an
+independence assumption. An explicit correlated stress run is:
 
 ```bash
 python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --stressed-redemption-usd-per-day 12500000 --canonical-losses 0.04
 ```
 
-Halving stressed redemption throughput lowers stressed blended profit from
-`$3.03m` to `$2.29m`, increases exit time from 10.76 to 19.77 days, and raises
-the minimum bonus from 4.69% to 5.01%. This is still an illustrative stress,
-not a calibrated Lido queue response.
+Halving stressed redemption throughput makes the optimizer assign `$5.49m`
+to DEX and `$251.03m` to redemption. Stressed blended profit falls from
+`$3.11m` to `$2.37m`, exit time rises from 11.26 to 21.08 days, and the minimum
+bonus rises from 4.66% to 4.98%. This is still an illustrative stress, not a
+calibrated Lido queue response.
 
 ## Interpretation
 

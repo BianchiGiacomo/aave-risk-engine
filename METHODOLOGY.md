@@ -390,15 +390,30 @@ economic capital charge: funding is the modeled cash expense and the hurdle is
 the additional required return. They remain separate in the report so their
 roles and dollar contributions are visible.
 
-The current implementation is a full-upfront, capacity-first warehouse
-strategy. Peak capital is therefore at least the selected debt repayment before
-costs. It does not establish that this capital, flash liquidity, hedge size, or
-primary-redemption throughput is available. V3 close factors may split the
-repayment across transactions. The liquidator uses capacity as soon as it
-appears; it does not optimize whether waiting for a lower-cost redemption route
-would improve profit. A 1% DEX execution-loss ceiling gives a different instant
-capacity from the strict ARFC ceiling of `bonus / (1 + bonus)`; the two reports
-must not be compared as if their capacity threshold were identical.
+The default route strategy numerically maximizes economic profit over one
+total DEX allocation `x`, with `Q - x` assigned to redemption. Feasible route
+capacity at the maximum horizon bounds the search:
+
+```text
+max(0, Q - C_redemption(T)) <= x <= min(Q, C_DEX(T))
+x_star = argmax_x economic_profit(x)
+```
+
+For each candidate split, both assigned routes execute at their earliest
+available modeled capacity. A coarse grid brackets the best region and a
+bounded scalar search refines it. Collateral is assigned only once. The
+`capacity_first` CLI strategy remains available as a benchmark that consumes
+both routes as soon as capacity appears.
+
+This remains a full-upfront warehouse strategy, so peak capital is at least
+the selected debt repayment before costs. It does not establish that this
+capital, flash liquidity, hedge size, or future primary-redemption capacity is
+available. The optimizer selects a static total split against deterministic
+capacity curves; it is not an adaptive or stochastic execution controller.
+V3 close factors may split repayment across transactions. A 1% DEX
+execution-loss ceiling gives a different instant capacity from the strict ARFC
+ceiling of `bonus / (1 + bonus)`; the two reports must not be compared as if
+their capacity threshold were identical.
 
 Quiet and stressed redemption throughput are separate inputs. The default
 stress value equals the quiet value to preserve a matched-throughput comparison,

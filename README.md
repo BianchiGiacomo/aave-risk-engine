@@ -54,7 +54,7 @@ live market on the day this page is read.
   redemption delay, throughput, and unresolved-tranche loss assumptions.
 - Extends clearance into a full-upfront liquidator warehouse balance sheet
   with funding, hedge, canonical-recovery, DEX-market, exit-route, and
-  return-hurdle costs.
+  return-hurdle costs, plus profit-maximizing DEX/redemption allocation.
 - Reports loss frequency, expected loss, conditional severity, Wilson
   intervals, VaR, CVaR, positive-loss counts, and sparse-tail warnings.
 - Exports snapshot hash, parameters, seed, results, cap sweep, and clearance
@@ -83,7 +83,7 @@ vintage.
 | Ethereum combined book | `$964.28m` debt, including `$329.46m` ETH-denominated; `P(loss) 3.64%`; aggregate `CVaR99 $31.82m`; ordered `CVaR99 $15.25m` |
 | Strict wstETH clearance | `$256.52m` largest sale versus `$2.73m` instant clearable within bonus: `FAIL`; redemption and CEX capacity excluded |
 | wstETH time-to-exit | DEX-only: `23.21d` quiet, `186.72d` stressed; a seven-day pass requires `$29.54m/day` or `$40.93m/day` of redemption throughput under the two refill regimes |
-| Liquidator warehouse sensitivity | At 4% canonical/oracle-to-recovery loss and zero DEX-market discount, quiet DEX-only minimum bonus is `6.29%` versus the current `6.00%`; stressed DEX-only requires `13.49%`, while an illustrative `$25m/day` redemption route lowers the two requirements to `4.86%` and `4.69%` |
+| Liquidator warehouse sensitivity | At 4% canonical/oracle-to-recovery loss and zero DEX-market discount, quiet DEX-only minimum bonus is `6.29%` versus the current `6.00%`; stressed DEX-only requires `13.49%`. With an illustrative `$25m/day` redemption route, the optimizer selects full redemption and lowers both requirements to `4.66%` |
 | Linea WETH reproduction | `$43.20k` independently clearable versus LlamaRisk's approximately `$41k`; `$300.47k` largest sale: `FAIL` |
 | Historical replay | June 2022 worst combined-book window: `$42.20m`; stressed FTX window: `$381.42k`; modeled USDC window: zero |
 | Four-day matched paths | Combined-book V3: `$32.78m` terminal-only CVaR99 versus `$31.85m` evolving-book CVaR99 |
@@ -122,9 +122,10 @@ both DEX and redemption exits; a secondary-market DEX discount affects only
 DEX exits. The canonical figure sweeps the first channel with the second set
 to zero. Every cost and capacity input is illustrative; the figure does not
 demonstrate that this amount of liquidator capital or Lido throughput is
-available. The strategy uses capacity as soon as it appears; it does not
-optimize between faster DEX execution and a slower, potentially cheaper
-redemption route.
+available. The optimizer chooses one total DEX/redemption split that maximizes
+profit after costs, then executes each assigned route at its earliest modeled
+capacity. The `capacity_first` CLI strategy preserves the non-optimized
+benchmark.
 
 Funding and hurdle both accrue on the same capital-days measure, so their
 rates add economically. The default 10% funding rate plus 10% hurdle is a 20%
@@ -332,8 +333,8 @@ python -m aave_risk_engine.tests.test_time_to_exit
 python -m aave_risk_engine.tests.test_liquidator_balance_sheet
 ```
 
-The project contains 108 offline tests: 23 engine, 5 Hub, 48 data, 10
-multi-period, 8 time-to-exit, and 14 liquidator balance-sheet tests. GitHub
+The project contains 113 offline tests: 23 engine, 5 Hub, 48 data, 10
+multi-period, 8 time-to-exit, and 19 liquidator balance-sheet tests. GitHub
 Actions runs the same suites on Python 3.11 and 3.12.
 
 ## Honest Limitations
@@ -348,8 +349,10 @@ Actions runs the same suites on Python 3.11 and 3.12.
 - The warehouse model assumes full debt repayment at time zero, sufficient
   financing or flash liquidity, an ETH/USD hedge, and deterministic exits. It
   does not measure actual liquidator capital, hedge capacity, or Lido stress
-  throughput. V3 close factors can split the modeled repayment, and the current
-  capacity-first route policy is not a profit-maximizing liquidator strategy.
+  throughput. V3 close factors can split the modeled repayment. The optimizer
+  chooses a static total route split against deterministic future capacity; it
+  is not an adaptive execution policy and does not establish that the modeled
+  redemption slots can be reserved.
 - Empirical slippage is flat beyond the final quote and is only a lower bound
   there.
 - Rare-loss CVaR and conditional severity remain low-sample estimates until

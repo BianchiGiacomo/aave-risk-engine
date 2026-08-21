@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 import numpy as np
 
@@ -99,6 +100,92 @@ def test_exit_routes_do_not_double_count_collateral():
     assert result.cleared
     assert np.isclose(result.dex_exit_usd + result.redemption_exit_usd, sale)
     assert np.isclose(result.unresolved_collateral_usd, 0.0)
+
+
+def test_route_optimizer_waits_when_redemption_dominates_dex_recovery():
+    exit_assumptions = ExitAssumptions(
+        106.0,
+        None,
+        redemption_capacity_usd_per_day=106.0,
+        redemption_delay_hours=0.0,
+    )
+    optimized = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        _zero_costs(dex_execution_loss=0.10),
+    )
+    capacity_first = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        _zero_costs(
+            dex_execution_loss=0.10,
+            route_strategy="capacity_first",
+        ),
+    )
+    assert np.isclose(optimized.dex_exit_usd, 0.0)
+    assert np.isclose(optimized.redemption_exit_usd, 106.0)
+    assert np.isclose(capacity_first.dex_exit_usd, 106.0)
+    assert optimized.economic_profit_usd > capacity_first.economic_profit_usd
+
+
+def test_route_optimizer_uses_dex_when_redemption_wait_is_too_expensive():
+    result = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        ExitAssumptions(
+            106.0,
+            None,
+            redemption_capacity_usd_per_day=106.0,
+            redemption_delay_hours=30.0 * 24.0,
+        ),
+        _zero_costs(
+            funding_annual_rate=1.0,
+            hedge_carry_annual_rate=1.0,
+            dex_execution_loss=0.01,
+        ),
+    )
+    assert np.isclose(result.dex_exit_usd, 106.0)
+    assert np.isclose(result.redemption_exit_usd, 0.0)
+    assert result.time_to_clear_hours == 0.0
+
+
+def test_route_optimizer_can_select_an_interior_split():
+    exit_assumptions = ExitAssumptions(
+        106.0,
+        None,
+        redemption_capacity_usd_per_day=106.0,
+        redemption_delay_hours=30.0 * 24.0,
+    )
+    assumptions = _zero_costs(
+        funding_annual_rate=1.0,
+        dex_execution_loss=0.01,
+    )
+    optimized = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        assumptions,
+    )
+    capacity_first = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        replace(assumptions, route_strategy="capacity_first"),
+    )
+    assert 0.0 < optimized.dex_exit_usd < 106.0
+    assert 0.0 < optimized.redemption_exit_usd < 106.0
+    assert optimized.economic_profit_usd > capacity_first.economic_profit_usd
+
+
+def test_route_strategy_rejects_unknown_policy():
+    try:
+        LiquidatorAssumptions(route_strategy="unknown")
+    except ValueError as exc:
+        assert "route strategy" in str(exc)
+    else:
+        raise AssertionError("unknown route strategy was accepted")
 
 
 def test_lower_stressed_redemption_reduces_profit_and_slows_exit():
@@ -276,6 +363,39 @@ def test_release_wsteth_warehouse_clears_but_requires_large_peak_capital():
     assert result.cleared
     assert result.time_to_clear_hours < 30.0 * 24.0
     assert result.peak_capital_usd >= debt
+
+
+def test_release_route_optimizer_improves_capacity_first_profit():
+    path = default_snapshot_path()
+    if not os.path.exists(path):
+        print("  (skipped: no committed snapshot)")
+        return
+    snapshot = load_snapshot(path)
+    clearance = arfc_clearance_test(snapshot)
+    sale = clearance.largest_borrower_usd
+    debt = sale / (1.0 + snapshot.reserve.liquidation_bonus)
+    exit_assumptions = ExitAssumptions(
+        clearance.max_clearable_usd_quiet,
+        6.0,
+        redemption_capacity_usd_per_day=25_000_000.0,
+        redemption_delay_hours=24.0,
+    )
+    assumptions = LiquidatorAssumptions(canonical_loss=0.04)
+    optimized = simulate_liquidator_balance_sheet(
+        debt,
+        sale,
+        exit_assumptions,
+        assumptions,
+    )
+    capacity_first = simulate_liquidator_balance_sheet(
+        debt,
+        sale,
+        exit_assumptions,
+        replace(assumptions, route_strategy="capacity_first"),
+    )
+    assert optimized.route_optimization_evaluations > 1
+    assert optimized.redemption_exit_usd > capacity_first.redemption_exit_usd
+    assert optimized.economic_profit_usd > capacity_first.economic_profit_usd
 
 
 def _run_all():

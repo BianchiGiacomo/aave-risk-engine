@@ -458,8 +458,8 @@ Q=D(1+b),
 $$
 
 and exits it through the DEX and primary-redemption capacity paths. This is a
-full-upfront, capacity-first strategy. It does not assume that the seized
-collateral must be sold atomically with the liquidation.
+full-upfront warehouse strategy. It does not assume that the seized collateral
+must be sold atomically with the liquidation.
 
 For DEX tranche $q_k^{DEX}$, canonical/oracle-to-recovery loss $c$, secondary
 market discount $m$, and DEX execution loss $e_{DEX}$, realized cash is
@@ -483,6 +483,26 @@ are tracked separately, but each unit of collateral can be assigned to only
 one route. Market discount $m$ must be incremental to the price impact already
 represented by $e_{DEX}$; using the same quote to calibrate both would double
 count the DEX loss.
+
+Let $T$ be the maximum horizon and $x$ the total collateral assigned to the
+DEX. Feasibility requires
+
+$$
+\max[0,Q-C_{red}(T)]
+\le x \le
+\min[Q,C_{DEX}(T)],
+$$
+
+with $Q-x$ assigned to redemption. For a fixed split, each route executes at
+its earliest cumulative capacity. The default strategy solves
+
+$$
+x^*=\operatorname*{arg\,max}_x \Pi_{econ}(x).
+$$
+
+The implementation brackets the best region with a deterministic grid and
+refines it with a bounded scalar search. The `capacity_first` benchmark instead
+consumes both routes as soon as capacity appears.
 
 Let $h_0$ be the hedge-entry cost fraction, $F$ fixed costs, $r_f$ the annual
 funding rate, $r_h$ annual hedge carry, $U_k$ unresolved collateral, and
@@ -538,10 +558,10 @@ $$
 The balance-sheet report can use a stricter DEX execution-loss ceiling than
 the ARFC bonus threshold. For example, the publication run uses 1%, so its
 instant DEX capacity differs from maximum notional clearing at 5.66%.
-Available capacity is used as soon as it appears; the implementation does not
-optimize the trade-off between faster DEX recovery and slower, potentially
-cheaper primary redemption. V3 close factors can also split the selected
-full-repayment sensitivity across transactions.
+The optimizer selects one static total route split against deterministic
+future capacity, not a state-contingent execution policy. It also does not
+establish that future redemption capacity can be reserved. V3 close factors
+can split the selected full-repayment sensitivity across transactions.
 
 Quiet and stressed primary-redemption rates are independent inputs. The
 default sets them equal for a matched-throughput comparison; this does not

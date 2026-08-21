@@ -17,14 +17,17 @@ redemption input is an illustrative sensitivity, not a live Lido queue
 measurement.
 
 `ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json` extends the same
-snapshot into a full-upfront, capacity-first warehouse sensitivity. It records
+snapshot into a full-upfront warehouse sensitivity with profit-maximizing
+DEX/redemption allocation. Its schema version 3 records
 funding, hedge, return-hurdle, canonical-loss, DEX-market-discount, execution,
-and redemption assumptions together with profit, capital, minimum-bonus, and
-break-even-loss outputs. Canonical loss affects both routes; DEX market
-discount affects only DEX exits. The manifest does not claim that the modeled
-liquidator capital or redemption throughput is available. The canonical run
-matches quiet and stressed redemption at `$25m/day`; the CLI exposes a
-separate stressed-redemption input for correlated stress sensitivities.
+redemption, route-allocation, and optimization assumptions together with
+profit, capital, minimum-bonus, and break-even-loss outputs. Canonical loss
+affects both routes; DEX market discount affects only DEX exits. The manifest
+does not claim that the modeled liquidator capital or redemption throughput is
+available. The canonical run matches quiet and stressed redemption at
+`$25m/day`; the CLI exposes a separate stressed-redemption input for correlated
+stress sensitivities and `--route-strategy capacity_first` for the original
+execution benchmark.
 
 ## Verifying A Snapshot Hash
 

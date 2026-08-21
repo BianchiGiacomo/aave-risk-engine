@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 
+from scipy.optimize import minimize_scalar
+
 from .time_to_exit import (
     ExitAssumptions,
     dex_capacity_at,
     redemption_capacity_at,
+    time_to_clear_hours as combined_time_to_clear_hours,
 )
 
 
@@ -32,6 +35,7 @@ class LiquidatorAssumptions:
     redemption_loss: float = 0.0
     canonical_loss: float = 0.0
     dex_market_discount: float = 0.0
+    route_strategy: str = "profit_maximizing"
     fixed_cost_usd: float = 0.0
     step_hours: float = 1.0
     max_horizon_hours: float = 365.0 * 24.0
@@ -61,6 +65,10 @@ class LiquidatorAssumptions:
             raise ValueError("execution, redemption, and recovery losses must be below 1")
         if self.fixed_cost_usd < 0.0:
             raise ValueError("fixed cost must be non-negative")
+        if self.route_strategy not in {"capacity_first", "profit_maximizing"}:
+            raise ValueError(
+                "route strategy must be capacity_first or profit_maximizing"
+            )
         if self.step_hours <= 0.0:
             raise ValueError("step hours must be positive")
         if self.max_horizon_hours <= 0.0:
@@ -90,6 +98,8 @@ class LiquidatorResult:
     debt_repaid_usd: float
     seized_collateral_usd: float
     liquidation_bonus: float
+    route_strategy: str
+    route_optimization_evaluations: int
     exit_assumptions: ExitAssumptions
     assumptions: LiquidatorAssumptions
     cash_flows: tuple[LiquidatorCashFlow, ...]
@@ -126,26 +136,51 @@ def _recovery_factors(assumptions: LiquidatorAssumptions) -> dict[str, float]:
     }
 
 
-def simulate_liquidator_balance_sheet(
+def _dex_time_for_capacity(
+    exit_assumptions: ExitAssumptions, target_usd: float
+) -> float | None:
+    if target_usd <= exit_assumptions.instant_dex_capacity_usd:
+        return 0.0
+    instant = exit_assumptions.instant_dex_capacity_usd
+    refill = exit_assumptions.dex_refill_hours
+    if instant <= 0.0 or refill is None:
+        return None
+    return (target_usd / instant - 1.0) * refill
+
+
+def _redemption_time_for_capacity(
+    exit_assumptions: ExitAssumptions, target_usd: float
+) -> float | None:
+    if target_usd <= 0.0:
+        return 0.0
+    throughput = exit_assumptions.redemption_capacity_usd_per_day
+    if throughput <= 0.0:
+        return None
+    return (
+        exit_assumptions.redemption_delay_hours
+        + 24.0 * target_usd / throughput
+    )
+
+
+def _simulate_route_targets(
     debt_repaid_usd: float,
     seized_collateral_usd: float,
     exit_assumptions: ExitAssumptions,
-    assumptions: LiquidatorAssumptions = LiquidatorAssumptions(),
+    assumptions: LiquidatorAssumptions,
+    dex_target_usd: float,
+    redemption_target_usd: float,
 ) -> LiquidatorResult:
-    """Simulate full upfront repayment followed by fastest available exit.
-
-    The liquidator repays the selected debt and receives all seized collateral
-    at time zero. DEX and redemption capacities are incremental, independent
-    routes. If the final interval has more combined capacity than remaining
-    collateral, the route with the higher net recovery is used first.
-    This is a deterministic capacity-first strategy, not a profit-maximizing
-    route optimizer. Financing accrues only while the cumulative cash balance
-    is negative.
-    """
+    """Simulate earliest execution for one fixed DEX/redemption allocation."""
     if debt_repaid_usd <= 0.0:
         raise ValueError("debt repaid must be positive")
     if seized_collateral_usd <= 0.0:
         raise ValueError("seized collateral must be positive")
+    if dex_target_usd < 0.0 or redemption_target_usd < 0.0:
+        raise ValueError("route targets must be non-negative")
+    target_total = dex_target_usd + redemption_target_usd
+    tolerance = max(1e-6, seized_collateral_usd * 1e-12)
+    if target_total > seized_collateral_usd + tolerance:
+        raise ValueError("route targets cannot exceed seized collateral")
 
     bonus = seized_collateral_usd / debt_repaid_usd - 1.0
     factors = _recovery_factors(assumptions)
@@ -173,7 +208,7 @@ def simulate_liquidator_balance_sheet(
         }
         used = {"dex": 0.0, "redemption": 0.0}
         recovery = 0.0
-        for route in sorted(available, key=lambda name: factors[name], reverse=True):
+        for route in ("dex", "redemption"):
             amount = min(remaining, available[route])
             if amount <= 0.0:
                 continue
@@ -189,9 +224,16 @@ def simulate_liquidator_balance_sheet(
         return used["dex"], used["redemption"], recovery
 
     initial_dex = min(
-        remaining, dex_capacity_at(exit_assumptions, 0.0)
+        dex_target_usd,
+        dex_capacity_at(exit_assumptions, 0.0),
     )
-    dex_used, redemption_used, recovery = apply_exit(0.0, initial_dex, 0.0)
+    initial_redemption = min(
+        redemption_target_usd,
+        redemption_capacity_at(exit_assumptions, 0.0),
+    )
+    dex_used, redemption_used, recovery = apply_exit(
+        0.0, initial_dex, initial_redemption
+    )
     cash_flows.append(
         LiquidatorCashFlow(
             horizon_hours=0.0,
@@ -208,29 +250,43 @@ def simulate_liquidator_balance_sheet(
     )
 
     current = 0.0
-    tolerance = max(1e-6, seized_collateral_usd * 1e-12)
+    target_times = tuple(
+        value
+        for value in (
+            _dex_time_for_capacity(exit_assumptions, dex_target_usd),
+            _redemption_time_for_capacity(
+                exit_assumptions, redemption_target_usd
+            ),
+        )
+        if value is not None and value > 0.0
+    )
     while remaining > tolerance and current < assumptions.max_horizon_hours:
         proposed = min(
             current + assumptions.step_hours, assumptions.max_horizon_hours
         )
+        future_events = [
+            value for value in target_times if current < value < proposed
+        ]
+        if future_events:
+            proposed = min(future_events)
         interval = proposed - current
-        dex_increment = max(
-            0.0,
-            dex_capacity_at(exit_assumptions, proposed)
-            - dex_capacity_at(exit_assumptions, current),
+        dex_increment = min(
+            dex_target_usd - dex_exited,
+            max(
+                0.0,
+                dex_capacity_at(exit_assumptions, proposed) - dex_exited,
+            ),
         )
-        redemption_increment = max(
-            0.0,
-            redemption_capacity_at(exit_assumptions, proposed)
-            - redemption_capacity_at(exit_assumptions, current),
+        redemption_increment = min(
+            redemption_target_usd - redemption_exited,
+            max(
+                0.0,
+                redemption_capacity_at(exit_assumptions, proposed)
+                - redemption_exited,
+            ),
         )
-        total_increment = dex_increment + redemption_increment
-        if total_increment > remaining:
-            fraction = remaining / total_increment
-            interval *= fraction
-            proposed = current + interval
-            dex_increment *= fraction
-            redemption_increment *= fraction
+        dex_increment = max(0.0, dex_increment)
+        redemption_increment = max(0.0, redemption_increment)
 
         outstanding = max(0.0, -cash)
         capital_hours += outstanding * interval
@@ -270,8 +326,6 @@ def simulate_liquidator_balance_sheet(
             )
         )
         current = proposed
-        if total_increment <= 0.0 and current >= assumptions.max_horizon_hours:
-            break
 
     cleared = remaining <= tolerance
     time_to_clear = current if cleared else None
@@ -297,6 +351,8 @@ def simulate_liquidator_balance_sheet(
         debt_repaid_usd=debt_repaid_usd,
         seized_collateral_usd=seized_collateral_usd,
         liquidation_bonus=bonus,
+        route_strategy="fixed_allocation",
+        route_optimization_evaluations=1,
         exit_assumptions=exit_assumptions,
         assumptions=assumptions,
         cash_flows=tuple(cash_flows),
@@ -320,6 +376,193 @@ def simulate_liquidator_balance_sheet(
         accounting_roi=accounting_roi,
         economic_roi=economic_roi,
         economic_clearance_pass=bool(cleared and economic_profit is not None and economic_profit >= 0.0),
+    )
+
+
+def _capacity_first_targets(
+    seized_collateral_usd: float,
+    exit_assumptions: ExitAssumptions,
+    max_horizon_hours: float,
+) -> tuple[float, float]:
+    clear_time = combined_time_to_clear_hours(
+        seized_collateral_usd, exit_assumptions
+    )
+    horizon = (
+        clear_time
+        if clear_time is not None and clear_time <= max_horizon_hours
+        else max_horizon_hours
+    )
+    dex_target = min(
+        seized_collateral_usd,
+        dex_capacity_at(exit_assumptions, horizon),
+    )
+    redemption_target = min(
+        seized_collateral_usd - dex_target,
+        redemption_capacity_at(exit_assumptions, horizon),
+    )
+    return dex_target, redemption_target
+
+
+def _profit_maximizing_result(
+    debt_repaid_usd: float,
+    seized_collateral_usd: float,
+    exit_assumptions: ExitAssumptions,
+    assumptions: LiquidatorAssumptions,
+) -> LiquidatorResult:
+    horizon = assumptions.max_horizon_hours
+    dex_limit = min(
+        seized_collateral_usd,
+        dex_capacity_at(exit_assumptions, horizon),
+    )
+    redemption_limit = min(
+        seized_collateral_usd,
+        redemption_capacity_at(exit_assumptions, horizon),
+    )
+    tolerance = max(1e-6, seized_collateral_usd * 1e-12)
+    if dex_limit + redemption_limit < seized_collateral_usd - tolerance:
+        dex_target, redemption_target = _capacity_first_targets(
+            seized_collateral_usd,
+            exit_assumptions,
+            horizon,
+        )
+        result = _simulate_route_targets(
+            debt_repaid_usd,
+            seized_collateral_usd,
+            exit_assumptions,
+            assumptions,
+            dex_target,
+            redemption_target,
+        )
+        return replace(
+            result,
+            route_strategy="profit_maximizing",
+            route_optimization_evaluations=1,
+        )
+
+    lower = max(0.0, seized_collateral_usd - redemption_limit)
+    upper = min(seized_collateral_usd, dex_limit)
+    if upper - lower <= tolerance:
+        result = _simulate_route_targets(
+            debt_repaid_usd,
+            seized_collateral_usd,
+            exit_assumptions,
+            assumptions,
+            upper,
+            seized_collateral_usd - upper,
+        )
+        return replace(
+            result,
+            route_strategy="profit_maximizing",
+            route_optimization_evaluations=1,
+        )
+
+    evaluated: dict[float, LiquidatorResult] = {}
+
+    def evaluate(dex_target: float) -> LiquidatorResult:
+        bounded = min(upper, max(lower, float(dex_target)))
+        key = round(bounded, 8)
+        if key not in evaluated:
+            evaluated[key] = _simulate_route_targets(
+                debt_repaid_usd,
+                seized_collateral_usd,
+                exit_assumptions,
+                assumptions,
+                bounded,
+                seized_collateral_usd - bounded,
+            )
+        return evaluated[key]
+
+    def objective(dex_target: float) -> float:
+        profit = evaluate(dex_target).economic_profit_usd
+        return 1e100 if profit is None else -profit
+
+    grid_size = 13
+    grid = [
+        lower + (upper - lower) * index / (grid_size - 1)
+        for index in range(grid_size)
+    ]
+    grid_results = [evaluate(value) for value in grid]
+    best_index = max(
+        range(grid_size),
+        key=lambda index: (
+            -1e100
+            if grid_results[index].economic_profit_usd is None
+            else grid_results[index].economic_profit_usd
+        ),
+    )
+    left = grid[max(0, best_index - 1)]
+    right = grid[min(grid_size - 1, best_index + 1)]
+    if right - left > tolerance:
+        optimum = minimize_scalar(
+            objective,
+            bounds=(left, right),
+            method="bounded",
+            options={
+                "xatol": max(1.0, seized_collateral_usd * 1e-7),
+                "maxiter": 60,
+            },
+        )
+        evaluate(float(optimum.x))
+
+    def result_key(result: LiquidatorResult) -> tuple[float, float]:
+        profit = (
+            -1e100
+            if result.economic_profit_usd is None
+            else result.economic_profit_usd
+        )
+        clear_time = (
+            1e100
+            if result.time_to_clear_hours is None
+            else result.time_to_clear_hours
+        )
+        return profit, -clear_time
+
+    best = max(evaluated.values(), key=result_key)
+    return replace(
+        best,
+        route_strategy="profit_maximizing",
+        route_optimization_evaluations=len(evaluated),
+    )
+
+
+def simulate_liquidator_balance_sheet(
+    debt_repaid_usd: float,
+    seized_collateral_usd: float,
+    exit_assumptions: ExitAssumptions,
+    assumptions: LiquidatorAssumptions = LiquidatorAssumptions(),
+) -> LiquidatorResult:
+    """Simulate a full-upfront warehouse under the selected route strategy.
+
+    Capacity-first exits through both routes as soon as capacity appears. The
+    profit-maximizing strategy chooses the total DEX versus redemption split
+    that maximizes economic profit, then executes each assigned route at its
+    earliest available capacity. The optimization is one-dimensional and does
+    not assume collateral can be assigned to both routes.
+    """
+    if assumptions.route_strategy == "profit_maximizing":
+        return _profit_maximizing_result(
+            debt_repaid_usd,
+            seized_collateral_usd,
+            exit_assumptions,
+            assumptions,
+        )
+    dex_target, redemption_target = _capacity_first_targets(
+        seized_collateral_usd,
+        exit_assumptions,
+        assumptions.max_horizon_hours,
+    )
+    result = _simulate_route_targets(
+        debt_repaid_usd,
+        seized_collateral_usd,
+        exit_assumptions,
+        assumptions,
+        dex_target,
+        redemption_target,
+    )
+    return replace(
+        result,
+        route_strategy="capacity_first",
+        route_optimization_evaluations=1,
     )
 
 

@@ -5,6 +5,7 @@ Usage:
         [--redemption-usd-per-day 25000000]
         [--stressed-redemption-usd-per-day 12500000]
         [--canonical-losses 0,0.02,0.04] [--dex-market-discount 0.0]
+        [--route-strategy profit_maximizing]
         [--figure [path]]
 
 Every funding, hedge, redemption, and refill input is an explicit sensitivity.
@@ -63,6 +64,10 @@ def _threshold_label(value: float | None) -> str:
     return f"{value:.2%}"
 
 
+def _strategy_label(value: str) -> str:
+    return value.replace("_", "-")
+
+
 def _parse_losses(value: str) -> tuple[float, ...]:
     try:
         losses = tuple(sorted(set(float(item.strip()) for item in value.split(","))))
@@ -112,6 +117,8 @@ def _instant_capacity(snapshot, execution_loss: float) -> float:
 
 def _result_payload(result) -> dict:
     fields = (
+        "route_strategy",
+        "route_optimization_evaluations",
         "cleared",
         "time_to_clear_hours",
         "weighted_average_exit_hours",
@@ -164,6 +171,11 @@ def main() -> None:
         help="secondary-market discount applied only to DEX exits",
     )
     parser.add_argument("--fixed-cost-usd", type=float, default=0.0)
+    parser.add_argument(
+        "--route-strategy",
+        choices=("profit_maximizing", "capacity_first"),
+        default="profit_maximizing",
+    )
     parser.add_argument("--step-hours", type=float, default=1.0)
     parser.add_argument("--max-horizon-days", type=float, default=365.0)
     parser.add_argument(
@@ -274,6 +286,7 @@ def main() -> None:
         dex_execution_loss=args.dex_execution_loss,
         redemption_loss=args.redemption_loss,
         dex_market_discount=args.dex_market_discount,
+        route_strategy=args.route_strategy,
         fixed_cost_usd=args.fixed_cost_usd,
         step_hours=args.step_hours,
         max_horizon_hours=24.0 * args.max_horizon_days,
@@ -323,6 +336,7 @@ def main() -> None:
         f"{'PASS' if clearance.passes_quiet else 'FAIL'}"
     )
     print("\nIllustrative warehouse assumptions")
+    print(f"  route strategy             : {args.route_strategy}")
     print(f"  DEX execution loss ceiling : {args.dex_execution_loss:.2%}")
     print(f"  DEX market discount        : {args.dex_market_discount:.2%}")
     print(
@@ -417,6 +431,8 @@ def main() -> None:
         print(
             f"  {label:<23}: clear {_time_label(result.time_to_clear_hours)} | "
             f"average exit {_time_label(result.weighted_average_exit_hours)} | "
+            f"DEX {_fmt(result.dex_exit_usd)} | red. "
+            f"{_fmt(result.redemption_exit_usd)} | "
             f"peak {_fmt(result.peak_capital_usd)} | "
             f"economic profit {_fmt(result.economic_profit_usd or 0.0)} | "
             f"ROI {(result.economic_roi or 0.0):.2%} | min bonus {required_label}"
@@ -446,12 +462,20 @@ def main() -> None:
         "  note: this is a full upfront warehouse strategy, not evidence "
         "of available liquidator capital or live redemption throughput."
     )
-    print(
-        "  note: capacity is used as soon as available. This is not a "
-        "profit-maximizing route policy, and close factors can split repayment."
-    )
+    if args.route_strategy == "profit_maximizing":
+        print(
+            "  note: the optimizer selects one total DEX/redemption split; "
+            "each selected route then executes at earliest available capacity."
+        )
+    else:
+        print(
+            "  note: capacity-first uses both routes as soon as available; "
+            "it is a benchmark rather than a profit-maximizing policy."
+        )
+    print("  note: V3 close factors can split repayment across transactions.")
     if (
-        args.redemption_usd_per_day > 0.0
+        args.route_strategy == "capacity_first"
+        and args.redemption_usd_per_day > 0.0
         and np.isclose(
             args.redemption_usd_per_day,
             stressed_redemption_usd_per_day,
@@ -489,7 +513,7 @@ def main() -> None:
             bonus,
             title=(
                 f"{snapshot.chain.title()} {snapshot.reserve.symbol} "
-                "liquidator warehouse sensitivity"
+                f"{_strategy_label(args.route_strategy)} warehouse sensitivity"
             ),
         )
         absolute_figure = os.path.abspath(args.figure)
@@ -500,7 +524,7 @@ def main() -> None:
 
     if args.manifest:
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "command": [
                 "python",
@@ -523,7 +547,10 @@ def main() -> None:
                     else None
                 ),
             },
-            "strategy": "full upfront warehouse; fastest available exit",
+            "strategy": (
+                "full upfront warehouse; "
+                f"{_strategy_label(args.route_strategy)} route allocation"
+            ),
             "largest_borrower": {
                 "account": clearance.largest_account,
                 "debt_repaid_usd": debt,
@@ -559,7 +586,9 @@ def main() -> None:
                 "Canonical loss affects DEX and redemption recovery.",
                 "DEX market discount affects only DEX recovery.",
                 "The strategy repays the full selected debt at time zero.",
-                "Available capacity is used immediately; routes are not optimized for profit.",
+                "Profit maximization selects one static total route split.",
+                "Each selected route allocation executes at earliest available capacity.",
+                "Future redemption capacity is an assumption, not a reserved slot.",
                 "V3 close factors may split the selected repayment across transactions.",
                 "Funding and hurdle rates both accrue on capital-days and add economically.",
                 "Economic clearance does not change the strict instant ARFC verdict.",

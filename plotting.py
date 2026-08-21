@@ -204,22 +204,25 @@ def plot_liquidator_balance_sheet_sensitivity(
     """Plot economic profit and required bonus across canonical impairment."""
     x = 100.0 * np.asarray(canonical_losses, dtype=float)
     styles = {
-        "quiet DEX": ("steelblue", ":"),
-        "stressed DEX": ("crimson", ":"),
-        "quiet + redemption": ("seagreen", "-"),
-        "stressed + redemption": ("darkorange", "-"),
+        "quiet DEX": ("steelblue", ":", "o", 2.0),
+        "stressed DEX": ("crimson", ":", "o", 2.0),
+        "quiet + redemption": ("seagreen", "-", "o", 3.5),
+        "stressed + redemption": ("darkorange", "--", "x", 1.8),
     }
     fig, (profit_ax, bonus_ax) = plt.subplots(
         2, 1, figsize=(8.2, 7.0), sharex=True
     )
     for label, values in economic_profit.items():
-        color, linestyle = styles.get(label, (None, "-"))
+        color, linestyle, marker, linewidth = styles.get(
+            label, (None, "-", "o", 2.0)
+        )
         profit_ax.plot(
             x,
             np.asarray(values, dtype=float) / 1e6,
-            marker="o",
+            marker=marker,
             color=color,
             linestyle=linestyle,
+            linewidth=linewidth,
             label=label,
         )
     profit_ax.axhline(0.0, color="black", linewidth=1.0)
@@ -229,13 +232,16 @@ def plot_liquidator_balance_sheet_sensitivity(
     profit_ax.legend()
 
     for label, values in required_bonus.items():
-        color, linestyle = styles.get(label, (None, "-"))
+        color, linestyle, marker, linewidth = styles.get(
+            label, (None, "-", "o", 2.0)
+        )
         bonus_ax.plot(
             x,
             100.0 * np.asarray(values, dtype=float),
-            marker="o",
+            marker=marker,
             color=color,
             linestyle=linestyle,
+            linewidth=linewidth,
             label=label,
         )
     bonus_ax.axhline(

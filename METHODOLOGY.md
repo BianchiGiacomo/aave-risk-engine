@@ -338,13 +338,28 @@ capacity paths. For repaid debt `D`, bonus `b`, and seized collateral value
 `Q = D * (1 + b)`, each exited tranche `q_j` realizes:
 
 ```text
-recovery_j = q_j * (1 - basis_loss) * (1 - route_loss_j)
+DEX_recovery = q_DEX
+             * (1 - canonical_loss)
+             * (1 - DEX_market_discount)
+             * (1 - DEX_execution_loss)
+
+redemption_recovery = q_redemption
+                    * (1 - canonical_loss)
+                    * (1 - redemption_loss)
 ```
 
-The residual basis term is wstETH/ETH, canonical-rate, or oracle-to-recovery
-risk after the ETH/USD hedge. It is not a second ETH price shock. DEX and
+The ETH/USD exposure is assumed hedged. `canonical_loss` represents an
+impairment between the liquidation valuation and final canonical recovery,
+such as a canonical-rate or oracle-to-recovery loss, so it affects both exit
+routes. `DEX_market_discount` is a secondary-market discount and affects
+only collateral sold through the DEX. Keeping these channels separate
+prevents a temporary wstETH/ETH market discount from being charged to
+collateral that is instead redeemed at its canonical value. DEX and
 redemption capacities are independent route ceilings, but collateral is
 assigned only once, so their sum cannot double count the seized amount.
+`DEX_market_discount` must represent an additional valuation discount, not
+the same price impact already charged through `DEX_execution_loss`; calibrating
+both to one observed quote would double count the loss.
 
 The time-zero cash balance is debt repayment plus hedge-entry and fixed costs.
 While it remains negative, funding accrues on the outstanding cash deficit.
@@ -364,7 +379,8 @@ economic_profit = realized_recovery
 
 Economic clearance passes only if all collateral exits within the maximum
 horizon and economic profit is non-negative. The report also solves for the
-minimum bonus and the largest residual basis loss consistent with that test.
+minimum bonus, the largest canonical loss, and the largest DEX-only market
+discount consistent with that test.
 This is a proposed horizon-adjusted incentive criterion, not a replacement for
 the Risk Framework's strict instant routed-depth requirement.
 

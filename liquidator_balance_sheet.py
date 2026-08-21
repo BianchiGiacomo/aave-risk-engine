@@ -18,9 +18,10 @@ HOURS_PER_YEAR = 365.0 * 24.0
 class LiquidatorAssumptions:
     """Costs and residual risks for a delta-hedged warehouse strategy.
 
-    `basis_loss` is the loss that remains after hedging ETH/USD. It therefore
-    represents wstETH/ETH, canonical-rate, or oracle-to-recovery basis risk,
-    not another ETH price shock.
+    `canonical_loss` is an impairment between the liquidation valuation and
+    final canonical recovery after hedging ETH/USD, so it affects both DEX and
+    primary-redemption exits. `dex_market_discount` is a secondary-market
+    discount that affects only collateral sold through the DEX.
     """
 
     funding_annual_rate: float = 0.10
@@ -29,7 +30,8 @@ class LiquidatorAssumptions:
     hedge_carry_annual_rate: float = 0.02
     dex_execution_loss: float = 0.01
     redemption_loss: float = 0.0
-    basis_loss: float = 0.0
+    canonical_loss: float = 0.0
+    dex_market_discount: float = 0.0
     fixed_cost_usd: float = 0.0
     step_hours: float = 1.0
     max_horizon_hours: float = 365.0 * 24.0
@@ -42,7 +44,8 @@ class LiquidatorAssumptions:
             self.hedge_carry_annual_rate,
             self.dex_execution_loss,
             self.redemption_loss,
-            self.basis_loss,
+            self.canonical_loss,
+            self.dex_market_discount,
         )
         if any(value < 0.0 for value in rates):
             raise ValueError("cost and loss rates must be non-negative")
@@ -51,10 +54,11 @@ class LiquidatorAssumptions:
             for value in (
                 self.dex_execution_loss,
                 self.redemption_loss,
-                self.basis_loss,
+                self.canonical_loss,
+                self.dex_market_discount,
             )
         ):
-            raise ValueError("execution, redemption, and basis losses must be below 1")
+            raise ValueError("execution, redemption, and recovery losses must be below 1")
         if self.fixed_cost_usd < 0.0:
             raise ValueError("fixed cost must be non-negative")
         if self.step_hours <= 0.0:
@@ -112,10 +116,13 @@ class LiquidatorResult:
 
 
 def _recovery_factors(assumptions: LiquidatorAssumptions) -> dict[str, float]:
-    residual = 1.0 - assumptions.basis_loss
+    canonical_recovery = 1.0 - assumptions.canonical_loss
     return {
-        "dex": residual * (1.0 - assumptions.dex_execution_loss),
-        "redemption": residual * (1.0 - assumptions.redemption_loss),
+        "dex": canonical_recovery
+        * (1.0 - assumptions.dex_market_discount)
+        * (1.0 - assumptions.dex_execution_loss),
+        "redemption": canonical_recovery
+        * (1.0 - assumptions.redemption_loss),
     }
 
 
@@ -316,21 +323,22 @@ def simulate_liquidator_balance_sheet(
     )
 
 
-def break_even_basis_loss(
+def _break_even_loss(
     debt_repaid_usd: float,
     seized_collateral_usd: float,
     exit_assumptions: ExitAssumptions,
     assumptions: LiquidatorAssumptions,
+    field: str,
     tolerance: float = 1e-7,
 ) -> float | None:
-    """Largest residual basis loss with non-negative economic profit."""
+    """Largest selected loss parameter with non-negative economic profit."""
 
     def profit(value: float) -> float | None:
         result = simulate_liquidator_balance_sheet(
             debt_repaid_usd,
             seized_collateral_usd,
             exit_assumptions,
-            replace(assumptions, basis_loss=value),
+            replace(assumptions, **{field: value}),
         )
         return result.economic_profit_usd
 
@@ -352,6 +360,42 @@ def break_even_basis_loss(
         if high - low <= tolerance:
             break
     return low
+
+
+def break_even_canonical_loss(
+    debt_repaid_usd: float,
+    seized_collateral_usd: float,
+    exit_assumptions: ExitAssumptions,
+    assumptions: LiquidatorAssumptions,
+    tolerance: float = 1e-7,
+) -> float | None:
+    """Largest canonical impairment with non-negative economic profit."""
+    return _break_even_loss(
+        debt_repaid_usd,
+        seized_collateral_usd,
+        exit_assumptions,
+        assumptions,
+        "canonical_loss",
+        tolerance,
+    )
+
+
+def break_even_dex_market_discount(
+    debt_repaid_usd: float,
+    seized_collateral_usd: float,
+    exit_assumptions: ExitAssumptions,
+    assumptions: LiquidatorAssumptions,
+    tolerance: float = 1e-7,
+) -> float | None:
+    """Largest DEX-only market discount with non-negative economic profit."""
+    return _break_even_loss(
+        debt_repaid_usd,
+        seized_collateral_usd,
+        exit_assumptions,
+        assumptions,
+        "dex_market_discount",
+        tolerance,
+    )
 
 
 def minimum_liquidation_bonus(

@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "generated_at_utc": "2026-08-20T18:02:03.939925+00:00",
+  "schema_version": 2,
+  "generated_at_utc": "2026-08-21T10:28:15.238340+00:00",
   "command": [
     "python",
     "-m",
@@ -46,7 +46,8 @@
     "hedge_carry_annual_rate": 0.02,
     "dex_execution_loss": 0.01,
     "redemption_loss": 0.0,
-    "basis_loss": 0.0,
+    "canonical_loss": 0.0,
+    "dex_market_discount": 0.0,
     "fixed_cost_usd": 0.0,
     "step_hours": 1.0,
     "max_horizon_hours": 8760.0
@@ -85,7 +86,7 @@
       "stalled_drawdown": 0.1
     }
   },
-  "basis_sweep": {
+  "canonical_loss_sweep": {
     "0.000000": {
       "quiet DEX": {
         "result": {
@@ -699,15 +700,23 @@
       }
     }
   },
-  "break_even_basis_loss": {
+  "break_even_canonical_loss": {
     "quiet DEX": 0.037440922558307645,
     "stressed DEX": null,
     "quiet + redemption": 0.05032581984996795,
     "stressed + redemption": 0.05179472625255585
   },
+  "break_even_dex_market_discount_at_zero_canonical_loss": {
+    "quiet DEX": 0.037440922558307645,
+    "stressed DEX": null,
+    "quiet + redemption": 0.178840896487236,
+    "stressed + redemption": 0.995
+  },
   "notes": [
     "All capacity and cost inputs are explicit sensitivities.",
-    "ETH/USD is assumed hedged; basis loss is residual wstETH/ETH risk.",
+    "ETH/USD is assumed hedged.",
+    "Canonical loss affects DEX and redemption recovery.",
+    "DEX market discount affects only DEX recovery.",
     "The strategy repays the full selected debt at time zero.",
     "Available capacity is used immediately; routes are not optimized for profit.",
     "V3 close factors may split the selected repayment across transactions.",

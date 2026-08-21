@@ -18,12 +18,13 @@ measurement.
 
 `ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json` extends the same
 snapshot into a full-upfront, capacity-first warehouse sensitivity. It records
-funding, hedge, return-hurdle, residual-basis, DEX, and redemption assumptions
-together with profit, capital, minimum-bonus, and break-even-basis outputs. It
-does not claim that the modeled liquidator capital or redemption throughput is
-available. The canonical manifest matches quiet and stressed redemption at
-`$25m/day`; the CLI exposes a separate stressed-redemption input for correlated
-stress sensitivities.
+funding, hedge, return-hurdle, canonical-loss, DEX-market-discount, execution,
+and redemption assumptions together with profit, capital, minimum-bonus, and
+break-even-loss outputs. Canonical loss affects both routes; DEX market
+discount affects only DEX exits. The manifest does not claim that the modeled
+liquidator capital or redemption throughput is available. The canonical run
+matches quiet and stressed redemption at `$25m/day`; the CLI exposes a
+separate stressed-redemption input for correlated stress sensitivities.
 
 ## Verifying A Snapshot Hash
 

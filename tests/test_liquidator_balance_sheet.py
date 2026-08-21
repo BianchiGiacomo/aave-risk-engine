@@ -10,7 +10,8 @@ from aave_risk_engine.data import arfc_clearance_test, load_snapshot
 from aave_risk_engine.data.snapshot import default_snapshot_path
 from aave_risk_engine.liquidator_balance_sheet import (
     LiquidatorAssumptions,
-    break_even_basis_loss,
+    break_even_canonical_loss,
+    break_even_dex_market_discount,
     minimum_liquidation_bonus,
     simulate_liquidator_balance_sheet,
 )
@@ -25,7 +26,8 @@ def _zero_costs(**overrides) -> LiquidatorAssumptions:
         "hedge_carry_annual_rate": 0.0,
         "dex_execution_loss": 0.0,
         "redemption_loss": 0.0,
-        "basis_loss": 0.0,
+        "canonical_loss": 0.0,
+        "dex_market_discount": 0.0,
         "step_hours": 0.25,
     }
     values.update(overrides)
@@ -100,7 +102,7 @@ def test_exit_routes_do_not_double_count_collateral():
 
 
 def test_lower_stressed_redemption_reduces_profit_and_slows_exit():
-    assumptions = LiquidatorAssumptions(basis_loss=0.04)
+    assumptions = LiquidatorAssumptions(canonical_loss=0.04)
     matched = simulate_liquidator_balance_sheet(
         100.0,
         106.0,
@@ -128,7 +130,7 @@ def test_lower_stressed_redemption_reduces_profit_and_slows_exit():
     assert degraded.economic_profit_usd < matched.economic_profit_usd
 
 
-def test_basis_and_hedge_costs_reduce_economic_profit():
+def test_canonical_and_hedge_costs_reduce_economic_profit():
     exit_assumptions = ExitAssumptions(106.0, None)
     baseline = simulate_liquidator_balance_sheet(
         100.0, 106.0, exit_assumptions, _zero_costs()
@@ -137,16 +139,67 @@ def test_basis_and_hedge_costs_reduce_economic_profit():
         100.0,
         106.0,
         exit_assumptions,
-        _zero_costs(basis_loss=0.03, hedge_entry_cost=0.01),
+        _zero_costs(canonical_loss=0.03, hedge_entry_cost=0.01),
     )
     assert stressed.economic_profit_usd < baseline.economic_profit_usd
     assert np.isclose(stressed.hedge_entry_cost_usd, 1.06)
 
 
-def test_break_even_basis_recovers_instant_bonus_buffer():
+def test_break_even_canonical_loss_recovers_instant_bonus_buffer():
     bonus = 0.06
     sale = 100.0 * (1.0 + bonus)
-    result = break_even_basis_loss(
+    result = break_even_canonical_loss(
+        100.0,
+        sale,
+        ExitAssumptions(sale, None),
+        _zero_costs(),
+    )
+    assert result is not None
+    assert np.isclose(result, bonus / (1.0 + bonus), atol=2e-7)
+
+
+def test_dex_market_discount_does_not_reduce_redemption_recovery():
+    exit_assumptions = ExitAssumptions(
+        0.0,
+        None,
+        redemption_capacity_usd_per_day=2544.0,
+        redemption_delay_hours=0.0,
+    )
+    market_discount = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        _zero_costs(dex_market_discount=0.50),
+    )
+    canonical_loss = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        exit_assumptions,
+        _zero_costs(canonical_loss=0.10),
+    )
+    assert np.isclose(market_discount.realized_recovery_usd, 106.0)
+    assert np.isclose(canonical_loss.realized_recovery_usd, 95.4)
+
+
+def test_dex_recovery_combines_canonical_market_and_execution_losses():
+    result = simulate_liquidator_balance_sheet(
+        100.0,
+        106.0,
+        ExitAssumptions(106.0, None),
+        _zero_costs(
+            canonical_loss=0.10,
+            dex_market_discount=0.20,
+            dex_execution_loss=0.05,
+        ),
+    )
+    expected = 106.0 * 0.90 * 0.80 * 0.95
+    assert np.isclose(result.realized_recovery_usd, expected)
+
+
+def test_break_even_dex_discount_recovers_instant_bonus_buffer():
+    bonus = 0.06
+    sale = 100.0 * (1.0 + bonus)
+    result = break_even_dex_market_discount(
         100.0,
         sale,
         ExitAssumptions(sale, None),

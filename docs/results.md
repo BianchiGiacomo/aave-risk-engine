@@ -286,11 +286,18 @@ route optimizer, and V3 close factors may split repayment across transactions.
 Funding and hurdle both use the same capital-days base, so the stated 10% plus
 10% rates represent a 20% annual economic capital charge.
 
+The model separates two risks that should not be conflated. A canonical or
+oracle-to-recovery loss affects collateral exited through either route. A
+secondary-market DEX discount affects only the DEX-routed amount. The
+publication sweep below sets the DEX discount to zero and varies canonical
+loss. A DEX market discount should be incremental to the execution loss
+already charged by the model, not a second encoding of the same quote impact.
+
 Trimmed CLI output, with rows unchanged:
 
 ```text
-Profit after hurdle by residual basis loss
-  basis |    quiet DEX |   stress DEX | quiet + red. | stress + red.
+Profit after hurdle by canonical recovery loss (DEX market discount fixed at 0.0%)
+ canon. |    quiet DEX |   stress DEX | quiet + red. | stress + red.
 --------------------------------------------------------------------
   0.0% |       $9.58m |      -$6.07m |      $12.90m |       $13.31m
   2.0% |       $4.47m |     -$11.49m |       $7.77m |        $8.17m
@@ -299,21 +306,28 @@ Profit after hurdle by residual basis loss
   8.0% |     -$10.90m |     -$27.77m |      -$7.61m |       -$7.25m
  10.0% |     -$16.02m |     -$33.19m |     -$12.73m |      -$12.39m
 
-Current-bonus residual-basis threshold
-  quiet DEX: 3.74%
-  stressed DEX: not profitable at zero basis loss
-  quiet + redemption: 5.03%
-  stressed + redemption: 5.18%
+Current-bonus canonical-loss threshold (DEX market discount fixed at 0.0%)
+  quiet DEX              : 3.74%
+  stressed DEX           : not profitable at zero loss
+  quiet + redemption     : 5.03%
+  stressed + redemption  : 5.18%
+
+Current-bonus DEX-discount threshold at zero canonical loss
+  quiet DEX              : 3.74%
+  stressed DEX           : not profitable at zero loss
+  quiet + redemption     : 17.88%
+  stressed + redemption  : >=99.50% (search ceiling)
 ```
 
-At 4% residual basis loss, the quiet DEX-only path takes 30.11 days and
+At 4% canonical loss and zero DEX market discount, the quiet DEX-only path
+takes 30.11 days and
 requires a 6.29% minimum bonus. The stressed DEX-only path takes 241.88 days
 and requires 13.49%. Adding the illustrative `$25m/day` redemption channel
 reduces exit time to 8.35 and 10.76 days and the minimum bonus to 4.86% and
 4.69%, respectively.
 
 ```text
-Economic-clearance decision at 4.0% residual basis loss
+Economic-clearance decision at 4.0% canonical loss and 0.0% DEX market discount
   quiet DEX              : FAIL | current 6.00% | minimum 6.29% | gap +29 bps
   stressed DEX           : FAIL | current 6.00% | minimum 13.49% | gap +749 bps
   quiet + redemption     : PASS | current 6.00% | minimum 4.86% | gap -114 bps
@@ -321,6 +335,25 @@ Economic-clearance decision at 4.0% residual basis loss
 ```
 
 ![Ethereum wstETH liquidator warehouse sensitivity](assets/wsteth_liquidator_balance_sheet.png)
+
+The channel split is economically material when redemption is available. A
+separate 4% DEX-only discount run is:
+
+```bash
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --canonical-losses 0 --dex-market-discount 0.04
+```
+
+With DEX-only exit, a 4% market discount has the same effect as a 4% canonical
+loss because every tranche uses the DEX. With the illustrative redemption
+route, primary recovery avoids that discount:
+
+```text
+Warehouse balance sheet at 0.0% canonical loss and 4.0% DEX market discount
+  quiet DEX              : clear 30.11d | average exit 14.95d | peak $242.26m | economic profit -$655.26k | ROI -0.27% | min bonus 6.29%
+  stressed DEX           : clear 241.88d | average exit 120.46d | peak $242.26m | economic profit -$16.92m | ROI -6.98% | min bonus 13.49%
+  quiet + redemption     : clear 8.35d | average exit 4.52d | peak $242.26m | economic profit $10.01m | ROI 4.13% | min bonus 1.80%
+  stressed + redemption  : clear 10.76d | average exit 5.86d | peak $242.26m | economic profit $12.82m | ROI 5.29% | min bonus 0.68%
+```
 
 The slightly higher profit in the stressed blended path is a route-mix effect,
 not evidence that stress helps liquidators. Redemption capacity is held fixed
@@ -334,7 +367,7 @@ DEX stress. This is not an independence assumption. An explicit correlated
 stress run is:
 
 ```bash
-python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --stressed-redemption-usd-per-day 12500000 --basis-losses 0.04
+python -m aave_risk_engine.run_liquidator_balance_sheet --snapshot data/snapshots/aave_v3_ethereum_wsteth.json --redemption-usd-per-day 25000000 --stressed-redemption-usd-per-day 12500000 --canonical-losses 0.04
 ```
 
 Halving stressed redemption throughput lowers stressed blended profit from
@@ -352,8 +385,9 @@ estimate continues to reproduce LlamaRisk's figure, and the Ethereum largest
 borrower remains far beyond instant routed depth. The time-to-exit extension
 turns that second observation into explicit refill and redemption-throughput
 requirements rather than a claim that eventual recovery is impossible. The
-warehouse extension then shows which combination of capital duration, basis
-risk, exit route, and liquidation bonus would make that delayed exit economic.
+warehouse extension then shows which combination of capital duration,
+canonical impairment, DEX market discount, exit route, and liquidation bonus
+would make that delayed exit economic.
 
 ## Synthetic Demo Figure Guide
 

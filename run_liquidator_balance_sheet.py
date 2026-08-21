@@ -3,7 +3,9 @@
 Usage:
     python -m aave_risk_engine.run_liquidator_balance_sheet [--snapshot path]
         [--redemption-usd-per-day 25000000]
-        [--stressed-redemption-usd-per-day 12500000] [--figure [path]]
+        [--stressed-redemption-usd-per-day 12500000]
+        [--canonical-losses 0,0.02,0.04] [--dex-market-discount 0.0]
+        [--figure [path]]
 
 Every funding, hedge, redemption, and refill input is an explicit sensitivity.
 The output is not a measurement of available liquidator capital or live Lido
@@ -27,7 +29,8 @@ from . import plotting
 from .data import arfc_clearance_test, default_snapshot_path, load_snapshot
 from .liquidator_balance_sheet import (
     LiquidatorAssumptions,
-    break_even_basis_loss,
+    break_even_canonical_loss,
+    break_even_dex_market_discount,
     minimum_liquidation_bonus,
     simulate_liquidator_balance_sheet,
 )
@@ -52,15 +55,23 @@ def _time_label(hours: float | None) -> str:
     return f"{hours / 24.0:.2f}d"
 
 
+def _threshold_label(value: float | None) -> str:
+    if value is None:
+        return "not profitable at zero loss"
+    if value >= 0.995 - 1e-7:
+        return f">={value:.2%} (search ceiling)"
+    return f"{value:.2%}"
+
+
 def _parse_losses(value: str) -> tuple[float, ...]:
     try:
         losses = tuple(sorted(set(float(item.strip()) for item in value.split(","))))
     except ValueError as exc:
         raise argparse.ArgumentTypeError(
-            "basis losses must be comma-separated fractions"
+            "losses must be comma-separated fractions"
         ) from exc
     if not losses or losses[0] < 0.0 or losses[-1] >= 1.0:
-        raise argparse.ArgumentTypeError("basis losses must be in [0, 1)")
+        raise argparse.ArgumentTypeError("losses must be in [0, 1)")
     return losses
 
 
@@ -146,13 +157,20 @@ def main() -> None:
     parser.add_argument("--hedge-carry-annual-rate", type=float, default=0.02)
     parser.add_argument("--dex-execution-loss", type=float, default=0.01)
     parser.add_argument("--redemption-loss", type=float, default=0.0)
+    parser.add_argument(
+        "--dex-market-discount",
+        type=float,
+        default=0.0,
+        help="secondary-market discount applied only to DEX exits",
+    )
     parser.add_argument("--fixed-cost-usd", type=float, default=0.0)
     parser.add_argument("--step-hours", type=float, default=1.0)
     parser.add_argument("--max-horizon-days", type=float, default=365.0)
     parser.add_argument(
-        "--basis-losses",
+        "--canonical-losses",
         type=_parse_losses,
         default=(0.0, 0.02, 0.04, 0.06, 0.08, 0.10),
+        help="canonical/oracle-to-recovery losses applied to both exit routes",
     )
     parser.add_argument(
         "--figure",
@@ -174,6 +192,7 @@ def main() -> None:
         "hedge_carry_annual_rate",
         "dex_execution_loss",
         "redemption_loss",
+        "dex_market_discount",
         "fixed_cost_usd",
     )
     if any(getattr(args, name) < 0.0 for name in nonnegative):
@@ -191,6 +210,8 @@ def main() -> None:
         parser.error("--dex-execution-loss must be in (0, 1)")
     if args.redemption_loss >= 1.0:
         parser.error("--redemption-loss must be below 1")
+    if args.dex_market_discount >= 1.0:
+        parser.error("--dex-market-discount must be below 1")
     if args.quiet_refill_hours <= 0.0 or args.stressed_refill_hours <= 0.0:
         parser.error("refill hours must be positive")
     if args.step_hours <= 0.0 or args.max_horizon_days <= 0.0:
@@ -252,15 +273,16 @@ def main() -> None:
         hedge_carry_annual_rate=args.hedge_carry_annual_rate,
         dex_execution_loss=args.dex_execution_loss,
         redemption_loss=args.redemption_loss,
+        dex_market_discount=args.dex_market_discount,
         fixed_cost_usd=args.fixed_cost_usd,
         step_hours=args.step_hours,
         max_horizon_hours=24.0 * args.max_horizon_days,
     )
 
     sweep = {}
-    for basis_loss in args.basis_losses:
-        assumptions = dataclasses.replace(common, basis_loss=basis_loss)
-        sweep[basis_loss] = {}
+    for canonical_loss in args.canonical_losses:
+        assumptions = dataclasses.replace(common, canonical_loss=canonical_loss)
+        sweep[canonical_loss] = {}
         for label, exit_assumptions in regimes.items():
             result = simulate_liquidator_balance_sheet(
                 debt, sale, exit_assumptions, assumptions
@@ -268,13 +290,22 @@ def main() -> None:
             minimum_bonus = minimum_liquidation_bonus(
                 debt, exit_assumptions, assumptions
             )
-            sweep[basis_loss][label] = {
+            sweep[canonical_loss][label] = {
                 "result": result,
                 "minimum_bonus": minimum_bonus,
             }
 
-    basis_thresholds = {
-        label: break_even_basis_loss(debt, sale, regime, common)
+    canonical_thresholds = {
+        label: break_even_canonical_loss(debt, sale, regime, common)
+        for label, regime in regimes.items()
+    }
+    dex_discount_thresholds = {
+        label: break_even_dex_market_discount(
+            debt,
+            sale,
+            regime,
+            dataclasses.replace(common, canonical_loss=0.0),
+        )
         for label, regime in regimes.items()
     }
 
@@ -293,6 +324,7 @@ def main() -> None:
     )
     print("\nIllustrative warehouse assumptions")
     print(f"  DEX execution loss ceiling : {args.dex_execution_loss:.2%}")
+    print(f"  DEX market discount        : {args.dex_market_discount:.2%}")
     print(
         f"  instant DEX capacity       : quiet {_fmt(quiet_capacity)} | "
         f"stressed {_fmt(stressed_capacity)}"
@@ -324,7 +356,10 @@ def main() -> None:
         f"{args.hedge_carry_annual_rate:.1%}"
     )
 
-    print("\nProfit after hurdle by residual basis loss")
+    print(
+        "\nProfit after hurdle by canonical recovery loss "
+        f"(DEX market discount fixed at {args.dex_market_discount:.1%})"
+    )
     display_labels = {
         "quiet DEX": "quiet DEX",
         "stressed DEX": "stress DEX",
@@ -337,36 +372,47 @@ def main() -> None:
         "quiet + redemption": 12,
         "stressed + redemption": 13,
     }
-    header = f"{'basis':>7} | " + " | ".join(
+    header = f"{'canon.':>7} | " + " | ".join(
         f"{display_labels[label]:>{widths[label]}}" for label in regimes
     )
     print(header)
     print("-" * len(header))
-    for basis_loss in args.basis_losses:
+    for canonical_loss in args.canonical_losses:
         def profit_label(value):
             return "not cleared" if value is None else _fmt(value)
         values = [
-            sweep[basis_loss][label]["result"].economic_profit_usd
+            sweep[canonical_loss][label]["result"].economic_profit_usd
             for label in regimes
         ]
         print(
-            f"{basis_loss:>6.1%} | "
+            f"{canonical_loss:>6.1%} | "
             + " | ".join(
                 f"{profit_label(value):>{widths[label]}}"
                 for label, value in zip(regimes, values)
             )
         )
 
-    print("\nCurrent-bonus residual-basis threshold")
-    for label, value in basis_thresholds.items():
-        rendered = "not profitable at zero basis loss" if value is None else f"{value:.2%}"
-        print(f"  {label:<9}: {rendered}")
+    print(
+        "\nCurrent-bonus canonical-loss threshold "
+        f"(DEX market discount fixed at {args.dex_market_discount:.1%})"
+    )
+    for label, value in canonical_thresholds.items():
+        print(f"  {label:<23}: {_threshold_label(value)}")
 
-    reference_basis = min(args.basis_losses, key=lambda value: abs(value - 0.04))
-    print(f"\nWarehouse balance sheet at {reference_basis:.1%} residual basis loss")
+    print("\nCurrent-bonus DEX-discount threshold at zero canonical loss")
+    for label, value in dex_discount_thresholds.items():
+        print(f"  {label:<23}: {_threshold_label(value)}")
+
+    reference_loss = min(
+        args.canonical_losses, key=lambda value: abs(value - 0.04)
+    )
+    print(
+        f"\nWarehouse balance sheet at {reference_loss:.1%} canonical loss "
+        f"and {args.dex_market_discount:.1%} DEX market discount"
+    )
     for label in regimes:
-        result = sweep[reference_basis][label]["result"]
-        required = sweep[reference_basis][label]["minimum_bonus"]
+        result = sweep[reference_loss][label]["result"]
+        required = sweep[reference_loss][label]["minimum_bonus"]
         required_label = "n/a" if required is None else f"{required:.2%}"
         print(
             f"  {label:<23}: clear {_time_label(result.time_to_clear_hours)} | "
@@ -375,10 +421,13 @@ def main() -> None:
             f"economic profit {_fmt(result.economic_profit_usd or 0.0)} | "
             f"ROI {(result.economic_roi or 0.0):.2%} | min bonus {required_label}"
         )
-    print(f"\nEconomic-clearance decision at {reference_basis:.1%} residual basis loss")
+    print(
+        f"\nEconomic-clearance decision at {reference_loss:.1%} canonical loss "
+        f"and {args.dex_market_discount:.1%} DEX market discount"
+    )
     for label in regimes:
-        result = sweep[reference_basis][label]["result"]
-        required = sweep[reference_basis][label]["minimum_bonus"]
+        result = sweep[reference_loss][label]["result"]
+        required = sweep[reference_loss][label]["minimum_bonus"]
         if required is None:
             decision = "FAIL | minimum bonus not found within search range"
         else:
@@ -390,8 +439,8 @@ def main() -> None:
             )
         print(f"  {label:<23}: {decision}")
     print(
-        "  note: ETH/USD is assumed hedged. The basis loss is residual "
-        "wstETH/ETH or canonical-rate risk."
+        "  note: ETH/USD is assumed hedged. Canonical loss applies to both "
+        "routes; DEX market discount applies only to DEX exits."
     )
     print(
         "  note: this is a full upfront warehouse strategy, not evidence "
@@ -416,8 +465,8 @@ def main() -> None:
 
     economic_profit = {
         label: [
-            sweep[basis][label]["result"].economic_profit_usd
-            for basis in args.basis_losses
+            sweep[loss][label]["result"].economic_profit_usd
+            for loss in args.canonical_losses
         ]
         for label in regimes
     }
@@ -425,16 +474,16 @@ def main() -> None:
         label: [
             (
                 np.nan
-                if sweep[basis][label]["minimum_bonus"] is None
-                else sweep[basis][label]["minimum_bonus"]
+                if sweep[loss][label]["minimum_bonus"] is None
+                else sweep[loss][label]["minimum_bonus"]
             )
-            for basis in args.basis_losses
+            for loss in args.canonical_losses
         ]
         for label in regimes
     }
     if args.figure is not None:
         fig = plotting.plot_liquidator_balance_sheet_sensitivity(
-            list(args.basis_losses),
+            list(args.canonical_losses),
             economic_profit,
             required_bonus,
             bonus,
@@ -451,7 +500,7 @@ def main() -> None:
 
     if args.manifest:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "command": [
                 "python",
@@ -490,20 +539,25 @@ def main() -> None:
             "regimes": {
                 label: dataclasses.asdict(value) for label, value in regimes.items()
             },
-            "basis_sweep": {
-                f"{basis:.6f}": {
+            "canonical_loss_sweep": {
+                f"{loss:.6f}": {
                     label: {
                         "result": _result_payload(values["result"]),
                         "minimum_bonus": values["minimum_bonus"],
                     }
-                    for label, values in regimes_at_basis.items()
+                    for label, values in regimes_at_loss.items()
                 }
-                for basis, regimes_at_basis in sweep.items()
+                for loss, regimes_at_loss in sweep.items()
             },
-            "break_even_basis_loss": basis_thresholds,
+            "break_even_canonical_loss": canonical_thresholds,
+            "break_even_dex_market_discount_at_zero_canonical_loss": (
+                dex_discount_thresholds
+            ),
             "notes": [
                 "All capacity and cost inputs are explicit sensitivities.",
-                "ETH/USD is assumed hedged; basis loss is residual wstETH/ETH risk.",
+                "ETH/USD is assumed hedged.",
+                "Canonical loss affects DEX and redemption recovery.",
+                "DEX market discount affects only DEX recovery.",
                 "The strategy repays the full selected debt at time zero.",
                 "Available capacity is used immediately; routes are not optimized for profit.",
                 "V3 close factors may split the selected repayment across transactions.",

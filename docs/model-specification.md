@@ -461,17 +461,28 @@ and exits it through the DEX and primary-redemption capacity paths. This is a
 full-upfront, capacity-first strategy. It does not assume that the seized
 collateral must be sold atomically with the liquidation.
 
-For tranche $q_k$ assigned to route $j$, residual basis loss $\beta$, and
-route execution or recovery loss $e_j$, realized cash is
+For DEX tranche $q_k^{DEX}$, canonical/oracle-to-recovery loss $c$, secondary
+market discount $m$, and DEX execution loss $e_{DEX}$, realized cash is
 
 $$
-X_k=q_k(1-\beta)(1-e_j).
+X_k^{DEX}=q_k^{DEX}(1-c)(1-m)(1-e_{DEX}).
 $$
 
-The ETH/USD exposure is assumed hedged. Therefore $\beta$ is the residual
-wstETH/ETH, canonical-rate, or oracle-to-recovery basis, not another ETH/USD
-shock. DEX and redemption capacities are tracked separately, but each unit of
-collateral can be assigned to only one route.
+For a primary-redemption tranche $q_k^{red}$ with route recovery loss
+$e_{red}$,
+
+$$
+X_k^{red}=q_k^{red}(1-c)(1-e_{red}).
+$$
+
+The ETH/USD exposure is assumed hedged. Canonical loss $c$ is an impairment
+between liquidation valuation and final canonical recovery, so it affects
+both routes. Market discount $m$ is specific to secondary DEX execution and
+does not reduce primary-redemption recovery. DEX and redemption capacities
+are tracked separately, but each unit of collateral can be assigned to only
+one route. Market discount $m$ must be incremental to the price impact already
+represented by $e_{DEX}$; using the same quote to calibrate both would double
+count the DEX loss.
 
 Let $h_0$ be the hedge-entry cost fraction, $F$ fixed costs, $r_f$ the annual
 funding rate, $r_h$ annual hedge carry, $U_k$ unresolved collateral, and
@@ -512,9 +523,10 @@ charge, although only funding enters the cash balance and the hurdle remains a
 required-return deduction.
 
 Economic clearance passes when all collateral exits within the configured
-maximum horizon and $\Pi_{econ}\ge0$. The minimum-bonus and break-even-basis
-outputs numerically solve this same condition. When funding, hedge, hurdle,
-and basis costs are zero and exit is instant, it reduces to the original
+maximum horizon and $\Pi_{econ}\ge0$. The minimum-bonus, break-even canonical
+loss, and break-even DEX-market-discount outputs numerically solve this same
+condition. When funding, hedge, hurdle, and recovery costs are zero and exit
+is instant, it reduces to the original
 condition
 
 $$

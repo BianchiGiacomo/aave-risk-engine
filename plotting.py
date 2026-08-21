@@ -195,14 +195,14 @@ def plot_time_to_exit_capacity(
 
 
 def plot_liquidator_balance_sheet_sensitivity(
-    basis_losses: list[float],
+    canonical_losses: list[float],
     economic_profit: dict[str, list[float]],
     required_bonus: dict[str, list[float]],
     current_bonus: float,
-    title: str = "Liquidator economics under residual basis risk",
+    title: str = "Liquidator economics under canonical recovery risk",
 ):
-    """Plot economic profit and required bonus across residual basis loss."""
-    x = 100.0 * np.asarray(basis_losses, dtype=float)
+    """Plot economic profit and required bonus across canonical impairment."""
+    x = 100.0 * np.asarray(canonical_losses, dtype=float)
     styles = {
         "quiet DEX": ("steelblue", ":"),
         "stressed DEX": ("crimson", ":"),
@@ -245,7 +245,7 @@ def plot_liquidator_balance_sheet_sensitivity(
         linestyle=":",
         label=f"current bonus ({100.0 * current_bonus:.2f}%)",
     )
-    bonus_ax.set_xlabel("residual wstETH/ETH basis loss (%)")
+    bonus_ax.set_xlabel("canonical/oracle-to-recovery loss (%)")
     bonus_ax.set_ylabel("minimum bonus (%)")
     bonus_ax.grid(alpha=0.3)
     bonus_ax.legend()

@@ -45,6 +45,7 @@ _MARKETS = {
         ),
         "ladder_usd": (25e3, 100e3, 500e3, 2e6, 8e6, 25e6),
         "budget": 5_000_000.0,
+        "supports_redemption": True,
     },
     "Aave V3 Linea: WETH reserve": {
         "path": os.path.join(_PACKAGE_DIR, "data", "snapshots", "aave_v3_linea_weth.json"),
@@ -56,6 +57,7 @@ _MARKETS = {
         ),
         "ladder_usd": (5e3, 15e3, 41e3, 100e3, 300e3, 1e6),
         "budget": 500_000.0,
+        "supports_redemption": False,
     },
 }
 _LIVE_REFRESH_TIMEOUT_S = 900
@@ -636,8 +638,9 @@ def _sensitivities_tab(
         )
 
 
-def _clearance_extension_inputs(snapshot) -> tuple[ClearanceExtensionInputs, bool]:
-    is_wsteth = snapshot.reserve.symbol.lower() == "wsteth"
+def _clearance_extension_inputs(
+    supports_redemption: bool,
+) -> tuple[ClearanceExtensionInputs, bool]:
     with st.form("clearance_extension_form"):
         with st.expander("Exit and liquidator assumptions", expanded=False):
             horizon_controls = st.columns(4)
@@ -673,7 +676,7 @@ def _clearance_extension_inputs(snapshot) -> tuple[ClearanceExtensionInputs, boo
                 / 100.0
             )
 
-            if is_wsteth:
+            if supports_redemption:
                 redemption_controls = st.columns(3)
                 quiet_redemption = float(
                     redemption_controls[0].number_input(
@@ -751,7 +754,7 @@ def _clearance_extension_inputs(snapshot) -> tuple[ClearanceExtensionInputs, boo
                     max_value=99.0,
                     value=0.0,
                     step=0.25,
-                    disabled=not is_wsteth,
+                    disabled=not supports_redemption,
                 )
                 / 100.0
             )
@@ -872,6 +875,7 @@ def _clearance_extension_section(
     base_context: str,
     min_target_share: float,
     strict_passes: bool,
+    supports_redemption: bool,
 ) -> None:
     st.divider()
     st.subheader("Horizon and economic clearance")
@@ -880,7 +884,7 @@ def _clearance_extension_section(
         "largest sale under explicit DEX refill, redemption, capital, and recovery "
         "assumptions. These inputs are sensitivities, not measured liquidator terms."
     )
-    inputs, submitted = _clearance_extension_inputs(snapshot)
+    inputs, submitted = _clearance_extension_inputs(supports_redemption)
     context_key = (
         f"{base_context}|{inputs!r}|{_CLEARANCE_EXTENSION_VERSION}"
     )
@@ -1049,6 +1053,7 @@ def _clearance_tab(
     payload: str,
     base_context: str,
     min_target_share: float,
+    supports_redemption: bool,
 ) -> None:
     clearance = analysis["clearance"]
     if clearance is None:
@@ -1121,9 +1126,9 @@ def _clearance_tab(
     else:
         st.error("ARFC largest-borrower clearance: FAIL at quiet depth")
     st.plotly_chart(charts.empirical_depth_fig(snapshot, clearance), width="stretch")
-    if snapshot.reserve.symbol.lower() == "wsteth":
+    if supports_redemption:
         st.caption(
-            "Strict instant routed depth does not credit the wstETH redemption queue or CEX liquidity."
+            "Strict instant routed depth does not credit primary redemption or CEX liquidity."
         )
     _clearance_extension_section(
         snapshot,
@@ -1131,6 +1136,7 @@ def _clearance_tab(
         base_context,
         min_target_share,
         clearance.passes_quiet,
+        supports_redemption,
     )
 
 
@@ -1519,7 +1525,14 @@ def main() -> None:
             True,
         )
     with tabs[2]:
-        _clearance_tab(analysis, snapshot, payload, context, share)
+        _clearance_tab(
+            analysis,
+            snapshot,
+            payload,
+            context,
+            share,
+            market["supports_redemption"],
+        )
     with tabs[3]:
         _v4_tab(payload, context, scope, share, scenarios, seed)
     with tabs[4]:

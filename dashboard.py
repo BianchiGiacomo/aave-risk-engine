@@ -18,7 +18,9 @@ import streamlit as st
 
 from aave_risk_engine import dashboard_charts as charts
 from aave_risk_engine.dashboard_analysis import (
+    ClearanceExtensionInputs,
     account_rows,
+    run_clearance_extension,
     run_episode_analysis,
     run_liquidation_threshold_sensitivity,
     run_market_analysis,
@@ -59,6 +61,7 @@ _MARKETS = {
 _LIVE_REFRESH_TIMEOUT_S = 900
 _V4_MODEL_VERSION = "spoke-severity-v2"
 _MULTIPERIOD_MODEL_VERSION = "ou-peg-v3"
+_CLEARANCE_EXTENSION_VERSION = "route-optimizer-v1"
 
 
 def _fmt_usd(value: float | None) -> str:
@@ -68,6 +71,14 @@ def _fmt_usd(value: float | None) -> str:
         if abs(value) >= divisor:
             return f"${value / divisor:,.2f}{unit}"
     return f"${value:,.0f}"
+
+
+def _fmt_duration(hours: float | None) -> str:
+    if hours is None:
+        return "not clearable"
+    if hours < 24.0:
+        return f"{hours:.1f}h"
+    return f"{hours / 24.0:.2f}d"
 
 
 def _snapshot_date(snapshot) -> str:
@@ -219,6 +230,19 @@ def _cached_multiperiod_analysis(
         total_days,
         replenish,
         peg_mean_reversion_speed,
+    )
+
+
+@st.cache_resource(show_spinner=False)
+def _cached_clearance_extension(
+    payload: str,
+    min_target_share: float,
+    inputs: ClearanceExtensionInputs,
+    model_version: str,
+):
+    del model_version  # Included in the Streamlit cache key.
+    return run_clearance_extension(
+        snapshot_from_json(payload), min_target_share, inputs
     )
 
 
@@ -612,11 +636,425 @@ def _sensitivities_tab(
         )
 
 
-def _clearance_tab(analysis, snapshot) -> None:
+def _clearance_extension_inputs(snapshot) -> tuple[ClearanceExtensionInputs, bool]:
+    is_wsteth = snapshot.reserve.symbol.lower() == "wsteth"
+    with st.form("clearance_extension_form"):
+        with st.expander("Exit and liquidator assumptions", expanded=False):
+            horizon_controls = st.columns(4)
+            decision_horizon = float(
+                horizon_controls[0].select_slider(
+                    "Decision horizon (days)",
+                    options=[1, 3, 7, 14, 30, 60, 90],
+                    value=7,
+                )
+            )
+            quiet_refill = float(
+                horizon_controls[1].number_input(
+                    "Quiet DEX refill (hours)",
+                    min_value=0.5,
+                    max_value=168.0,
+                    value=6.0,
+                    step=0.5,
+                )
+            )
+            stressed_refill = float(
+                horizon_controls[2].number_input(
+                    "Stressed DEX refill (hours)",
+                    min_value=0.5,
+                    max_value=720.0,
+                    value=24.0,
+                    step=1.0,
+                )
+            )
+            depth_haircut = float(
+                horizon_controls[3].slider(
+                    "Stressed depth haircut (%)", 0, 95, 50, 5
+                )
+                / 100.0
+            )
+
+            if is_wsteth:
+                redemption_controls = st.columns(3)
+                quiet_redemption = float(
+                    redemption_controls[0].number_input(
+                        "Quiet redemption ($m/day)",
+                        min_value=0.0,
+                        max_value=500.0,
+                        value=25.0,
+                        step=2.5,
+                    )
+                    * 1e6
+                )
+                stressed_redemption = float(
+                    redemption_controls[1].number_input(
+                        "Stressed redemption ($m/day)",
+                        min_value=0.0,
+                        max_value=500.0,
+                        value=25.0,
+                        step=2.5,
+                    )
+                    * 1e6
+                )
+                redemption_delay = float(
+                    redemption_controls[2].number_input(
+                        "Redemption delay (hours)",
+                        min_value=0.0,
+                        max_value=720.0,
+                        value=24.0,
+                        step=1.0,
+                    )
+                )
+            else:
+                quiet_redemption = 0.0
+                stressed_redemption = 0.0
+                redemption_delay = 0.0
+                st.caption(
+                    "Primary redemption is not modeled for the selected WETH reserve; "
+                    "the extension remains DEX-only."
+                )
+
+            loss_controls = st.columns(4)
+            canonical_loss = float(
+                loss_controls[0].number_input(
+                    "Canonical recovery loss (%)",
+                    min_value=0.0,
+                    max_value=99.0,
+                    value=4.0,
+                    step=0.5,
+                )
+                / 100.0
+            )
+            dex_market_discount = float(
+                loss_controls[1].number_input(
+                    "Additional DEX discount (%)",
+                    min_value=0.0,
+                    max_value=99.0,
+                    value=0.0,
+                    step=0.5,
+                )
+                / 100.0
+            )
+            dex_execution_loss = float(
+                loss_controls[2].number_input(
+                    "DEX execution-loss ceiling (%)",
+                    min_value=0.01,
+                    max_value=99.0,
+                    value=1.0,
+                    step=0.25,
+                )
+                / 100.0
+            )
+            redemption_loss = float(
+                loss_controls[3].number_input(
+                    "Redemption loss (%)",
+                    min_value=0.0,
+                    max_value=99.0,
+                    value=0.0,
+                    step=0.25,
+                    disabled=not is_wsteth,
+                )
+                / 100.0
+            )
+
+            capital_controls = st.columns(4)
+            funding = float(
+                capital_controls[0].number_input(
+                    "Funding annual rate (%)",
+                    min_value=0.0,
+                    max_value=200.0,
+                    value=10.0,
+                    step=1.0,
+                )
+                / 100.0
+            )
+            hurdle = float(
+                capital_controls[1].number_input(
+                    "Capital hurdle annual (%)",
+                    min_value=0.0,
+                    max_value=200.0,
+                    value=10.0,
+                    step=1.0,
+                )
+                / 100.0
+            )
+            hedge_entry = float(
+                capital_controls[2].number_input(
+                    "Hedge entry cost (%)",
+                    min_value=0.0,
+                    max_value=20.0,
+                    value=0.10,
+                    step=0.05,
+                )
+                / 100.0
+            )
+            hedge_carry = float(
+                capital_controls[3].number_input(
+                    "Hedge carry annual (%)",
+                    min_value=0.0,
+                    max_value=200.0,
+                    value=2.0,
+                    step=0.5,
+                )
+                / 100.0
+            )
+
+            final_controls = st.columns(4)
+            stalled_drawdown = float(
+                final_controls[0].number_input(
+                    "Unresolved drawdown (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=10.0,
+                    step=1.0,
+                )
+                / 100.0
+            )
+            max_horizon = float(
+                final_controls[1].number_input(
+                    "Maximum warehouse horizon (days)",
+                    min_value=1.0,
+                    max_value=730.0,
+                    value=365.0,
+                    step=1.0,
+                )
+            )
+            route_label = final_controls[2].selectbox(
+                "Route allocation",
+                ["Profit maximizing", "Capacity first"],
+                help=(
+                    "Profit maximizing selects one total route split. Capacity first "
+                    "uses available routes immediately as a benchmark."
+                ),
+            )
+            final_controls[3].metric(
+                "Funding + hurdle",
+                f"{funding + hurdle:.1%}",
+                help="Both rates accrue on the same capital-days base.",
+            )
+
+        submitted = st.form_submit_button(
+            "Run horizon and economic clearance",
+            type="primary",
+        )
+
+    return (
+        ClearanceExtensionInputs(
+            decision_horizon_days=decision_horizon,
+            stress_depth_haircut=depth_haircut,
+            quiet_refill_hours=quiet_refill,
+            stressed_refill_hours=stressed_refill,
+            quiet_redemption_usd_per_day=quiet_redemption,
+            stressed_redemption_usd_per_day=stressed_redemption,
+            redemption_delay_hours=redemption_delay,
+            stalled_drawdown=stalled_drawdown,
+            funding_annual_rate=funding,
+            hurdle_annual_rate=hurdle,
+            hedge_entry_cost=hedge_entry,
+            hedge_carry_annual_rate=hedge_carry,
+            dex_execution_loss=dex_execution_loss,
+            redemption_loss=redemption_loss,
+            canonical_loss=canonical_loss,
+            dex_market_discount=dex_market_discount,
+            route_strategy=(
+                "profit_maximizing"
+                if route_label == "Profit maximizing"
+                else "capacity_first"
+            ),
+            max_horizon_days=max_horizon,
+        ),
+        submitted,
+    )
+
+
+def _clearance_extension_section(
+    snapshot,
+    payload: str,
+    base_context: str,
+    min_target_share: float,
+    strict_passes: bool,
+) -> None:
+    st.divider()
+    st.subheader("Horizon and economic clearance")
+    st.caption(
+        "This extension preserves the strict instant verdict and evaluates the same "
+        "largest sale under explicit DEX refill, redemption, capital, and recovery "
+        "assumptions. These inputs are sensitivities, not measured liquidator terms."
+    )
+    inputs, submitted = _clearance_extension_inputs(snapshot)
+    context_key = (
+        f"{base_context}|{inputs!r}|{_CLEARANCE_EXTENSION_VERSION}"
+    )
+    state_key = "dashboard_clearance_extension"
+    if submitted:
+        with st.spinner("Evaluating exit capacity and liquidator economics..."):
+            st.session_state[state_key] = (
+                context_key,
+                _cached_clearance_extension(
+                    payload,
+                    min_target_share,
+                    inputs,
+                    _CLEARANCE_EXTENSION_VERSION,
+                ),
+            )
+    stored = st.session_state.get(state_key)
+    if not stored or stored[0] != context_key:
+        st.info(
+            "The strict instant result above is active. The horizon extension runs "
+            "only when its explicit assumptions are submitted."
+        )
+        return
+
+    extension = stored[1]
+    preferred = (
+        "Quiet + redemption"
+        if "Quiet + redemption" in extension["time_curves"]
+        else "Quiet DEX"
+    )
+    horizon_row = next(
+        row for row in extension["horizon_rows"] if row["Regime"] == preferred
+    )
+    economic_row = next(
+        row for row in extension["economic_rows"] if row["Regime"] == preferred
+    )
+    result = economic_row["Result"]
+    minimum_bonus = economic_row["Minimum bonus"]
+    metrics = st.columns(4)
+    metrics[0].metric("Strict instant ARFC", "PASS" if strict_passes else "FAIL")
+    metrics[1].metric(
+        f"{inputs.decision_horizon_days:g}d capacity test",
+        "PASS" if horizon_row["Pass by horizon"] else "FAIL",
+        delta=(
+            "sale cleared"
+            if horizon_row["Pass by horizon"]
+            else f"{_fmt_usd(horizon_row['Unresolved sale'])} unresolved"
+        ),
+        delta_color="off",
+    )
+    metrics[2].metric(
+        "Estimated full exit",
+        _fmt_duration(result.time_to_clear_hours),
+        delta=preferred,
+        delta_color="off",
+    )
+    metrics[3].metric(
+        "Economic clearance",
+        "PASS" if result.economic_clearance_pass else "FAIL",
+        delta=(
+            "minimum bonus n/a"
+            if minimum_bonus is None
+            else f"minimum bonus {minimum_bonus:.2%}"
+        ),
+        delta_color="off",
+    )
+
+    if not strict_passes and result.economic_clearance_pass:
+        st.warning(
+            "Strict instant clearance remains FAIL. Economic clearance is a "
+            "conditional PASS only under the selected future-capacity and cost "
+            "assumptions; the two tests answer different questions."
+        )
+    elif not result.economic_clearance_pass:
+        st.error(
+            "The selected exit route does not recover funding, hedge, and required "
+            "return costs within the current liquidation bonus."
+        )
+
+    if (
+        result.redemption_exit_usd > 0.0
+        and result.dex_exit_usd <= max(1.0, extension["sale_usd"] * 1e-9)
+    ):
+        st.info(
+            "The selected route assigns 100% of the sale to primary redemption. "
+            "DEX depth therefore does not affect this blended row; the result is "
+            "controlled by the assumed redemption throughput, delay, and loss."
+        )
+
+    horizon_tab, economics_tab = st.tabs(
+        ["Exit horizon", "Liquidator economics"]
+    )
+    with horizon_tab:
+        st.plotly_chart(charts.exit_capacity_fig(extension), width="stretch")
+        table = pd.DataFrame(extension["horizon_rows"]).copy()
+        for column in (
+            "Capacity at horizon",
+            "Unresolved sale",
+            "Conditional loss",
+        ):
+            table[column] = table[column].map(_fmt_usd)
+        table["Estimated clear time"] = table["Estimated clear time"].map(
+            _fmt_duration
+        )
+        table["Pass by horizon"] = table["Pass by horizon"].map(
+            lambda value: "PASS" if value else "FAIL"
+        )
+        st.dataframe(table, width="stretch", hide_index=True)
+        st.caption(
+            "Time-to-exit uses the strict ARFC instant batch at the bonus break-even "
+            "threshold. Conditional loss marks only the sale still unresolved at the "
+            "selected horizon under the unresolved-drawdown assumption."
+        )
+
+    with economics_tab:
+        chart_columns = st.columns(2)
+        with chart_columns[0]:
+            st.plotly_chart(
+                charts.route_allocation_fig(extension), width="stretch"
+            )
+        with chart_columns[1]:
+            st.plotly_chart(
+                charts.economic_clearance_fig(extension), width="stretch"
+            )
+        rows = []
+        for row in extension["economic_rows"]:
+            item = row["Result"]
+            rows.append(
+                {
+                    "Regime": row["Regime"],
+                    "Exit time": _fmt_duration(item.time_to_clear_hours),
+                    "DEX route": _fmt_usd(item.dex_exit_usd),
+                    "Redemption route": _fmt_usd(item.redemption_exit_usd),
+                    "Profit after hurdle": _fmt_usd(item.economic_profit_usd),
+                    "ROI": (
+                        "n/a" if item.economic_roi is None else f"{item.economic_roi:.2%}"
+                    ),
+                    "Minimum bonus": (
+                        "n/a"
+                        if row["Minimum bonus"] is None
+                        else f"{row['Minimum bonus']:.2%}"
+                    ),
+                    "Economic test": (
+                        "PASS" if item.economic_clearance_pass else "FAIL"
+                    ),
+                }
+            )
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+        st.caption(
+            f"The economic model limits each initial DEX batch to "
+            f"{inputs.dex_execution_loss:.2%} execution loss, giving "
+            f"{_fmt_usd(extension['economic_instant_capacity_usd'])} of quiet "
+            "instant capacity. This is intentionally stricter than the ARFC "
+            f"{extension['clearance'].breakeven_slippage:.2%} break-even ceiling."
+        )
+        st.caption(
+            "The warehouse assumes full debt repayment at time zero, sufficient "
+            "financing and hedge capacity, deterministic future capacity, and no "
+            "reserved redemption slot. Profit maximizing is a static route split, "
+            "not an adaptive execution policy."
+        )
+
+
+def _clearance_tab(
+    analysis,
+    snapshot,
+    payload: str,
+    base_context: str,
+    min_target_share: float,
+) -> None:
     clearance = analysis["clearance"]
     if clearance is None:
         st.warning("The active snapshot has no depth calibration.")
         return
+    st.subheader("Strict instant clearance")
     quiet_slippage = f"{clearance.slippage_quiet:.2%}"
     if clearance.slippage_quiet_is_lower_bound:
         quiet_slippage = f">= {quiet_slippage}"
@@ -664,7 +1102,7 @@ def _clearance_tab(analysis, snapshot) -> None:
         "strict test: without replenishment, later sales continue from the depth already "
         "consumed. Splitting helps only across time if liquidity replenishes, the peg or "
         "price recovers, or a liquidator holds or redeems the collateral. Those time-to-exit "
-        "channels are outside this instant-clearance test."
+        "channels are outside this strict test and are evaluated separately below."
     )
     if snapshot.depth.source.lower() == "paraswap":
         st.caption(
@@ -687,6 +1125,13 @@ def _clearance_tab(analysis, snapshot) -> None:
         st.caption(
             "Strict instant routed depth does not credit the wstETH redemption queue or CEX liquidity."
         )
+    _clearance_extension_section(
+        snapshot,
+        payload,
+        base_context,
+        min_target_share,
+        clearance.passes_quiet,
+    )
 
 
 def _v4_tab(payload: str, context_key: str, scope: str, share: float, n_scen: int, seed: int) -> None:
@@ -1074,7 +1519,7 @@ def main() -> None:
             True,
         )
     with tabs[2]:
-        _clearance_tab(analysis, snapshot)
+        _clearance_tab(analysis, snapshot, payload, context, share)
     with tabs[3]:
         _v4_tab(payload, context, scope, share, scenarios, seed)
     with tabs[4]:

@@ -5,7 +5,7 @@ the package works offline and deterministically.
 """
 
 from .book import build_real_book, scale_book
-from .clearance import ClearanceResult, arfc_clearance_test
+from .clearance import ClearanceResult, arfc_clearance_test, max_notional_at_slippage
 from .snapshot import (
     AccountRecord,
     BorrowerDiscovery,
@@ -32,6 +32,7 @@ __all__ = [
     "build_real_book",
     "default_snapshot_path",
     "load_snapshot",
+    "max_notional_at_slippage",
     "save_snapshot",
     "scale_book",
     "snapshot_from_json",

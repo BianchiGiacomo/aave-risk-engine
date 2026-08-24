@@ -404,6 +404,161 @@ def empirical_depth_fig(snapshot, clearance) -> go.Figure:
     return fig
 
 
+def exit_capacity_fig(extension: dict) -> go.Figure:
+    """Cumulative DEX and redemption capacity against the largest sale."""
+    styles = {
+        "Quiet DEX": (_BLUE, "dot"),
+        "Stressed DEX": (_RED, "dot"),
+        "Quiet + redemption": (_GREEN, "solid"),
+        "Stressed + redemption": ("#ff7f0e", "dash"),
+    }
+    fig = go.Figure()
+    for label, curve in extension["time_curves"].items():
+        color, dash = styles.get(label, (_BLUE, "solid"))
+        fig.add_trace(
+            go.Scatter(
+                x=[point.horizon_hours / 24.0 for point in curve.points],
+                y=[point.total_capacity_usd / 1e6 for point in curve.points],
+                mode="lines",
+                name=label,
+                line=dict(color=color, dash=dash, width=2.4),
+                hovertemplate=(
+                    "horizon: %{x:.2f}d<br>capacity: $%{y:,.2f}m"
+                    "<extra>%{fullData.name}</extra>"
+                ),
+            )
+        )
+    fig.add_hline(
+        y=extension["sale_usd"] / 1e6,
+        line=dict(color="#111111", width=1.4),
+        annotation_text=f"largest sale ({_fmt_usd(extension['sale_usd'])})",
+        annotation_position="top left",
+    )
+    horizon = extension["inputs"].decision_horizon_days
+    fig.update_layout(
+        title=f"Cumulative modeled exit capacity through {horizon:g} days",
+        xaxis_title="exit horizon (days)",
+        yaxis_title="cumulative capacity ($m)",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        hovermode="x unified",
+        margin=dict(l=45, r=20, t=85, b=50),
+    )
+    return fig
+
+
+def route_allocation_fig(extension: dict) -> go.Figure:
+    """Optimized or capacity-first allocation of seized collateral by route."""
+    rows = extension["economic_rows"]
+    labels = [row["Regime"] for row in rows]
+    dex = [row["Result"].dex_exit_usd / 1e6 for row in rows]
+    redemption = [row["Result"].redemption_exit_usd / 1e6 for row in rows]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            name="DEX",
+            x=labels,
+            y=dex,
+            marker_color=_BLUE,
+            text=[_fmt_usd(value * 1e6) if value > 0.0 else "" for value in dex],
+            textposition="inside",
+            hovertemplate="DEX: $%{y:,.2f}m<extra>%{x}</extra>",
+        )
+    )
+    if any(value > 0.0 for value in redemption):
+        fig.add_trace(
+            go.Bar(
+                name="Primary redemption",
+                x=labels,
+                y=redemption,
+                marker_color=_GREEN,
+                text=[
+                    _fmt_usd(value * 1e6) if value > 0.0 else ""
+                    for value in redemption
+                ],
+                textposition="inside",
+                hovertemplate="redemption: $%{y:,.2f}m<extra>%{x}</extra>",
+            )
+        )
+    fig.update_layout(
+        title="Selected exit-route allocation",
+        xaxis_title="",
+        yaxis_title="seized collateral ($m)",
+        barmode="stack",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(l=45, r=20, t=85, b=85),
+    )
+    return fig
+
+
+def economic_clearance_fig(extension: dict) -> go.Figure:
+    """Profit after hurdle and required bonus for each exit regime."""
+    rows = extension["economic_rows"]
+    labels = [row["Regime"] for row in rows]
+    profit = [
+        np.nan
+        if row["Result"].economic_profit_usd is None
+        else row["Result"].economic_profit_usd / 1e6
+        for row in rows
+    ]
+    minimum_bonus = [
+        np.nan if row["Minimum bonus"] is None else 100 * row["Minimum bonus"]
+        for row in rows
+    ]
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.20,
+        subplot_titles=("Profit after hurdle", "Minimum liquidation bonus"),
+    )
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=profit,
+            marker_color=[_GREEN if value >= 0.0 else _RED for value in profit],
+            text=["n/a" if np.isnan(value) else f"${value:,.2f}m" for value in profit],
+            textposition="outside",
+            hovertemplate="profit: $%{y:,.2f}m<extra>%{x}</extra>",
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_hline(y=0.0, line=dict(color="#111111"), row=1, col=1)
+    fig.add_trace(
+        go.Bar(
+            x=labels,
+            y=minimum_bonus,
+            marker_color=_BLUE,
+            text=[
+                "n/a" if np.isnan(value) else f"{value:.2f}%"
+                for value in minimum_bonus
+            ],
+            textposition="outside",
+            hovertemplate="minimum bonus: %{y:.2f}%<extra>%{x}</extra>",
+            showlegend=False,
+        ),
+        row=2,
+        col=1,
+    )
+    fig.add_hline(
+        y=100 * extension["current_bonus"],
+        line=dict(color="#111111", dash="dot"),
+        annotation_text=f"current {100 * extension['current_bonus']:.2f}%",
+        annotation_position="top left",
+        row=2,
+        col=1,
+    )
+    fig.update_yaxes(title_text="profit ($m)", row=1, col=1)
+    fig.update_yaxes(title_text="bonus (%)", row=2, col=1)
+    fig.update_layout(
+        title="Economic clearance by exit regime",
+        height=610,
+        margin=dict(l=45, r=20, t=100, b=100),
+    )
+    return fig
+
+
 def concentration_fig(rows: list[dict], limit: int = 10) -> go.Figure:
     top = rows[:limit][::-1]
     labels = [row["Account"][:8] + "..." + row["Account"][-4:] for row in top]

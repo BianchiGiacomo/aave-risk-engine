@@ -50,6 +50,29 @@ def max_clearable_notional(liquidity: float, price: float, bonus: float) -> floa
     return float(np.sqrt(price) * liquidity * bonus)
 
 
+def max_notional_at_slippage(
+    snapshot: MarketSnapshot, slippage_ceiling: float
+) -> float:
+    """Largest snapshot sale notional within an explicit slippage ceiling."""
+    if not 0.0 <= slippage_ceiling < 1.0:
+        raise ValueError("slippage ceiling must be in [0, 1)")
+    if snapshot.depth is None:
+        raise ValueError("snapshot has no depth calibration")
+    if snapshot.depth.points and len(snapshot.depth.points) >= 2:
+        return max_notional_within(snapshot.depth.points, slippage_ceiling)
+    liquidity = calibrate_liquidity(
+        snapshot.reserve.price_usd,
+        snapshot.depth.ref_notional_usd,
+        snapshot.depth.ref_slippage,
+    )
+    return float(
+        np.sqrt(snapshot.reserve.price_usd)
+        * liquidity
+        * slippage_ceiling
+        / (1.0 - slippage_ceiling)
+    )
+
+
 def arfc_clearance_test(
     snapshot: MarketSnapshot,
     stressed_haircut: float = 0.5,
@@ -100,7 +123,7 @@ def arfc_clearance_test(
         # by 1 / (1 - h), which matches the analytic curve's behaviour.
         s_quiet = float(empirical_slippage(largest, points))
         s_stressed = float(empirical_slippage(largest / (1.0 - stressed_haircut), points))
-        clearable_quiet = max_notional_within(points, breakeven)
+        clearable_quiet = max_notional_at_slippage(snapshot, breakeven)
         clearable_stressed = clearable_quiet * (1.0 - stressed_haircut)
         max_quoted = max(float(point[0]) for point in points)
         quiet_is_lower_bound = largest > max_quoted
@@ -112,7 +135,7 @@ def arfc_clearance_test(
         l_stressed = liquidity * (1.0 - stressed_haircut)
         s_quiet = float(slippage(largest, liquidity, price))
         s_stressed = float(slippage(largest, l_stressed, price))
-        clearable_quiet = max_clearable_notional(liquidity, price, bonus)
+        clearable_quiet = max_notional_at_slippage(snapshot, breakeven)
         clearable_stressed = max_clearable_notional(l_stressed, price, bonus)
         max_quoted = float("nan")
         quiet_is_lower_bound = False

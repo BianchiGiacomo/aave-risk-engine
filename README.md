@@ -161,7 +161,7 @@ Sidebar controls select:
 |---|---|
 | Overview | Reserve exposure, cap usage, tail decomposition, cap sweep, bad-debt distribution, and borrower concentration |
 | Sensitivities | Full scenario parameters, loss-driver scatter, empirical depth stress, and fixed-book LT transition or forced-migration sensitivity |
-| Clearance | Largest-borrower ARFC test, break-even capacity, quote-range warnings, and stressed clearable depth |
+| Clearance | Strict largest-borrower ARFC test plus explicit exit-horizon, redemption, route-allocation, and liquidator-economic sensitivities |
 | V3 / V4 | Matched V3, V4 Main, and V4 Correlated mechanics on the selected V3 book with ordered clearing |
 | Episodes | Historical ETH and peg paths replayed on the selected snapshot book; available for wstETH |
 | Multi-period | Matched terminal shocks versus evolving liquidation paths, with periods, horizon, replenishment, and peg half-life controls |
@@ -333,7 +333,7 @@ python -m aave_risk_engine.tests.test_time_to_exit
 python -m aave_risk_engine.tests.test_liquidator_balance_sheet
 ```
 
-The project contains 113 offline tests: 23 engine, 5 Hub, 48 data, 10
+The project contains 115 offline tests: 23 engine, 5 Hub, 50 data, 10
 multi-period, 8 time-to-exit, and 19 liquidator balance-sheet tests. GitHub
 Actions runs the same suites on Python 3.11 and 3.12.
 

@@ -11,16 +11,21 @@ import numpy as np
 
 from aave_risk_engine.config import RiskParams
 from aave_risk_engine.dashboard_charts import (
+    economic_clearance_fig,
     empirical_depth_fig,
     episode_loss_fig,
+    exit_capacity_fig,
     loss_distribution_fig,
     mechanics_cvar_fig,
     multiperiod_cvar_fig,
+    route_allocation_fig,
     scenario_scatter_fig,
     slippage_curve_fig,
 )
 from aave_risk_engine.dashboard_analysis import (
+    ClearanceExtensionInputs,
     account_rows,
+    run_clearance_extension,
     run_episode_analysis,
     run_liquidation_threshold_sensitivity,
     run_multiperiod_analysis,
@@ -1121,6 +1126,53 @@ def test_committed_snapshot_loads_offline():
     assert book.total_debt > 0
     res = arfc_clearance_test(snap)
     assert res.breakeven_slippage > 0
+
+
+def test_explicit_slippage_capacity_matches_arfc_break_even():
+    from aave_risk_engine.data import max_notional_at_slippage
+    from aave_risk_engine.data.snapshot import default_snapshot_path
+
+    path = default_snapshot_path()
+    if not os.path.exists(path):
+        print("  (skipped: no committed snapshot)")
+        return
+    snapshot = load_snapshot(path)
+    clearance = arfc_clearance_test(snapshot)
+    explicit = max_notional_at_slippage(
+        snapshot, clearance.breakeven_slippage
+    )
+    assert np.isclose(explicit, clearance.max_clearable_usd_quiet)
+
+
+def test_dashboard_clearance_extension_reproduces_release_routes():
+    from aave_risk_engine.data.snapshot import default_snapshot_path
+
+    path = default_snapshot_path()
+    if not os.path.exists(path):
+        print("  (skipped: no committed snapshot)")
+        return
+    snapshot = load_snapshot(path)
+    extension = run_clearance_extension(
+        snapshot,
+        0.5,
+        ClearanceExtensionInputs(),
+    )
+    horizon = {row["Regime"]: row for row in extension["horizon_rows"]}
+    economics = {row["Regime"]: row for row in extension["economic_rows"]}
+    optimized = economics["Quiet + redemption"]["Result"]
+    assert not extension["clearance"].passes_quiet
+    assert not horizon["Quiet + redemption"]["Pass by horizon"]
+    assert np.isclose(optimized.dex_exit_usd, 0.0)
+    assert np.isclose(optimized.redemption_exit_usd, extension["sale_usd"])
+    assert optimized.economic_clearance_pass
+    assert np.isclose(
+        economics["Quiet + redemption"]["Minimum bonus"],
+        0.0466,
+        atol=1e-4,
+    )
+    assert len(exit_capacity_fig(extension).data) == 4
+    assert len(route_allocation_fig(extension).data) == 2
+    assert len(economic_clearance_fig(extension).data) == 2
 
 
 def _run_all():

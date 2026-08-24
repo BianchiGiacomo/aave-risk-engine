@@ -35,8 +35,8 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_time_to_exit.py` | DEX refill, redemption, and required-throughput horizon report |
 | `run_liquidator_balance_sheet.py` | Liquidator funding, hedge, route, and required-bonus sensitivity report |
 | `dashboard.py` | Streamlit dashboard |
-| `dashboard_analysis.py` | Cached dashboard analysis adapters and table builders |
-| `dashboard_charts.py` | Plotly charts |
+| `dashboard_analysis.py` | Cached dashboard adapters for market, clearance-horizon, liquidator-economic, V4, episode, and multi-period analyses |
+| `dashboard_charts.py` | Plotly charts, including exit capacity and economic route allocation |
 | `plotting.py` | Reproducible Matplotlib report figures |
 | `run_demo.py` | Single-Spoke CLI demo |
 | `run_hub_demo.py` | Hub allocation CLI demo |
@@ -72,6 +72,8 @@ The tests check:
 - liquidator cash-flow conservation, funding-delay, route-allocation,
   profit-maximizing route selection, canonical-versus-DEX loss separation,
   break-even loss, and minimum-bonus invariants,
+- dashboard clearance-extension wiring across horizon, route, and economic
+  outputs,
 - Hub diversification,
 - correlation sensitivity,
 - deeper-liquidity allocation,

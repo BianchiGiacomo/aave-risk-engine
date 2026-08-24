@@ -27,7 +27,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from . import plotting
-from .data import arfc_clearance_test, default_snapshot_path, load_snapshot
+from .data import (
+    arfc_clearance_test,
+    default_snapshot_path,
+    load_snapshot,
+    max_notional_at_slippage,
+)
 from .liquidator_balance_sheet import (
     LiquidatorAssumptions,
     break_even_canonical_loss,
@@ -35,7 +40,6 @@ from .liquidator_balance_sheet import (
     minimum_liquidation_bonus,
     simulate_liquidator_balance_sheet,
 )
-from .slippage import calibrate_liquidity, max_notional_within
 from .time_to_exit import ExitAssumptions
 
 
@@ -95,24 +99,6 @@ def _write_json(path: str, payload: dict) -> str:
         json.dump(payload, fh, indent=2, allow_nan=False)
         fh.write("\n")
     return absolute_path
-
-
-def _instant_capacity(snapshot, execution_loss: float) -> float:
-    if snapshot.depth is None:
-        raise ValueError("snapshot has no depth calibration")
-    if snapshot.depth.points and len(snapshot.depth.points) >= 2:
-        return max_notional_within(snapshot.depth.points, execution_loss)
-    liquidity = calibrate_liquidity(
-        snapshot.reserve.price_usd,
-        snapshot.depth.ref_notional_usd,
-        snapshot.depth.ref_slippage,
-    )
-    return float(
-        np.sqrt(snapshot.reserve.price_usd)
-        * liquidity
-        * execution_loss
-        / (1.0 - execution_loss)
-    )
 
 
 def _result_payload(result) -> dict:
@@ -239,7 +225,9 @@ def main() -> None:
     sale = clearance.largest_borrower_usd
     bonus = snapshot.reserve.liquidation_bonus
     debt = sale / (1.0 + bonus)
-    quiet_capacity = _instant_capacity(snapshot, args.dex_execution_loss)
+    quiet_capacity = max_notional_at_slippage(
+        snapshot, args.dex_execution_loss
+    )
     stressed_capacity = quiet_capacity * (1.0 - args.stress_depth_haircut)
     stressed_redemption_usd_per_day = (
         args.redemption_usd_per_day

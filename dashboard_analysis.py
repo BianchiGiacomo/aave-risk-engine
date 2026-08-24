@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from .config import SimConfig, V4Liquidation
-from .data import arfc_clearance_test, build_real_book
+from .data import (
+    arfc_clearance_test,
+    build_real_book,
+    max_notional_at_slippage,
+)
 from .data.book import scenario_config_from_snapshot
 from .data.episodes import (
     EPISODES,
@@ -18,11 +22,191 @@ from .data.episodes import (
     rolling_windows,
 )
 from .engine import RiskEngine, evaluate_book
+from .liquidator_balance_sheet import (
+    LiquidatorAssumptions,
+    minimum_liquidation_bonus,
+    simulate_liquidator_balance_sheet,
+)
 from .multiperiod import (
     sample_stress_paths,
     simulate_multi_period,
     terminal_scenarios_from_paths,
 )
+from .time_to_exit import ExitAssumptions, build_exit_curve
+
+
+@dataclass(frozen=True)
+class ClearanceExtensionInputs:
+    """Explicit dashboard sensitivities for delayed liquidation recovery."""
+
+    decision_horizon_days: float = 7.0
+    stress_depth_haircut: float = 0.50
+    quiet_refill_hours: float = 6.0
+    stressed_refill_hours: float = 24.0
+    quiet_redemption_usd_per_day: float = 25_000_000.0
+    stressed_redemption_usd_per_day: float = 25_000_000.0
+    redemption_delay_hours: float = 24.0
+    stalled_drawdown: float = 0.10
+    funding_annual_rate: float = 0.10
+    hurdle_annual_rate: float = 0.10
+    hedge_entry_cost: float = 0.001
+    hedge_carry_annual_rate: float = 0.02
+    dex_execution_loss: float = 0.01
+    redemption_loss: float = 0.0
+    canonical_loss: float = 0.04
+    dex_market_discount: float = 0.0
+    route_strategy: str = "profit_maximizing"
+    max_horizon_days: float = 365.0
+
+    def __post_init__(self) -> None:
+        if self.decision_horizon_days <= 0.0:
+            raise ValueError("decision horizon must be positive")
+        if self.quiet_refill_hours <= 0.0 or self.stressed_refill_hours <= 0.0:
+            raise ValueError("DEX refill hours must be positive")
+        if not 0.0 <= self.stress_depth_haircut < 1.0:
+            raise ValueError("stress depth haircut must be in [0, 1)")
+        if self.quiet_redemption_usd_per_day < 0.0:
+            raise ValueError("quiet redemption throughput must be non-negative")
+        if self.stressed_redemption_usd_per_day < 0.0:
+            raise ValueError("stressed redemption throughput must be non-negative")
+        if self.redemption_delay_hours < 0.0:
+            raise ValueError("redemption delay must be non-negative")
+        if self.max_horizon_days <= 0.0:
+            raise ValueError("maximum horizon must be positive")
+
+
+def run_clearance_extension(
+    snapshot,
+    min_target_share: float,
+    inputs: ClearanceExtensionInputs,
+) -> dict:
+    """Evaluate horizon capacity and liquidator economics on one largest sale."""
+    clearance = arfc_clearance_test(
+        snapshot,
+        stressed_haircut=inputs.stress_depth_haircut,
+        min_target_share=min_target_share,
+    )
+    sale = clearance.largest_borrower_usd
+    bonus = snapshot.reserve.liquidation_bonus
+    debt = sale / (1.0 + bonus)
+    strict_quiet_capacity = clearance.max_clearable_usd_quiet
+    strict_stressed_capacity = clearance.max_clearable_usd_stressed
+    economic_quiet_capacity = max_notional_at_slippage(
+        snapshot, inputs.dex_execution_loss
+    )
+    economic_stressed_capacity = (
+        economic_quiet_capacity * (1.0 - inputs.stress_depth_haircut)
+    )
+
+    def regimes(quiet_capacity: float, stressed_capacity: float) -> dict:
+        values = {
+            "Quiet DEX": ExitAssumptions(
+                quiet_capacity,
+                inputs.quiet_refill_hours,
+                stalled_drawdown=inputs.stalled_drawdown,
+            ),
+            "Stressed DEX": ExitAssumptions(
+                stressed_capacity,
+                inputs.stressed_refill_hours,
+                stalled_drawdown=inputs.stalled_drawdown,
+            ),
+        }
+        if inputs.quiet_redemption_usd_per_day > 0.0:
+            values["Quiet + redemption"] = ExitAssumptions(
+                quiet_capacity,
+                inputs.quiet_refill_hours,
+                inputs.quiet_redemption_usd_per_day,
+                inputs.redemption_delay_hours,
+                inputs.stalled_drawdown,
+            )
+        if inputs.stressed_redemption_usd_per_day > 0.0:
+            values["Stressed + redemption"] = ExitAssumptions(
+                stressed_capacity,
+                inputs.stressed_refill_hours,
+                inputs.stressed_redemption_usd_per_day,
+                inputs.redemption_delay_hours,
+                inputs.stalled_drawdown,
+            )
+        return values
+
+    horizon_hours = 24.0 * inputs.decision_horizon_days
+    grid = set(float(value) for value in np.linspace(0.0, horizon_hours, 25))
+    grid.update(
+        value
+        for value in (0.0, 1.0, 6.0, 24.0, 72.0, 168.0, horizon_hours)
+        if value <= horizon_hours
+    )
+    plot_horizons = tuple(sorted(grid))
+    time_curves = {}
+    horizon_rows = []
+    for label, assumptions in regimes(
+        strict_quiet_capacity, strict_stressed_capacity
+    ).items():
+        curve = build_exit_curve(
+            sale,
+            bonus,
+            assumptions,
+            plot_horizons,
+        )
+        time_curves[label] = curve
+        point = curve.points[-1]
+        horizon_rows.append(
+            {
+                "Regime": label,
+                "Capacity at horizon": point.total_capacity_usd,
+                "Unresolved sale": point.unresolved_sale_usd,
+                "Conditional loss": point.conditional_bad_debt_usd,
+                "Estimated clear time": curve.time_to_clear_hours,
+                "Pass by horizon": point.passes,
+            }
+        )
+
+    liquidator_inputs = LiquidatorAssumptions(
+        funding_annual_rate=inputs.funding_annual_rate,
+        hurdle_annual_rate=inputs.hurdle_annual_rate,
+        hedge_entry_cost=inputs.hedge_entry_cost,
+        hedge_carry_annual_rate=inputs.hedge_carry_annual_rate,
+        dex_execution_loss=inputs.dex_execution_loss,
+        redemption_loss=inputs.redemption_loss,
+        canonical_loss=inputs.canonical_loss,
+        dex_market_discount=inputs.dex_market_discount,
+        route_strategy=inputs.route_strategy,
+        max_horizon_hours=24.0 * inputs.max_horizon_days,
+    )
+    economic_rows = []
+    for label, assumptions in regimes(
+        economic_quiet_capacity, economic_stressed_capacity
+    ).items():
+        result = simulate_liquidator_balance_sheet(
+            debt,
+            sale,
+            assumptions,
+            liquidator_inputs,
+        )
+        economic_rows.append(
+            {
+                "Regime": label,
+                "Result": result,
+                "Minimum bonus": minimum_liquidation_bonus(
+                    debt,
+                    assumptions,
+                    liquidator_inputs,
+                ),
+            }
+        )
+
+    return {
+        "clearance": clearance,
+        "sale_usd": sale,
+        "debt_usd": debt,
+        "current_bonus": bonus,
+        "strict_instant_capacity_usd": strict_quiet_capacity,
+        "economic_instant_capacity_usd": economic_quiet_capacity,
+        "time_curves": time_curves,
+        "horizon_rows": horizon_rows,
+        "economic_rows": economic_rows,
+        "inputs": inputs,
+    }
 
 
 def _book(snapshot, scope: str, min_target_share: float):

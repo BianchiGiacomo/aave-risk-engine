@@ -25,9 +25,10 @@ dashboard, and machine-readable run manifests.
 > provider. It is not a parameter recommendation, production risk system, or
 > substitute for Risk Steward judgment.
 
-The published evidence is frozen at August 18, 2026. Every result is tied to a
-block and snapshot hash, so it is not a claim about the live market on the day
-this page is read.
+The Aave market evidence is frozen at August 18, 2026. Every market result is
+tied to a block and snapshot hash, so it is not a claim about the live market
+on the day this page is read. The separate HYG RWA proxy was retrieved on
+August 31, 2026 and is pinned as an offline CSV and manifest.
 
 ![Aave risk engine pipeline](docs/assets/aave_risk_engine_overview.svg)
 
@@ -48,6 +49,7 @@ this page is read.
 | Linea WETH reproduction | `$43.20k` independently clearable versus LlamaRisk's approximately `$41k`; `$300.47k` largest sale: `FAIL` |
 | Historical replay | June 2022 worst combined-book window: `$42.20m`; stressed FTX window: `$381.42k`; modeled USDC window: zero |
 | Four-day matched paths | Combined-book V3: `$32.78m` terminal-only CVaR99 versus `$31.85m` evolving-book CVaR99 |
+| RWA drawdown proxy | HYG worst four-session loss `10.87%`; worst-month-scaled bracket `19.78%`; minimum bonus `12.56%` or heuristic `25.07%` |
 
 The market report uses aggregate clearing by default. The dashboard uses the
 more realistic ordered queue. The two-day market report and four-day
@@ -72,6 +74,8 @@ break-even line, LlamaRisk's reference, and the largest borrower sale.
   redemption.
 - Liquidator funding, hedging, recovery loss, capital hurdle, and optimized
   DEX/redemption route allocation.
+- RWA four-session drawdowns, conditional stress clustering, and
+  permissioned-liquidator bonus sensitivity.
 - Loss frequency, expected loss, conditional severity, VaR, CVaR, Wilson
   intervals, cap sweeps, and JSON manifests.
 
@@ -135,6 +139,7 @@ python -m aave_risk_engine.run_v4_comparison
 python -m aave_risk_engine.run_multiperiod
 python -m aave_risk_engine.run_time_to_exit --redemption-usd-per-day 25000000
 python -m aave_risk_engine.run_liquidator_balance_sheet --redemption-usd-per-day 25000000
+python -m aave_risk_engine.run_rwa_drawdown_stress --manifest docs/manifests/hinc-hyg-proxy-2026-08-31.json
 ```
 
 Add `--ordered` to `run_market_report` to match the dashboard queue convention.
@@ -209,6 +214,8 @@ The V4 counterfactual uses the governed
   targeted rare-event sampling is implemented.
 - Episode replay applies historical paths to the selected current book; it is
   not an archive reconstruction of historical positions or liquidity.
+- The committed HYG series is a market-price proxy, not HINC NAV or the exact
+  70/30 high-yield and CLO blend. Its scaled bracket is heuristic.
 - Hub allocation is synthetic and is not connected to live V4 Spokes.
 
 ## Verification
@@ -220,11 +227,12 @@ python -m aave_risk_engine.tests.test_data
 python -m aave_risk_engine.tests.test_multiperiod
 python -m aave_risk_engine.tests.test_time_to_exit
 python -m aave_risk_engine.tests.test_liquidator_balance_sheet
+python -m aave_risk_engine.tests.test_rwa_drawdown
 ```
 
-The project contains 115 offline tests: 23 engine, 5 Hub, 50 data, 10
-multi-period, 8 time-to-exit, and 19 liquidator balance-sheet tests. GitHub
-Actions runs the same suites on Python 3.11 and 3.12.
+The project contains 121 offline tests: 23 engine, 5 Hub, 50 data, 10
+multi-period, 8 time-to-exit, 19 liquidator balance-sheet, and 6 RWA drawdown
+tests. GitHub Actions runs the same suites on Python 3.11 and 3.12.
 
 ## License
 

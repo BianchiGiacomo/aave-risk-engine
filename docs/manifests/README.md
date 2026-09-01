@@ -29,6 +29,14 @@ available. The canonical run matches quiet and stressed redemption at
 stress sensitivities and `--route-strategy capacity_first` for the original
 execution benchmark.
 
+`hinc-hyg-proxy-2026-08-31.json` records the separate RWA drawdown analysis.
+It hashes the committed HYG adjusted-close CSV and its provenance metadata,
+defines four-session returns as five close observations, sweeps conditional
+lookbacks from 20 through 250 sessions, and records empirical, scaled-bracket,
+and minimum-bonus outputs. HYG is a market-price proxy rather than HINC NAV or
+the exact 70/30 blend. The scaled bracket is explicitly marked as not being a
+HINC estimate.
+
 ## Verifying A Snapshot Hash
 
 Each manifest records the SHA-256 of the snapshot file it consumed. For the

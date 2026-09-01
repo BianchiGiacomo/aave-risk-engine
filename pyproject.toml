@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aave-risk-engine"
-version = "0.1.0"
+version = "0.3.0"
 description = "Real-market collateral risk, liquidation capacity, and V3-to-V4 mechanics research for Aave."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -34,4 +34,4 @@ aave_risk_engine = "."
 "aave_risk_engine.tests" = "tests"
 
 [tool.setuptools.package-data]
-"aave_risk_engine.data" = ["borrowers/*.json", "snapshots/*.json", "episodes/*.json"]
+"aave_risk_engine.data" = ["borrowers/*.json", "snapshots/*.json", "episodes/*.json", "rwa/*.csv", "rwa/*.json", "rwa/*.md"]

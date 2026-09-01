@@ -1,0 +1,154 @@
+{
+  "assumptions": {
+    "conditional_drawdown_thresholds": [
+      0.05,
+      0.1
+    ],
+    "funding_annual_rate": 0.1,
+    "generic_calendar_days": 4.0,
+    "gross_debt_repayment_normalization_usd": 100000000.0,
+    "hurdle_annual_rate": 0.1,
+    "lookback_sessions": [
+      20,
+      250
+    ],
+    "reported_hinc_blend_worst_month_loss": 0.1825
+  },
+  "command": [
+    "python",
+    "-m",
+    "aave_risk_engine.run_rwa_drawdown_stress",
+    "--manifest",
+    "docs/manifests/hinc-hyg-proxy-2026-08-31.json"
+  ],
+  "dataset": {
+    "end_date": "2026-07-15",
+    "field": "chart.result[0].indicators.adjclose[0].adjclose",
+    "file": "data/rwa/hyg_adjusted_close_2016-07-01_2026-07-15.csv",
+    "metadata_file": "data/rwa/hyg_adjusted_close_2016-07-01_2026-07-15.metadata.json",
+    "metadata_sha256": "9c093c2ed4194118b7b65a44a82279e4259c2f936fd6db99a13e770fc303cc28",
+    "observations": 2522,
+    "provider": "Yahoo Finance",
+    "retrieved_at_utc": "2026-08-31T19:57:49Z",
+    "sha256": "9ec9ff18c1638e84219b45e82dea23e1aaf3f142cbf198b1aef5e8fe3d165ce6",
+    "start_date": "2016-07-01",
+    "symbol": "HYG"
+  },
+  "definitions": {
+    "conditional_start": "start adjusted close is at or below the selected drawdown from the inclusive rolling maximum",
+    "monthly_return": "consecutive calendar month-end observations",
+    "observations_per_return": 5,
+    "return": "adjusted_close[t+sessions] / adjusted_close[t] - 1",
+    "sessions": 4
+  },
+  "generated_at_utc": "2026-08-31T20:06:26.168215+00:00",
+  "missing_hinc_inputs": [
+    "dated daily 70/30 blend levels or returns",
+    "LTV and liquidation threshold",
+    "liquidation bonus and close-factor rule",
+    "definition and USD amount of the 3-5% backstop",
+    "redemption cut-off, throughput, fee, gating, and suspension terms",
+    "distribution of debt and health factors across positions"
+  ],
+  "notes": [
+    "HYG is a market-price proxy, not HINC NAV or the exact blend.",
+    "The scaled bracket is heuristic and is not a HINC estimate.",
+    "Permissioning makes committed liquidator financing exogenous.",
+    "Daily NAV updates can trigger multiple positions simultaneously.",
+    "Gross financing, loss buffer, and minimum bonus are distinct quantities."
+  ],
+  "results": {
+    "conditional_windows": {
+      "0.050000": {
+        "lookback_sweep": {
+          "prior_drawdown_max": -0.09054294060193602,
+          "prior_drawdown_min": -0.09054294060193602,
+          "stable": true,
+          "unique_window_count": 1
+        },
+        "prior_drawdown": -0.09054294060193602,
+        "representative_lookback_sessions": 60,
+        "window": {
+          "calendar_days": 6,
+          "end_date": "2020-03-19",
+          "return": -0.10868211935415661,
+          "sessions": 4,
+          "start_date": "2020-03-13"
+        }
+      },
+      "0.100000": {
+        "lookback_sweep": {
+          "prior_drawdown_max": -0.13246558169864076,
+          "prior_drawdown_min": -0.13246558169864076,
+          "stable": true,
+          "unique_window_count": 1
+        },
+        "prior_drawdown": -0.13246558169864076,
+        "representative_lookback_sessions": 60,
+        "window": {
+          "calendar_days": 6,
+          "end_date": "2020-03-23",
+          "return": -0.10123095745941002,
+          "sessions": 4,
+          "start_date": "2020-03-17"
+        }
+      }
+    },
+    "four_calendar_day_proxy_bonus": 0.12439321883202425,
+    "minimum_bonus_scenarios": [
+      {
+        "calendar_days": 4.0,
+        "label": "3% loss sensitivity",
+        "loss": 0.03,
+        "minimum_bonus": 0.03318740290919364
+      },
+      {
+        "calendar_days": 4.0,
+        "label": "5% loss sensitivity",
+        "loss": 0.05,
+        "minimum_bonus": 0.054938716654650444
+      },
+      {
+        "calendar_days": 6,
+        "label": "HYG worst four-session window",
+        "loss": 0.10868211935415661,
+        "minimum_bonus": 0.1256227357470947
+      },
+      {
+        "calendar_days": 6,
+        "label": "worst-month-scaled bracket",
+        "loss": 0.19779042722106902,
+        "minimum_bonus": 0.2506553215980605
+      }
+    ],
+    "observed_elapsed_proxy_bonus": 0.1256227357470947,
+    "scaled_bracket": {
+      "is_estimate": false,
+      "scaled_four_session_loss": 0.19779042722106902,
+      "worst_month_ratio": 1.8198985113323003
+    },
+    "second_worst_month": {
+      "calendar_days": 30,
+      "end_date": "2022-06-30",
+      "return": -0.07049901910336598,
+      "sessions": 0,
+      "start_date": "2022-05-31"
+    },
+    "unconditional_worst_window": {
+      "calendar_days": 6,
+      "end_date": "2020-03-19",
+      "return": -0.10868211935415661,
+      "sessions": 4,
+      "start_date": "2020-03-13"
+    },
+    "weekend_increment_bps": 12.2951691507045,
+    "worst_month": {
+      "calendar_days": 32,
+      "end_date": "2020-03-31",
+      "return": -0.1002803172064779,
+      "sessions": 0,
+      "start_date": "2020-02-28"
+    }
+  },
+  "schema_version": 1
+}

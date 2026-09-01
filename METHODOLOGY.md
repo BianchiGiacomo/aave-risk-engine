@@ -421,6 +421,43 @@ but this independence is not a claim about market behavior. DEX depth and the
 Lido withdrawal queue may deteriorate together. A lower stressed-redemption
 input is therefore the appropriate sensitivity until joint stress is calibrated.
 
+## RWA Drawdown And Permissioned Liquidators
+
+The RWA proxy analysis treats a four-session return as close-to-close across
+five dated observations. It reports the worst unconditional window and the
+worst forward window whose first observation is already below an inclusive
+rolling maximum by a selected drawdown threshold. Sweeping every rolling
+lookback from 20 through 250 sessions tests whether the conditional result is
+an artifact of one chosen peak window.
+
+HYG adjusted close is committed solely as a reproducible high-yield
+market-price proxy. It is not HINC NAV and does not reproduce the J.P. Morgan
+CLOIE Post-BB component. A worst-month scaling transfers the disclosed HINC
+blend to HYG monthly-loss ratio onto the HYG four-session loss. That output is
+a heuristic bracket, not an estimate, because relative volatility need not be
+constant across horizons or stress regimes.
+
+For a lump redemption after `d` calendar days, recovery loss `l`, funding rate
+`f`, and hurdle rate `h`, the normalized minimum economic bonus is:
+
+```text
+minimum_bonus = (1 + (f + h) * d / 365) / (1 - l) - 1
+```
+
+This calculation separates three quantities. Gross financing is the debt
+repaid at time zero. Loss-absorbing capital covers the mark-to-recovery move.
+The minimum bonus compensates that loss plus the cost of capital. A 3% to 5%
+backstop statement is incomplete unless it identifies which quantity it
+means and the simultaneous repayment notional against which it is measured.
+
+Permissioned collateral makes these distinctions more binding. Aave fixes the
+bonus ex ante in either design, but a permissionless market allows another
+profitable liquidator to enter. A whitelist removes that fallback during
+stress. A common daily NAV print can also move several positions through their
+threshold together. Exact capacity sizing therefore requires position-level
+LTV and liquidation-threshold data, the close-factor rule, committed
+stablecoin financing, and redemption terms.
+
 ## Hub Allocation
 
 A V4-style Hub aggregates liquidity and allocates credit lines to Spokes. The model uses one systemic factor `Z` and one idiosyncratic factor per Spoke:

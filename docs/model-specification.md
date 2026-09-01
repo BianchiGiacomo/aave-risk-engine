@@ -7,14 +7,15 @@ describes the equations implemented in the repository, the accounting
 conventions behind reported bad debt, and the boundaries of the current
 model. It is not a production risk policy or a parameter recommendation.
 
-The engine has six related components:
+The engine has seven related components:
 
 1. a single-period Monte Carlo model for one target collateral reserve;
 2. deterministic largest-borrower clearance tests;
 3. deterministic time-to-exit capacity sensitivities;
 4. liquidator warehouse cash-flow and incentive sensitivities;
-5. an evolving multi-period liquidation simulator;
-6. a synthetic V4 Hub allocation model.
+5. RWA drawdown and permissioned-liquidator sensitivities;
+6. an evolving multi-period liquidation simulator;
+7. a synthetic V4 Hub allocation model.
 
 The real-market reports use committed Aave V3 snapshots. A V4 comparison
 applies alternative V4 liquidation rules to the same V3 borrower book and
@@ -567,7 +568,60 @@ Quiet and stressed primary-redemption rates are independent inputs. The
 default sets them equal for a matched-throughput comparison; this does not
 assume that withdrawal capacity is independent of DEX stress.
 
-## 14. V4 Hub Allocation
+## 14. RWA Drawdown And Lump-Recovery Bonus
+
+Let $P_t$ be the adjusted close observed at trading session $t$. A return over
+$h$ sessions uses $h+1$ observations:
+
+$$
+R_t^{(h)}=\frac{P_{t+h}}{P_t}-1.
+$$
+
+For rolling-maximum lookback $L$, drawdown at the start of the forward window
+is
+
+$$
+D_t^{(L)}=\frac{P_t}{\max(P_{t-L+1},\ldots,P_t)}-1.
+$$
+
+The conditional statistic minimizes $R_t^{(h)}$ only over starts satisfying
+$D_t^{(L)}\le-d_*$. The implementation sweeps $L$ from 20 through 250
+sessions and reports whether the selected window changes.
+
+The HINC discussion discloses a worst monthly loss for an unavailable 70/30
+blend. A heuristic bracket scales the observed proxy window loss $\ell_p$ by
+the target-to-proxy worst-month ratio:
+
+$$
+k=\frac{\ell_{target,month}}{\ell_{proxy,month}},
+\qquad
+\ell_{scaled}=k\ell_p.
+$$
+
+This is not a statistical estimator. It assumes the relative monthly stress
+ratio transfers to the shorter window and is labeled as a bracket everywhere
+it is reported.
+
+For debt normalized to one dollar, lump recovery after $d$ calendar days,
+recovery loss $\ell$, annual funding rate $f$, and annual hurdle rate $r_*$,
+the economic break-even condition is
+
+$$
+(1+b)(1-\ell)\ge1+(f+r_*)\frac{d}{365}.
+$$
+
+Therefore the minimum bonus is
+
+$$
+b_{min}=\frac{1+(f+r_*)d/365}{1-\ell}-1.
+$$
+
+Gross time-zero financing remains the debt amount actually repaid. It is not
+the same as either the recovery-loss percentage or the bonus. Mapping the
+gross requirement to borrowed TVL requires the close factor and simultaneous
+liquidation notional.
+
+## 15. V4 Hub Allocation
 
 The Hub module is a synthetic allocation experiment. It is not yet connected
 to the real-market borrower snapshots. For Spoke $k$, one systemic factor $Z$
@@ -589,7 +643,7 @@ $$
 The greedy discrete procedure approximately, not exactly, equalizes marginal
 risk across funded Spokes.
 
-## 15. Implementation Map
+## 16. Implementation Map
 
 | Model component | Implementation |
 |---|---|
@@ -602,14 +656,16 @@ risk across funded Spokes.
 | Multi-period state evolution | `multiperiod.py` |
 | Time-to-exit capacity | `time_to_exit.py` |
 | Liquidator warehouse economics | `liquidator_balance_sheet.py` |
+| RWA drawdown and lump-recovery bonus | `rwa_drawdown.py` |
 | Historical episode replay | `data/episodes.py` |
 | Synthetic Hub allocation | `hub.py` |
 
 Economic invariants and regression cases are in `tests/test_engine.py`,
 `tests/test_data.py`, `tests/test_multiperiod.py`, `tests/test_time_to_exit.py`,
-`tests/test_liquidator_balance_sheet.py`, and `tests/test_hub.py`.
+`tests/test_liquidator_balance_sheet.py`, `tests/test_rwa_drawdown.py`, and
+`tests/test_hub.py`.
 
-## 16. Current Model Boundaries
+## 17. Current Model Boundaries
 
 The current implementation does not provide:
 
@@ -624,6 +680,8 @@ The current implementation does not provide:
 - archive reconstruction of historical borrower books;
 - lagged coupling between ETH returns and peg dislocation;
 - fixed-maturity PT discount, oracle, and AMM convergence dynamics;
+- exact HINC NAV or 70/30 blend history, permissioned-liquidator commitments,
+  and legal-freeze recovery timing;
 - real V4 Hub risk-premium estimation.
 
 These omissions are reported as modeling boundaries, not absorbed into hidden

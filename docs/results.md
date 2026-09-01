@@ -397,6 +397,90 @@ to DEX and `$251.03m` to redemption. Stressed blended profit falls from
 bonus rises from 4.66% to 4.98%. This is still an illustrative stress, not a
 calibrated Lido queue response.
 
+## 8. RWA Drawdown And Permissioned-Liquidator Stress
+
+Command:
+
+```bash
+python -m aave_risk_engine.run_rwa_drawdown_stress --manifest docs/manifests/hinc-hyg-proxy-2026-08-31.json
+```
+
+This analysis responds to the backstop-sizing question raised in the
+[HINC Horizon discussion](https://governance.aave.com/t/arfc-onboard-hinc-neuberger-securitize-high-income-tokenized-fund-to-aave-horizon/25500/2).
+It does not estimate HINC. The exact 70/30 ICE BofA US High Yield Constrained
+and J.P. Morgan CLOIE Post-BB daily blend is not published in the proposal.
+The committed dataset instead pins 2,522 Yahoo Finance HYG adjusted-close
+observations from July 1, 2016 through July 15, 2026, retrieved August 31,
+2026. HYG is a market-price proxy, not HINC NAV or the CLOIE component.
+
+A four-session return is close-to-close over five observations. Funding and
+hurdle use the actual calendar days between the first and fifth observations.
+The conditional statistic requires the start observation to be below its
+inclusive rolling maximum by at least the selected drawdown threshold.
+
+Trimmed CLI output, with rows unchanged:
+
+```text
+Worst empirical windows
+  unconditional              : 2020-03-13 to 2020-03-19 | -10.87% | 6 calendar days
+  after 5% drawdown           : 2020-03-13 to 2020-03-19 | prior -9.05% | forward -10.87% | lookbacks 20-250 stable
+  after 10% drawdown          : 2020-03-17 to 2020-03-23 | prior -13.25% | forward -10.12% | lookbacks 20-250 stable
+
+Worst calendar months
+  1                          : 2020-03 | -10.03%
+  2                          : 2022-06 | -7.05%
+
+Worst-month-scaled bracket (heuristic, not a HINC estimate)
+  ratio                      : 18.25% / 10.03% = 1.82x
+  scaled four-session loss   : 19.78%
+
+Minimum economic bonus
+ scenario                         | NAV loss | cal. days | min bonus
+-------------------------------------------------------------------
+ 3% loss sensitivity              |    3.00% |         4 |     3.32%
+ 5% loss sensitivity              |    5.00% |         4 |     5.49%
+ HYG worst four-session window    |   10.87% |         6 |    12.56%
+ worst-month-scaled bracket       |   19.78% |         6 |    25.07%
+```
+
+The conditional result is invariant for every rolling-maximum lookback from
+20 through 250 sessions. The worst unconditional window already begins after
+a 9.05% drawdown, so conditioning on 5% selects the same event. Conditioning
+on 10% selects a slightly less severe forward loss, 10.12% rather than
+10.87%. The clustering intuition is therefore substantively correct, but the
+conditional statistic does not add a worse tail event beyond the
+unconditional maximum in this proxy.
+
+March 2020 is HYG's worst calendar month in the complete pinned sample. The
+[HINC proposal](https://governance.aave.com/t/arfc-onboard-hinc-neuberger-securitize-high-income-tokenized-fund-to-aave-horizon/25500)
+reports an 18.25% worst month for its exact blend. Their ratio is 1.82. Applying
+that ratio to the HYG four-session loss gives a 19.78% bracket and a 25.07%
+minimum bonus under the six-calendar-day observed window. This is a scaled
+stress bracket, not a statistical estimate: it assumes that the monthly
+relative-volatility ratio transfers to a four-session tail.
+
+The bonus calculation assumes 10% annual funding, a separate 10% annual
+capital hurdle, lump redemption at the end of the window, no hedge, and no
+redemption fee. Charging four calendar days instead of the six elapsed days
+would give 12.44% for the HYG window; the intervening weekend adds about 12
+basis points.
+
+Permissioning makes the decomposition important. Aave fixes the bonus ex ante
+in either design, but a permissionless market allows another profitable
+liquidator to enter. A whitelist removes that fallback, so the configured
+bonus and committed financing must be adequate before stress begins. Gross
+stablecoin financing is separate again: repaying `$100m` of debt requires
+approximately `$100m` at time zero, regardless of whether the modeled recovery
+loss is 3% or 5%. A common daily NAV update can also move many positions
+through their threshold together. The relevant comparison is therefore 3% to
+5% against a specified simultaneous repayment notional, not borrowed TVL in
+isolation.
+
+An exact HINC result still requires the dated blend series, proposed LTV and
+liquidation threshold, bonus and close factor, position-level health factors,
+the definition of the 3% to 5% commitment, and redemption cut-off,
+throughput, fee, gating, and suspension assumptions.
+
 ## Interpretation
 
 The corrected borrower universe changes the quantitative narrative. The USD

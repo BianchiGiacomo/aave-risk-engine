@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "provider": "Yahoo Finance",
+  "symbol": "HYG",
+  "description": "iShares iBoxx $ High Yield Corporate Bond ETF adjusted close",
+  "field": "chart.result[0].indicators.adjclose[0].adjclose",
+  "interval": "1d",
+  "requested_start_date": "2016-07-01",
+  "requested_end_date_exclusive": "2026-07-16",
+  "observed_start_date": "2016-07-01",
+  "observed_end_date": "2026-07-15",
+  "observations": 2522,
+  "retrieved_at_utc": "2026-08-31T19:57:49Z",
+  "source_url": "https://query1.finance.yahoo.com/v8/finance/chart/HYG?period1=1467331200&period2=1784160000&interval=1d&events=div%2Csplits",
+  "human_source_url": "https://finance.yahoo.com/quote/HYG/history/",
+  "issuer_url": "https://www.ishares.com/us/products/239565/ishares-iboxx-high-yield-corporate-bond-etf",
+  "notes": [
+    "The committed CSV stores dated adjusted-close observations only.",
+    "HYG is a public market-price proxy and is not HINC NAV.",
+    "HYG does not reproduce the J.P. Morgan CLOIE Post-BB component.",
+    "The dataset is committed solely to make the non-commercial research output reproducible offline."
+  ]
+}

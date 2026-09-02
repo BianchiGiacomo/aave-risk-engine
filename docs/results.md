@@ -430,9 +430,16 @@ Worst calendar months
   1                          : 2020-03 | -10.03%
   2                          : 2022-06 | -7.05%
 
-Worst-month-scaled bracket (heuristic, not a HINC estimate)
-  ratio                      : 18.25% / 10.03% = 1.82x
-  scaled four-session loss   : 19.78%
+Stress-shape bracket (heuristic, not a HINC estimate)
+  HYG concentration ratio    : 10.87% / 10.03% = 1.08x
+  disclosed blend worst month: 18.25%
+  four-session bracket       : 19.78%
+
+Implied NAV-loss ceiling (only if 3%-5% is economic compensation)
+ compensation | cal. days | maximum NAV loss
+----------------------------------------------
+       3.00% |         6 |            2.59%
+       5.00% |         6 |            4.45%
 
 Minimum economic bonus
  scenario                         | NAV loss | cal. days | min bonus
@@ -440,7 +447,7 @@ Minimum economic bonus
  3% loss sensitivity              |    3.00% |         4 |     3.32%
  5% loss sensitivity              |    5.00% |         4 |     5.49%
  HYG worst four-session window    |   10.87% |         6 |    12.56%
- worst-month-scaled bracket       |   19.78% |         6 |    25.07%
+ stress-shape bracket             |   19.78% |         6 |    25.07%
 ```
 
 The conditional result is invariant for every rolling-maximum lookback from
@@ -451,13 +458,30 @@ on 10% selects a slightly less severe forward loss, 10.12% rather than
 conditional statistic does not add a worse tail event beyond the
 unconditional maximum in this proxy.
 
-March 2020 is HYG's worst calendar month in the complete pinned sample. The
+The proposal describes 3% to 5% as gross liquidation capacity in stablecoins.
+That statement cannot be converted directly into a NAV-loss threshold. Gross
+capacity is sufficient only if it covers the simultaneous debt repayment
+required by the positions that cross their liquidation thresholds. That test
+requires position-level debt, LTV, liquidation threshold, and close-factor
+data.
+
+The CLI also reports a separate conditional interpretation. If 3% to 5% is
+treated as economic compensation per dollar of debt repaid, inverting the
+warehouse equation gives maximum six-calendar-day NAV losses of 2.59% and
+4.45%. This is arithmetic under the stated 10% funding and 10% hurdle rates; it
+does not depend on HYG. It is not a claim that the proposal defines its
+stablecoin commitment this way.
+
+HYG then supplies context for whether a 4.45% loss ceiling is large or small,
+not evidence about HINC itself. Its worst public four-session move was 10.87%.
+March 2020 is also HYG's worst calendar month in the complete pinned sample at
+10.03%, so the four-session loss was 1.08 times the full-month loss. The
 [HINC proposal](https://governance.aave.com/t/arfc-onboard-hinc-neuberger-securitize-high-income-tokenized-fund-to-aave-horizon/25500)
-reports an 18.25% worst month for its exact blend. Their ratio is 1.82. Applying
-that ratio to the HYG four-session loss gives a 19.78% bracket and a 25.07%
-minimum bonus under the six-calendar-day observed window. This is a scaled
-stress bracket, not a statistical estimate: it assumes that the monthly
-relative-volatility ratio transfers to a four-session tail.
+reports an 18.25% worst month for its illustrative blend. Applying HYG's 1.08
+within-month concentration ratio gives a 19.78% four-session bracket and a
+25.07% minimum bonus under the observed six-calendar-day window. This remains
+a heuristic, not a HINC estimate: it assumes that HINC stress has the same
+temporal concentration as HYG stress.
 
 The bonus calculation assumes 10% annual funding, a separate 10% annual
 capital hurdle, lump redemption at the end of the window, no hedge, and no

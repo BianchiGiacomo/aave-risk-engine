@@ -32,10 +32,10 @@ execution benchmark.
 `hinc-hyg-proxy-2026-08-31.json` records the separate RWA drawdown analysis.
 It hashes the committed HYG adjusted-close CSV and its provenance metadata,
 defines four-session returns as five close observations, sweeps conditional
-lookbacks from 20 through 250 sessions, and records empirical, scaled-bracket,
-and minimum-bonus outputs. HYG is a market-price proxy rather than HINC NAV or
-the exact 70/30 blend. The scaled bracket is explicitly marked as not being a
-HINC estimate.
+lookbacks from 20 through 250 sessions, and records empirical, economic-loss
+ceiling, stress-shape, and minimum-bonus outputs. HYG is a market-price
+benchmark rather than HINC NAV or the exact 70/30 blend. The stress-shape
+bracket is explicitly marked as not being a HINC estimate.
 
 ## Verifying A Snapshot Hash
 

@@ -13,10 +13,11 @@ from aave_risk_engine.rwa_drawdown import (
     PriceObservation,
     conditional_lookback_sweep,
     load_adjusted_close_csv,
+    maximum_supported_recovery_loss,
     minimum_economic_bonus,
     monthly_return_windows,
     return_windows,
-    scaled_stress_loss,
+    stress_shape_bracket,
     worst_return_window,
 )
 
@@ -82,7 +83,7 @@ def test_worst_and_conditional_windows_are_lookback_stable():
         )
 
 
-def test_monthly_losses_and_scaled_bracket_match_release():
+def test_monthly_losses_and_stress_shape_bracket_match_release():
     observations = load_adjusted_close_csv(_DATA)
     months = sorted(monthly_return_windows(observations), key=lambda item: item.return_value)
     assert months[0].end_date == dt.date(2020, 3, 31)
@@ -90,12 +91,12 @@ def test_monthly_losses_and_scaled_bracket_match_release():
     assert months[1].end_date == dt.date(2022, 6, 30)
     assert np.isclose(months[1].return_value, -0.07049902, atol=1e-8)
 
-    ratio, scaled = scaled_stress_loss(
+    ratio, scaled = stress_shape_bracket(
         0.1086821194,
         abs(months[0].return_value),
         0.1825,
     )
-    assert np.isclose(ratio, 1.81989846, atol=1e-8)
+    assert np.isclose(ratio, 1.08378316, atol=1e-8)
     assert np.isclose(scaled, 0.19779042, atol=1e-8)
 
 
@@ -107,6 +108,16 @@ def test_minimum_bonus_charges_elapsed_calendar_time():
     assert np.isclose(six_day, 0.12562274, atol=1e-8)
     assert np.isclose(10_000.0 * (six_day - four_day), 12.295, atol=0.01)
     assert np.isclose(scaled, 0.25065531, atol=1e-8)
+    assert np.isclose(
+        maximum_supported_recovery_loss(0.03, 6.0, 0.10, 0.10),
+        0.02593430,
+        atol=1e-8,
+    )
+    assert np.isclose(
+        maximum_supported_recovery_loss(0.05, 6.0, 0.10, 0.10),
+        0.04448793,
+        atol=1e-8,
+    )
 
 
 def test_release_manifest_matches_committed_inputs_and_results():
@@ -128,11 +139,18 @@ def test_release_manifest_matches_committed_inputs_and_results():
         "lookback_sweep"
     ]["stable"]
     assert np.isclose(
-        manifest["results"]["scaled_bracket"]["scaled_four_session_loss"],
+        manifest["results"]["stress_shape_bracket"]["four_session_loss"],
         0.19779042,
         atol=1e-8,
     )
-    assert not manifest["results"]["scaled_bracket"]["is_estimate"]
+    assert not manifest["results"]["stress_shape_bracket"]["is_estimate"]
+    assert np.isclose(
+        manifest["results"]["economic_compensation_loss_ceilings"][1][
+            "maximum_supported_nav_loss"
+        ],
+        0.04448793,
+        atol=1e-8,
+    )
 
 
 def _run_all():

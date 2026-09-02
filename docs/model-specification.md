@@ -589,18 +589,19 @@ $D_t^{(L)}\le-d_*$. The implementation sweeps $L$ from 20 through 250
 sessions and reports whether the selected window changes.
 
 The HINC discussion discloses a worst monthly loss for an unavailable 70/30
-blend. A heuristic bracket scales the observed proxy window loss $\ell_p$ by
-the target-to-proxy worst-month ratio:
+blend. Let $\ell_{p,4}$ be the proxy's worst four-session loss and
+$\ell_{p,m}$ its worst monthly loss. Their ratio measures how concentrated the
+proxy stress was inside its worst month:
 
 $$
-k=\frac{\ell_{target,month}}{\ell_{proxy,month}},
+q=\frac{\ell_{p,4}}{\ell_{p,m}},
 \qquad
-\ell_{scaled}=k\ell_p.
+\ell_{bracket}=q\ell_{target,m}.
 $$
 
-This is not a statistical estimator. It assumes the relative monthly stress
-ratio transfers to the shorter window and is labeled as a bracket everywhere
-it is reported.
+This is not a statistical estimator. It assumes that the target blend has the
+same within-month stress concentration as HYG and is labeled as a bracket
+everywhere it is reported.
 
 For debt normalized to one dollar, lump recovery after $d$ calendar days,
 recovery loss $\ell$, annual funding rate $f$, and annual hurdle rate $r_*$,
@@ -615,6 +616,17 @@ Therefore the minimum bonus is
 $$
 b_{min}=\frac{1+(f+r_*)d/365}{1-\ell}-1.
 $$
+
+If an economic compensation rate $c$ is given instead, its implied maximum
+recovery loss is the inverse:
+
+$$
+\ell_{max}=1-\frac{1+(f+r_*)d/365}{1+c}.
+$$
+
+This inverse applies only when $c$ is compensation per dollar of debt repaid.
+It does not convert a stablecoin financing commitment expressed as a fraction
+of total borrowed TVL into a loss threshold.
 
 Gross time-zero financing remains the debt amount actually repaid. It is not
 the same as either the recovery-loss percentage or the bonus. Mapping the

@@ -213,18 +213,40 @@ def minimum_economic_bonus(
     return (1.0 + capital_charge) / (1.0 - recovery_loss) - 1.0
 
 
-def scaled_stress_loss(
+def maximum_supported_recovery_loss(
+    economic_compensation_rate: float,
+    calendar_days: float,
+    funding_annual_rate: float,
+    hurdle_annual_rate: float,
+) -> float:
+    """Invert the lump-recovery bonus equation into a loss ceiling."""
+
+    if economic_compensation_rate < 0.0:
+        raise ValueError("economic compensation rate must be non-negative")
+    if calendar_days < 0.0:
+        raise ValueError("calendar days must be non-negative")
+    if funding_annual_rate < 0.0 or hurdle_annual_rate < 0.0:
+        raise ValueError("annual rates must be non-negative")
+    capital_charge = (
+        funding_annual_rate + hurdle_annual_rate
+    ) * calendar_days / 365.0
+    if economic_compensation_rate < capital_charge:
+        raise ValueError("compensation does not cover the zero-loss capital charge")
+    return 1.0 - (1.0 + capital_charge) / (1.0 + economic_compensation_rate)
+
+
+def stress_shape_bracket(
     proxy_window_loss: float,
     proxy_worst_month_loss: float,
     target_worst_month_loss: float,
 ) -> tuple[float, float]:
-    """Scale a proxy window loss by a target/proxy worst-month ratio."""
+    """Transfer the proxy's within-month stress concentration to a target."""
 
     values = (proxy_window_loss, proxy_worst_month_loss, target_worst_month_loss)
     if any(value <= 0.0 for value in values):
         raise ValueError("stress losses must be positive")
-    ratio = target_worst_month_loss / proxy_worst_month_loss
-    scaled = proxy_window_loss * ratio
-    if scaled >= 1.0:
-        raise ValueError("scaled stress loss must remain below 100%")
-    return ratio, scaled
+    concentration_ratio = proxy_window_loss / proxy_worst_month_loss
+    bracket = target_worst_month_loss * concentration_ratio
+    if bracket >= 1.0:
+        raise ValueError("stress bracket must remain below 100%")
+    return concentration_ratio, bracket

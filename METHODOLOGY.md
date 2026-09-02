@@ -431,11 +431,13 @@ lookback from 20 through 250 sessions tests whether the conditional result is
 an artifact of one chosen peak window.
 
 HYG adjusted close is committed solely as a reproducible high-yield
-market-price proxy. It is not HINC NAV and does not reproduce the J.P. Morgan
-CLOIE Post-BB component. A worst-month scaling transfers the disclosed HINC
-blend to HYG monthly-loss ratio onto the HYG four-session loss. That output is
-a heuristic bracket, not an estimate, because relative volatility need not be
-constant across horizons or stress regimes.
+market-price benchmark. It is not HINC NAV and does not reproduce the J.P.
+Morgan CLOIE Post-BB component. In March 2020, HYG lost more over its worst
+four-session window than over the complete calendar month. The stress-shape
+bracket applies that four-session-to-month concentration ratio to the disclosed
+worst month of the illustrative HINC blend. The output remains a heuristic,
+not an estimate, because HINC stress need not have the same temporal shape as
+HYG stress.
 
 For a lump redemption after `d` calendar days, recovery loss `l`, funding rate
 `f`, and hurdle rate `h`, the normalized minimum economic bonus is:
@@ -449,6 +451,21 @@ repaid at time zero. Loss-absorbing capital covers the mark-to-recovery move.
 The minimum bonus compensates that loss plus the cost of capital. A 3% to 5%
 backstop statement is incomplete unless it identifies which quantity it
 means and the simultaneous repayment notional against which it is measured.
+
+If a percentage `c` is specifically interpreted as economic compensation per
+dollar of debt repaid, the same equation can be inverted:
+
+```text
+maximum_supported_loss = 1 - (1 + (f + h) * d / 365) / (1 + c)
+```
+
+Over the observed six-calendar-day HYG window, the default 10% funding and 10%
+hurdle assumptions imply maximum NAV losses of 2.59% for `c = 3%` and 4.45%
+for `c = 5%`. These are conditional economic-loss ceilings. The HINC proposal
+describes 3% to 5% as gross liquidation capacity in stablecoins. For that
+interpretation, the relevant test is instead whether committed stablecoins
+cover the simultaneous debt repayment, which requires the position-level
+book, close factors, and liquidation thresholds.
 
 Permissioned collateral makes these distinctions more binding. Aave fixes the
 bonus ex ante in either design, but a permissionless market allows another

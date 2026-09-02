@@ -15,7 +15,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `multiperiod.py` | Multi-period simulation with book-state evolution |
 | `time_to_exit.py` | Deterministic horizon capacity and conditional unresolved-tranche loss |
 | `liquidator_balance_sheet.py` | Full-upfront warehouse cash flows, route optimization, capital use, canonical and DEX-market risk, and economic clearance |
-| `rwa_drawdown.py` | Fixed-session returns, conditional drawdown windows, monthly stress scaling, and lump-recovery bonus math |
+| `rwa_drawdown.py` | Fixed-session returns, conditional drawdown windows, stress-shape brackets, and lump-recovery bonus math |
 | `hub.py` | Multi-Spoke Hub allocator |
 | `data/rpc.py` | Stdlib JSON-RPC client with endpoint failover and batching |
 | `data/aave_v3.py` | Per-chain Aave V3 readers (Ethereum, Linea): reserves, caps, accounts |
@@ -35,7 +35,7 @@ The package is intentionally small and self-contained. It has no dependency on t
 | `run_multiperiod.py` | Multi-period stress paths with re-liquidation |
 | `run_time_to_exit.py` | DEX refill, redemption, and required-throughput horizon report |
 | `run_liquidator_balance_sheet.py` | Liquidator funding, hedge, route, and required-bonus sensitivity report |
-| `run_rwa_drawdown_stress.py` | Offline RWA proxy drawdown, clustering, scaled-bracket, and permissioned-liquidator report |
+| `run_rwa_drawdown_stress.py` | Offline RWA proxy drawdown, clustering, loss-ceiling, stress-shape, and permissioned-liquidator report |
 | `dashboard.py` | Streamlit dashboard |
 | `dashboard_analysis.py` | Cached dashboard adapters for market, clearance-horizon, liquidator-economic, V4, episode, and multi-period analyses |
 | `dashboard_charts.py` | Plotly charts, including exit capacity and economic route allocation |
@@ -76,7 +76,8 @@ The tests check:
   profit-maximizing route selection, canonical-versus-DEX loss separation,
   break-even loss, and minimum-bonus invariants,
 - pinned RWA proxy observations, four-session definitions, conditional
-  lookback invariance, monthly stress scaling, and calendar-time bonus math,
+  lookback invariance, stress-shape brackets, loss ceilings, and calendar-time
+  bonus math,
 - dashboard clearance-extension wiring across horizon, route, and economic
   outputs,
 - Hub diversification,

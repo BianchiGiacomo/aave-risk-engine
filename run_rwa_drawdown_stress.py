@@ -14,9 +14,10 @@ from pathlib import Path
 from .rwa_drawdown import (
     conditional_lookback_sweep,
     load_adjusted_close_csv,
+    maximum_supported_recovery_loss,
     minimum_economic_bonus,
     monthly_return_windows,
-    scaled_stress_loss,
+    stress_shape_bracket,
     worst_forward_after_drawdown,
     worst_return_window,
 )
@@ -122,7 +123,7 @@ def main() -> None:
             "prior_drawdown_max": max(item.prior_drawdown for item in sweep),
         }
 
-    scale_ratio, scaled_loss = scaled_stress_loss(
+    stress_concentration_ratio, scaled_loss = stress_shape_bracket(
         abs(worst.return_value),
         abs(worst_month.return_value),
         args.reported_blend_worst_month_loss,
@@ -169,7 +170,7 @@ def main() -> None:
             "minimum_bonus": proxy_bonus_elapsed,
         },
         {
-            "label": "worst-month-scaled bracket",
+            "label": "stress-shape bracket",
             "loss": scaled_loss,
             "calendar_days": worst.calendar_days,
             "minimum_bonus": minimum_economic_bonus(
@@ -179,6 +180,19 @@ def main() -> None:
                 args.hurdle_annual_rate,
             ),
         },
+    ]
+    compensation_rows = [
+        {
+            "economic_compensation_rate": rate,
+            "calendar_days": worst.calendar_days,
+            "maximum_supported_nav_loss": maximum_supported_recovery_loss(
+                rate,
+                worst.calendar_days,
+                args.funding_annual_rate,
+                args.hurdle_annual_rate,
+            ),
+        }
+        for rate in (0.03, 0.05)
     ]
 
     print("RWA drawdown and permissioned-liquidator stress proxy")
@@ -222,13 +236,30 @@ def main() -> None:
         f"  2                          : {second_worst_month.end_date:%Y-%m} | "
         f"{second_worst_month.return_value:.2%}"
     )
-    print("\nWorst-month-scaled bracket (heuristic, not a HINC estimate)")
+    print("\nStress-shape bracket (heuristic, not a HINC estimate)")
     print(
-        f"  ratio                      : "
-        f"{args.reported_blend_worst_month_loss:.2%} / "
-        f"{abs(worst_month.return_value):.2%} = {scale_ratio:.2f}x"
+        f"  HYG concentration ratio    : {abs(worst.return_value):.2%} / "
+        f"{abs(worst_month.return_value):.2%} = "
+        f"{stress_concentration_ratio:.2f}x"
     )
-    print(f"  scaled four-session loss   : {scaled_loss:.2%}")
+    print(
+        f"  disclosed blend worst month: "
+        f"{args.reported_blend_worst_month_loss:.2%}"
+    )
+    print(f"  four-session bracket       : {scaled_loss:.2%}")
+
+    print(
+        "\nImplied NAV-loss ceiling "
+        "(only if 3%-5% is economic compensation)"
+    )
+    print(" compensation | cal. days | maximum NAV loss")
+    print("----------------------------------------------")
+    for row in compensation_rows:
+        print(
+            f" {row['economic_compensation_rate']:>11.2%} | "
+            f"{row['calendar_days']:>9.0f} | "
+            f"{row['maximum_supported_nav_loss']:>16.2%}"
+        )
 
     print("\nMinimum economic bonus")
     print(" scenario                         | NAV loss | cal. days | min bonus")
@@ -248,8 +279,8 @@ def main() -> None:
         "time zero; the bonus rows measure loss compensation, not financing."
     )
     print(
-        "  note: the scaled bracket transfers a worst-month volatility ratio "
-        "to a four-session window and is not an estimate of the HINC blend."
+        "  note: the bracket transfers HYG's within-month stress concentration "
+        "to the disclosed blend worst month and is not a HINC estimate."
     )
 
     if args.manifest:
@@ -311,11 +342,17 @@ def main() -> None:
                 },
                 "worst_month": _window_payload(worst_month),
                 "second_worst_month": _window_payload(second_worst_month),
-                "scaled_bracket": {
-                    "worst_month_ratio": scale_ratio,
-                    "scaled_four_session_loss": scaled_loss,
+                "stress_shape_bracket": {
+                    "hyg_four_session_to_worst_month_ratio": (
+                        stress_concentration_ratio
+                    ),
+                    "disclosed_blend_worst_month_loss": (
+                        args.reported_blend_worst_month_loss
+                    ),
+                    "four_session_loss": scaled_loss,
                     "is_estimate": False,
                 },
+                "economic_compensation_loss_ceilings": compensation_rows,
                 "minimum_bonus_scenarios": bonus_rows,
                 "four_calendar_day_proxy_bonus": proxy_bonus_four_days,
                 "observed_elapsed_proxy_bonus": proxy_bonus_elapsed,
@@ -331,7 +368,7 @@ def main() -> None:
             ],
             "notes": [
                 "HYG is a market-price proxy, not HINC NAV or the exact blend.",
-                "The scaled bracket is heuristic and is not a HINC estimate.",
+                "The stress-shape bracket is heuristic and is not a HINC estimate.",
                 "Permissioning makes committed liquidator financing exogenous.",
                 "Daily NAV updates can trigger multiple positions simultaneously.",
                 "Gross financing, loss buffer, and minimum bonus are distinct quantities.",

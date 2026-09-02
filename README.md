@@ -49,7 +49,7 @@ August 31, 2026 and is pinned as an offline CSV and manifest.
 | Linea WETH reproduction | `$43.20k` independently clearable versus LlamaRisk's approximately `$41k`; `$300.47k` largest sale: `FAIL` |
 | Historical replay | June 2022 worst combined-book window: `$42.20m`; stressed FTX window: `$381.42k`; modeled USDC window: zero |
 | Four-day matched paths | Combined-book V3: `$32.78m` terminal-only CVaR99 versus `$31.85m` evolving-book CVaR99 |
-| RWA drawdown proxy | HYG worst four-session loss `10.87%`; worst-month-scaled bracket `19.78%`; minimum bonus `12.56%` or heuristic `25.07%` |
+| RWA backstop test | If `3-5%` is economic compensation, it supports only `2.59-4.45%` NAV loss; HYG context `10.87%`; stress-shape bracket `19.78%` |
 
 The market report uses aggregate clearing by default. The dashboard uses the
 more realistic ordered queue. The two-day market report and four-day
@@ -74,8 +74,8 @@ break-even line, LlamaRisk's reference, and the largest borrower sale.
   redemption.
 - Liquidator funding, hedging, recovery loss, capital hurdle, and optimized
   DEX/redemption route allocation.
-- RWA four-session drawdowns, conditional stress clustering, and
-  permissioned-liquidator bonus sensitivity.
+- RWA four-session drawdowns, conditional stress clustering, economic-loss
+  ceilings, and permissioned-liquidator bonus sensitivity.
 - Loss frequency, expected loss, conditional severity, VaR, CVaR, Wilson
   intervals, cap sweeps, and JSON manifests.
 
@@ -214,8 +214,8 @@ The V4 counterfactual uses the governed
   targeted rare-event sampling is implemented.
 - Episode replay applies historical paths to the selected current book; it is
   not an archive reconstruction of historical positions or liquidity.
-- The committed HYG series is a market-price proxy, not HINC NAV or the exact
-  70/30 high-yield and CLO blend. Its scaled bracket is heuristic.
+- The committed HYG series is a market-price benchmark, not HINC NAV or the
+  exact 70/30 high-yield and CLO blend. Its stress-shape bracket is heuristic.
 - Hub allocation is synthetic and is not connected to live V4 Spokes.
 
 ## Verification

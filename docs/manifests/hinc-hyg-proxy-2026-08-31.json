@@ -41,7 +41,7 @@
     "return": "adjusted_close[t+sessions] / adjusted_close[t] - 1",
     "sessions": 4
   },
-  "generated_at_utc": "2026-08-31T20:06:26.168215+00:00",
+  "generated_at_utc": "2026-09-01T20:31:56.562260+00:00",
   "missing_hinc_inputs": [
     "dated daily 70/30 blend levels or returns",
     "LTV and liquidation threshold",
@@ -52,7 +52,7 @@
   ],
   "notes": [
     "HYG is a market-price proxy, not HINC NAV or the exact blend.",
-    "The scaled bracket is heuristic and is not a HINC estimate.",
+    "The stress-shape bracket is heuristic and is not a HINC estimate.",
     "Permissioning makes committed liquidator financing exogenous.",
     "Daily NAV updates can trigger multiple positions simultaneously.",
     "Gross financing, loss buffer, and minimum bonus are distinct quantities."
@@ -94,6 +94,18 @@
         }
       }
     },
+    "economic_compensation_loss_ceilings": [
+      {
+        "calendar_days": 6,
+        "economic_compensation_rate": 0.03,
+        "maximum_supported_nav_loss": 0.025934299773906155
+      },
+      {
+        "calendar_days": 6,
+        "economic_compensation_rate": 0.05,
+        "maximum_supported_nav_loss": 0.04448793215916513
+      }
+    ],
     "four_calendar_day_proxy_bonus": 0.12439321883202425,
     "minimum_bonus_scenarios": [
       {
@@ -116,23 +128,24 @@
       },
       {
         "calendar_days": 6,
-        "label": "worst-month-scaled bracket",
-        "loss": 0.19779042722106902,
+        "label": "stress-shape bracket",
+        "loss": 0.197790427221069,
         "minimum_bonus": 0.2506553215980605
       }
     ],
     "observed_elapsed_proxy_bonus": 0.1256227357470947,
-    "scaled_bracket": {
-      "is_estimate": false,
-      "scaled_four_session_loss": 0.19779042722106902,
-      "worst_month_ratio": 1.8198985113323003
-    },
     "second_worst_month": {
       "calendar_days": 30,
       "end_date": "2022-06-30",
       "return": -0.07049901910336598,
       "sessions": 0,
       "start_date": "2022-05-31"
+    },
+    "stress_shape_bracket": {
+      "disclosed_blend_worst_month_loss": 0.1825,
+      "four_session_loss": 0.197790427221069,
+      "hyg_four_session_to_worst_month_ratio": 1.0837831628551726,
+      "is_estimate": false
     },
     "unconditional_worst_window": {
       "calendar_days": 6,

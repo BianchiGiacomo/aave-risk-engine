@@ -109,6 +109,48 @@ class EthRpc:
             "eth_call", [{"to": to, "data": data}, self.block_tag(block)]
         )
 
+    def try_eth_call(
+        self, to: str, data: str, block: int | str | None = None
+    ) -> tuple[str | None, str]:
+        """Call without raising, separating contract answers from outages.
+
+        Returns (result, status) where status is one of:
+          "ok"          the call returned data;
+          "reverted"    the contract rejected the call, which is evidence
+                        that the function is absent or refused it;
+          "unavailable" no endpoint gave a definitive answer, which is
+                        evidence about the endpoints and nothing else.
+
+        Callers recording contract behaviour must never treat
+        "unavailable" as "reverted".
+        """
+        params = [{"to": to, "data": data}, self.block_tag(block)]
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": params}
+        body = json.dumps(payload).encode()
+        for endpoint in self.endpoints:
+            req = urllib.request.Request(endpoint, data=body, headers=_HEADERS)
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    out = json.loads(resp.read())
+            except Exception:  # noqa: BLE001 - try the next endpoint
+                time.sleep(self.retry_wait_s)
+                continue
+            if isinstance(out, dict) and "error" in out:
+                message = str(out["error"].get("message", out["error"])).lower()
+                if any(
+                    marker in message
+                    for marker in ("revert", "invalid opcode", "out of gas")
+                ):
+                    return None, "reverted"
+                continue
+            result = out.get("result") if isinstance(out, dict) else None
+            if result in (None, "0x", ""):
+                # A call to a missing function on a contract without a
+                # fallback returns empty data rather than reverting.
+                return None, "reverted"
+            return result, "ok"
+        return None, "unavailable"
+
     def get_logs(self, address: str, topics: list[str], from_block: int, to_block: int) -> list[dict]:
         out = self._post(
             {

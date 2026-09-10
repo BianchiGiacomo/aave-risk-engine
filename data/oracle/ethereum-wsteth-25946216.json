@@ -1,0 +1,117 @@
+{
+  "schema": "aave-oracle-reachability/1",
+  "chain": "ethereum",
+  "block": 25946216,
+  "block_timestamp": 1789034015,
+  "retrieved_at_utc": "2026-09-10T12:26:14+00:00",
+  "asset": {
+    "symbol": "wstETH",
+    "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
+  },
+  "reserve": {
+    "decimals": 18,
+    "ltv": 0.785,
+    "liquidation_threshold": 0.81,
+    "liquidation_bonus": 0.06000000000000005,
+    "reserve_factor": 0.35,
+    "usage_as_collateral": true,
+    "borrowing_enabled": false,
+    "is_active": true,
+    "is_frozen": false
+  },
+  "controls": {
+    "acl_manager": "0xc2aacf6553d20d1e9d78e365aaba8032af9c85b0",
+    "acl_admin": "0x5300a1a15135ea4dc7ad5a167152c01efc9b192a",
+    "acl_admin_roles": {
+      "isPoolAdmin(address)": true,
+      "isAssetListingAdmin(address)": false,
+      "isRiskAdmin(address)": false,
+      "isEmergencyAdmin(address)": false
+    },
+    "reserve_paused": false,
+    "note": "AaveOracle.setAssetSources is restricted to asset listing or pool admins; every control here requires an operator transaction and none is automatic."
+  },
+  "aave_oracle": {
+    "address": "0x54586be62e3c3580375ae3723c145253060ca0c2",
+    "data_provider": "0x0a16f2fcc0d44fae41cc54e079281d84a363becd",
+    "asset_price_raw": 307999973407,
+    "fallback_oracle": "0x0000000000000000000000000000000000000000"
+  },
+  "source": {
+    "address": "0xe1d97bf61901b075e9626c8a2340a7de385861ef",
+    "supported": {
+      "description()": "Capped wstETH / stETH(ETH) / USD",
+      "decimals()": 8,
+      "DECIMALS()": 8,
+      "latestAnswer()": 307999973407,
+      "BASE_TO_USD_AGGREGATOR()": "0x5424384b256154046e9667ddfaaa5e550145215e",
+      "RATIO_PROVIDER()": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+      "RATIO_DECIMALS()": 18,
+      "MINIMUM_SNAPSHOT_DELAY()": 604800,
+      "getSnapshotRatio()": 1228282498700325540,
+      "getSnapshotTimestamp()": 1772535659,
+      "getMaxRatioGrowthPerSecond()": 3427475262,
+      "getMaxYearlyGrowthRatePercent()": 880,
+      "isCapped()": false
+    },
+    "reverted": [
+      "latestRoundData()",
+      "version()",
+      "aggregator()",
+      "minAnswer()",
+      "maxAnswer()",
+      "ASSET_TO_PEG()",
+      "PEG_TO_BASE()"
+    ]
+  },
+  "base_feed": {
+    "address": "0x5424384b256154046e9667ddfaaa5e550145215e",
+    "supported": {
+      "description()": "ETH / USD",
+      "decimals()": 8,
+      "version()": 6,
+      "latestAnswer()": 247660473800,
+      "latestRoundData()": {
+        "round_id": 36893488147419126979,
+        "answer": 247660473800,
+        "started_at": 1789032206,
+        "updated_at": 1789032227,
+        "answered_in_round": 36893488147419126979
+      },
+      "aggregator()": "0x7c7fdfca295a787ded12bb5c1a49a8d2cc20e3f8",
+      "phaseId()": 2
+    },
+    "reverted": [],
+    "aggregator": {
+      "address": "0x7c7fdfca295a787ded12bb5c1a49a8d2cc20e3f8",
+      "supported": {
+        "description()": "ETH / USD",
+        "decimals()": 8,
+        "minAnswer()": 1,
+        "maxAnswer()": 95780971304118053647396689196894323976171195136475135,
+        "latestAnswer()": 247660473800,
+        "latestRoundData()": {
+          "round_id": 23747,
+          "answer": 247660473800,
+          "started_at": 1789032206,
+          "updated_at": 1789032227,
+          "answered_in_round": 23747
+        },
+        "latestTimestamp()": 1789032227,
+        "typeAndVersion()": "DualAggregator 1.0.0"
+      },
+      "reverted": []
+    }
+  },
+  "ratio_provider": {
+    "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84",
+    "candidates_found": [
+      "getPooledEthByShares(uint256)"
+    ],
+    "resolved": true,
+    "method": "getPooledEthByShares(uint256)",
+    "selector": "0x7a28fb88",
+    "argument": "1e18",
+    "value_raw": 1243637988258536037
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "aave_risk_engine.run_oracle_reachability",
+    "--manifest",
+    "aave_risk_engine/docs/manifests/ethereum-wsteth-oracle-reachability-25946216.json"
+  ],
+  "definitions": {
+    "reconstruction": "base feed answer * min(rate, cap ceiling) / 10**rate decimals, compared to the on-chain source answer",
+    "representable_fall": "1 - deepest floor bound translated into price units, divided by the current price",
+    "staleness_observability": "whether the layer the protocol reads exposes a timestamp that a freshness check could inspect",
+    "test_1": "can the oracle represent the stress and transmit it to the protocol"
+  },
+  "fixture": {
+    "asset": {
+      "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
+      "symbol": "wstETH"
+    },
+    "block": 25946216,
+    "block_timestamp": 1789034015,
+    "chain": "ethereum",
+    "file": "data/oracle/ethereum-wsteth-25946216.json",
+    "retrieved_at_utc": "2026-09-10T12:26:14+00:00",
+    "schema": "aave-oracle-reachability/1",
+    "sha256": "f384d33b0e5c69a2af29ecbde3e3fc4e9978eadb7ef001320981dacc1ecf2931"
+  },
+  "generated_at_utc": "2026-09-10T12:28:54.551222+00:00",
+  "not_established": [
+    "behaviour of any other Aave reserve or price source",
+    "behaviour at any block other than the pinned one",
+    "whether an operator would in fact pause or freeze in time",
+    "off-chain publication rules of the underlying feed"
+  ],
+  "notes": [
+    "A rejected update need not imply a failed read.",
+    "An aging round need not imply enforced rejection.",
+    "Heartbeat settings alone do not establish a freshness check.",
+    "Pauses and freezes require an operator transaction here.",
+    "The growth cap constrains the exchange rate, not the price."
+  ],
+  "results": {
+    "bounds": [
+      {
+        "address": "0x7c7fdfca295a787ded12bb5c1a49a8d2cc20e3f8",
+        "kind": "min",
+        "layer": "base_feed.aggregator",
+        "raw_value": 1
+      },
+      {
+        "address": "0x7c7fdfca295a787ded12bb5c1a49a8d2cc20e3f8",
+        "kind": "max",
+        "layer": "base_feed.aggregator",
+        "raw_value": 95780971304118053647396689196894323976171195136475135
+      }
+    ],
+    "cap": {
+      "cap_flag_consistent": true,
+      "ceiling_ratio_raw": 1284830205753994812,
+      "current_ratio_raw": 1243637988258536037,
+      "derived_is_capped": false,
+      "derived_yearly_percent": 8.799999998111456,
+      "elapsed_seconds": 16498356,
+      "headroom": 0.033122353839593055,
+      "max_growth_per_second": 3427475262,
+      "minimum_snapshot_delay_s": 604800,
+      "reported_is_capped": false,
+      "reported_yearly_percent": 8.8,
+      "snapshot_ratio_raw": 1228282498700325540,
+      "snapshot_timestamp": 1772535659,
+      "yearly_rate_consistent": true
+    },
+    "caveats": [
+      "the growth cap limits the exchange rate to 8.80% a year and currently has 3.31% of headroom; it is a ceiling on the ratio and does not constrain a fall in price",
+      "the protocol-facing layer exposes no timestamp, so no staleness threshold can be enforced against this price in code; freshness is an operational assumption, not an enforced condition",
+      "the deepest timestamp available is at base_feed, 1788 seconds before the pinned block, and is not read by this path",
+      "borrowing this asset is disabled, so a stale mark affects borrowing against it as collateral rather than borrowing it"
+    ],
+    "floor_price_raw": 1,
+    "max_representable_drawdown": 0.9999999999967533,
+    "reasons": [
+      "the source answer is reproduced exactly from the base feed and the exchange rate, so the path is modelled, not assumed",
+      "no bound on the path prevents a fall of arbitrary size from being published, so a stress mark is representable"
+    ],
+    "reconstruction": {
+      "base_answer_raw": 247660473800,
+      "cap_applied": false,
+      "capped_ratio_raw": 1243637988258536037,
+      "error_raw": 0,
+      "matches_oracle": true,
+      "matches_source": true,
+      "oracle_raw": 307999973407,
+      "ratio_raw": 1243637988258536037,
+      "reconstructed_raw": 307999973407,
+      "reported_raw": 307999973407
+    },
+    "staleness": {
+      "age_seconds": 1788,
+      "deepest_timestamp": 1789032227,
+      "deepest_timestamp_layer": "base_feed",
+      "enforced_anywhere_on_path": false,
+      "protocol_facing_exposes_timestamp": false,
+      "protocol_facing_layer": "0xe1d97bf61901b075e9626c8a2340a7de385861ef",
+      "protocol_facing_reverted": [
+        "latestRoundData()",
+        "version()",
+        "aggregator()",
+        "minAnswer()",
+        "maxAnswer()",
+        "ASSET_TO_PEG()",
+        "PEG_TO_BASE()"
+      ]
+    },
+    "verdict": "PASS"
+  },
+  "schema_version": 1
+}

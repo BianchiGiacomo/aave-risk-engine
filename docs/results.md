@@ -505,6 +505,63 @@ liquidation threshold, bonus and close factor, position-level health factors,
 the definition of the 3% to 5% commitment, and redemption cut-off,
 throughput, fee, gating, and suspension assumptions.
 
+## 9. Oracle Reachability For Mainnet wstETH
+
+Every section above assumes that a collateral move reaches the protocol.
+Test 1 of the four-test sequence checks that assumption instead of making
+it. This section reports one verified integration, pinned to block
+25,946,216.
+
+```bash
+python -m aave_risk_engine.run_oracle_reachability --manifest docs/manifests/ethereum-wsteth-oracle-reachability-25946216.json
+```
+
+The analysis is offline against a committed fixture. The single networked
+step, `data.build_oracle_fixture`, walks the price path and aborts rather
+than record an unanswered probe as an unsupported function. Selectors are
+derived from signatures with a stdlib Keccak-256 in `data/abi.py`.
+
+The price Aave reads for wstETH comes from a capped adapter over an
+ETH/USD feed and the stETH exchange rate. The adapter answer is
+reconstructed from those inputs and matches the chain exactly:
+
+```text
+base feed answer          2,476.60473800
+exchange rate             1.243637988259
+reconstructed answer      3,079.99973407
+source latestAnswer       3,079.99973407
+AaveOracle getAssetPrice  3,079.99973407
+exact match               True (error 0 raw units)
+```
+
+Three results follow, and the caveats carry more weight than the verdict.
+
+First, no bound on the path stops a fall. The Aave-facing source refuses
+`minAnswer()` and `maxAnswer()`; the only bounds sit on the underlying
+aggregator at 1 and 2^176 - 1, so a decline of any size is representable.
+The failure mode raised in the HINC and mWIN discussion, where a bound
+prevents the stress mark from being published, does not apply here.
+
+Second, the growth cap constrains the exchange rate, not the price. It
+limits the rate to 8.80% a year from a snapshot and currently has 3.31%
+of headroom. Both the derived yearly rate and the contract's own
+`isCapped()` flag are reproduced rather than assumed.
+
+Third, staleness cannot be enforced on this path. The source implements
+`latestAnswer()` and reverts on `latestRoundData()`, so it exposes no
+timestamp. This is verified rather than inferred: if `AaveOracle` read
+`latestRoundData()` here, `getAssetPrice` would revert, and it does not.
+A timestamp exists on the base feed, 1,788 seconds old at the pinned
+block, and nothing on the path reads it. Freshness is an operational
+assumption, not a condition enforced in code, and every control that
+could respond, including replacing the source and freezing the reserve,
+requires an operator transaction.
+
+Verdict: **PASS**, scoped to this reserve at this block. Full evidence,
+addresses, control authority, and the explicit list of what the case does
+not establish are in the
+[wstETH oracle reachability case study](case_studies/2026-09-aave-wsteth-oracle-reachability.md).
+
 ## Interpretation
 
 The corrected borrower universe changes the quantitative narrative. The USD

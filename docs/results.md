@@ -562,6 +562,47 @@ addresses, control authority, and the explicit list of what the case does
 not establish are in the
 [wstETH oracle reachability case study](case_studies/2026-09-aave-wsteth-oracle-reachability.md).
 
+## 10. Four-Test Assessment For Mainnet wstETH
+
+The sections above answer separate questions. This one combines them into
+a single decision for one reserve at one block, using the
+[four-test assessment format](assessment-template.md).
+
+```bash
+python -m aave_risk_engine.run_four_test_assessment --manifest docs/manifests/ethereum-wsteth-four-test-assessment-25780402.json
+```
+
+All three input manifests are pinned to block 25,780,402, so the oracle
+configuration, the borrower book, and the liquidator economics describe
+one system rather than three dates. Each verdict is derived from a named
+manifest field rather than written by hand.
+
+```text
+test | verdict       | question
+-----|---------------|-------------------------------------------------------
+  1  | PASS          | can the oracle represent the stress and transmit it
+  2  | PASS          | how much debt requires simultaneous repayment
+  3  | FAIL          | can eligible liquidators finance that repayment
+  4  | INDETERMINATE | does the bonus compensate for settlement and recovery
+```
+
+Test 3 decides it. Break-even slippage at a 6% bonus is 5.66%, and routed
+depth inside that clears $2.73m quiet and $1.37m stressed against a
+$256.52m single-event requirement: short by a factor of 94.
+
+Test 4 is unresolved rather than failing. The 6% bonus does not cover the
+modelled costs on evidenced exit capacity, where the required minimum runs
+from 6.29% quiet to 13.49% stressed. It clears only on routes assuming
+$25m a day of primary redemption, which cuts the requirement to 4.66%.
+That throughput is a stated sensitivity, not a measured entitlement, so
+the outcome is INDETERMINATE: an unevidenced assumption that turns a
+failing test into a passing one is not a pass.
+
+Overall clearance is **FAIL**, driven by test 3. Test 4 stays informative
+but conditional and cannot establish clearance while test 3 fails. The
+worked assessment, with the missing inputs and who holds them, is in
+[the wstETH assessment](assessments/2026-08-18-aave-v3-ethereum-wsteth.md).
+
 ## Interpretation
 
 The corrected borrower universe changes the quantitative narrative. The USD

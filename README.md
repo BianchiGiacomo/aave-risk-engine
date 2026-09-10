@@ -190,6 +190,7 @@ Read next:
 - [Implementation notes](IMPLEMENTATION.md)
 - [Linea cap-reduction case study](docs/case_studies/2026-07-linea-cap-reductions.md)
 - [wstETH oracle reachability case study](docs/case_studies/2026-09-aave-wsteth-oracle-reachability.md)
+- [Four-test assessment format](docs/assessment-template.md) and its [worked wstETH assessment](docs/assessments/2026-08-18-aave-v3-ethereum-wsteth.md)
 - [Published governance research note](https://governance.aave.com/t/independent-liquidation-capacity-stress-tests-for-aave/25503)
 - [Governance article source](docs/article/governance-post-draft.md)
 - [Run manifest documentation](docs/manifests/README.md)

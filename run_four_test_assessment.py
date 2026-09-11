@@ -19,7 +19,7 @@ _MANIFESTS = _PACKAGE_DIR / "docs" / "manifests"
 
 _DEFAULT_STRESS = (
     "two-day horizon, Student-t returns with jumps, correlated peg and "
-    "depth stress, as pinned in the market report manifest"
+    "depth stress, reproduced from the market report manifest"
 )
 
 
@@ -42,7 +42,7 @@ def _write_json(path: str, payload: dict) -> str:
 
 def _wrap(text: str, indent: str = "    ") -> str:
     return textwrap.fill(
-        text, width=78, initial_indent=indent, subsequent_indent=indent
+        text, width=78, initial_indent=indent, subsequent_indent=indent + "  "
     )
 
 
@@ -56,6 +56,12 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--market", default=str(_MANIFESTS / "ethereum-wsteth-2026-08-18.json")
+    )
+    parser.add_argument(
+        "--simultaneity",
+        default=str(
+            _MANIFESTS / "ethereum-wsteth-simultaneous-requirement-2026-08-18.json"
+        ),
     )
     parser.add_argument(
         "--balance-sheet",
@@ -74,6 +80,7 @@ def main() -> None:
     paths = {
         "reachability": Path(args.reachability).resolve(),
         "market": Path(args.market).resolve(),
+        "simultaneity": Path(args.simultaneity).resolve(),
         "balance_sheet": Path(args.balance_sheet).resolve(),
     }
     loaded = {
@@ -87,6 +94,7 @@ def main() -> None:
     result = build_assessment(
         loaded["reachability"],
         loaded["market"],
+        loaded["simultaneity"],
         loaded["balance_sheet"],
         stress_path=args.stress_path,
         canonical_loss=args.canonical_loss,
@@ -97,7 +105,7 @@ def main() -> None:
         f"  reserve      : {result.asset} on {result.chain} | block "
         f"{result.block:,} | {result.block_timestamp}"
     )
-    print(f"  stress path  : {result.stress_path}")
+    print(_wrap(f"stress path  : {result.stress_path}", indent="  "))
     print(
         f"  one vintage  : {result.vintage_consistent}"
         + ("" if result.vintage_consistent else "  <-- manifests disagree")
@@ -107,17 +115,25 @@ def main() -> None:
     print("------|---------------|" + "-" * 56)
     for test in result.tests:
         print(f"  {test.number}   | {test.verdict:<13} | {test.question}")
+        for sub in test.sub_outcomes:
+            print(f"      | {sub.verdict:<13} |   {sub.label}")
 
     for test in result.tests:
         print(f"\nTest {test.number}: {test.verdict}")
         print(_wrap(f"criterion: {test.criterion}"))
         print(_wrap(f"finding: {test.finding}"))
+        for sub in test.sub_outcomes:
+            print(_wrap(f"{sub.label} [{sub.verdict}] scope: {sub.scope}"))
+            print(_wrap(f"criterion: {sub.criterion}", indent="      "))
+            print(_wrap(f"finding: {sub.finding}", indent="      "))
         for item in test.evidence:
             print(f"    evidence: {item.manifest} :: {item.field}")
         for item in test.missing:
             print(_wrap(f"missing: {item}"))
         if test.who_can_supply:
             print(_wrap(f"who can supply: {', '.join(test.who_can_supply)}"))
+        for item in test.limits:
+            print(_wrap(f"limit: {item}"))
 
     print(f"\nOverall clearance: {result.overall}")
     print(_wrap(result.overall_reason, indent="  "))
@@ -132,7 +148,7 @@ def main() -> None:
 
     if args.manifest:
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "command": [
                 "python",
@@ -141,10 +157,7 @@ def main() -> None:
                 *(argument.replace("\\", "/") for argument in sys.argv[1:]),
             ],
             "inputs": {
-                key: {
-                    "file": loaded[key][0],
-                    "sha256": _sha256(path),
-                }
+                key: {"file": loaded[key][0], "sha256": _sha256(path)}
                 for key, path in paths.items()
             },
             "scope": {
@@ -156,15 +169,7 @@ def main() -> None:
                 "canonical_loss": args.canonical_loss,
                 "vintage_consistent": result.vintage_consistent,
             },
-            "tests": [
-                {
-                    **dataclasses.asdict(test),
-                    "evidence": [
-                        dataclasses.asdict(item) for item in test.evidence
-                    ],
-                }
-                for test in result.tests
-            ],
+            "tests": [dataclasses.asdict(test) for test in result.tests],
             "overall": result.overall,
             "overall_reason": result.overall_reason,
             "rules": {
@@ -177,6 +182,14 @@ def main() -> None:
                 "ordering": (
                     "later tests remain informative when an earlier one is "
                     "unresolved, but cannot establish overall clearance"
+                ),
+                "sub_outcomes": (
+                    "a sub-outcome can fail within its scope without deciding "
+                    "the test it belongs to"
+                ),
+                "assumptions": (
+                    "an assumed input that flips a verdict across its stated "
+                    "range makes the verdict INDETERMINATE"
                 ),
             },
         }

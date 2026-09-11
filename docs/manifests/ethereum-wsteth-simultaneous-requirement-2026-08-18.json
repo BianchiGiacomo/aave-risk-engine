@@ -1,0 +1,76 @@
+{
+  "command": [
+    "python",
+    "-m",
+    "aave_risk_engine.run_simultaneous_requirement",
+    "--manifest",
+    "aave_risk_engine/docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json"
+  ],
+  "definitions": {
+    "repayment_usd": "debt repaid in the first liquidation round, summed over positions with health factor below one",
+    "seizure_usd": "collateral received for that repayment, repayment times one plus the bonus",
+    "sizing": "V3 close factor: full below the full-liquidation health factor, otherwise the close factor; capped by seizable collateral",
+    "tail": "the worst (1 - cvar_level) share of scenarios ranked by total repayment"
+  },
+  "generated_at_utc": "2026-09-11T13:50:38.470558+00:00",
+  "not_modelled": [
+    "a second liquidation round inside the horizon",
+    "positions outside the target-dominant combined book",
+    "path dependence inside the horizon; the stress is a single horizon shock, as in the published report"
+  ],
+  "results": {
+    "accounts": 855,
+    "book_debt_usd": 964279453.0190697,
+    "largest_share_of_tail_repayment": 0.42039312310645804,
+    "largest_single_repayment_in_tail_usd": 87241252.99879643,
+    "liquidatable_positions": {
+      "maximum": 286.0,
+      "p50": 0.0,
+      "p90": 2.0,
+      "p95": 3.0,
+      "p99": 13.0,
+      "tail_mean": 29.625
+    },
+    "n_scenarios": 20000,
+    "prob_any_liquidation": 0.3082,
+    "repayment_usd": {
+      "maximum": 264616563.40622512,
+      "p50": 0.0,
+      "p90": 32851.557032145,
+      "p95": 47886.83825262,
+      "p99": 7146279.684218701,
+      "tail_mean": 24140957.476186678
+    },
+    "seizure_usd": {
+      "maximum": 280493557.2105986,
+      "p50": 0.0,
+      "p90": 34822.6504540737,
+      "p95": 50760.0485477772,
+      "p99": 7575056.465271825,
+      "tail_mean": 25589414.924757876
+    },
+    "static_bound_largest_full_seizure_usd": 256518754.54425496,
+    "tail_level": 0.99,
+    "tail_scenarios": 200
+  },
+  "schema_version": 1,
+  "snapshot": {
+    "asset": "wstETH",
+    "block": 25780402,
+    "chain": "ethereum",
+    "file": "data/snapshots/aave_v3_ethereum_wsteth.json",
+    "sha256": "ee83cd344d2bd684e322421ba3c75c6ee876681e05e2b9cd5756c5094d42a778",
+    "timestamp": 1787037143
+  },
+  "stress_path": {
+    "book": "combined, ETH-denominated debt modelled",
+    "horizon_days": 2.0,
+    "n_scenarios": 20000,
+    "published_combined_cvar99": 31824054.4916556,
+    "reproduced_combined_cvar99": 31824054.4916556,
+    "reproduces_published_scenarios": true,
+    "seed": 7,
+    "source_manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
+    "source_manifest_sha256": "3de90ecbf24fd785b745759697947b30d245aa86487a8559d5962ac44867b0c2"
+  }
+}

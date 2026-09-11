@@ -1,9 +1,9 @@
 {
-  "schema": "aave-oracle-reachability/1",
+  "schema": "aave-oracle-reachability/2",
   "chain": "ethereum",
   "block": 25780402,
   "block_timestamp": 1787037143,
-  "retrieved_at_utc": "2026-09-10T13:22:35+00:00",
+  "retrieved_at_utc": "2026-09-11T13:43:35+00:00",
   "asset": {
     "symbol": "wstETH",
     "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0"
@@ -62,7 +62,15 @@
       "maxAnswer()",
       "ASSET_TO_PEG()",
       "PEG_TO_BASE()"
-    ]
+    ],
+    "embedded_calls": {
+      "latestRoundData()": false,
+      "latestTimestamp()": false,
+      "latestRound()": false,
+      "getRoundData(uint80)": false,
+      "minAnswer()": false,
+      "maxAnswer()": false
+    }
   },
   "base_feed": {
     "address": "0x5424384b256154046e9667ddfaaa5e550145215e",
@@ -113,5 +121,198 @@
     "selector": "0x7a28fb88",
     "argument": "1e18",
     "value_raw": 1241884438918792618
+  },
+  "behaviour": {
+    "method": "eth_call with state overrides at the pinned block",
+    "endpoint": "https://rpc.mevblocker.io",
+    "scenarios": [
+      {
+        "name": "baseline",
+        "purpose": "unmodified state at the pinned block",
+        "overridden": null,
+        "inputs": {},
+        "mock_verified": null,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 235752817511
+        }
+      },
+      {
+        "name": "stress_50",
+        "purpose": "accepted stress update: base price halves",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 94917373196,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 117876408755
+        }
+      },
+      {
+        "name": "stress_99",
+        "purpose": "accepted stress update: base price falls 99%",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 1898347463,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 2357528173
+        }
+      },
+      {
+        "name": "stress_floor",
+        "purpose": "accepted stress update at the aggregator minimum of one raw unit",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 1,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 1
+        }
+      },
+      {
+        "name": "zero_answer",
+        "purpose": "a value the aggregator bounds would refuse to store, forced through to show what the adapter and oracle do with it",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 0,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "reverted",
+          "price_raw": null
+        }
+      },
+      {
+        "name": "negative_answer",
+        "purpose": "a negative value, forced through for the same reason",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": -1,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "reverted",
+          "price_raw": null
+        }
+      },
+      {
+        "name": "timestamps_unreadable",
+        "purpose": "elapsed time: every timestamp getter on the feed reverts, so any reader of a timestamp on this path would fail",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 189834746393,
+          "updated_at": 1787037143,
+          "timestamp_getters": "revert"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 235752817511
+        }
+      },
+      {
+        "name": "stale_30_days",
+        "purpose": "elapsed time: the round is thirty days old",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 189834746393,
+          "updated_at": 1784445143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 235752817511
+        }
+      },
+      {
+        "name": "recovery",
+        "purpose": "recovery: a later valid update two percent above the baseline",
+        "overridden": {
+          "layer": "base_feed",
+          "address": "0x5424384b256154046e9667ddfaaa5e550145215e"
+        },
+        "inputs": {
+          "base_answer_raw": 193631441320,
+          "updated_at": 1787037143,
+          "timestamp_getters": "fresh"
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 240467873860
+        }
+      },
+      {
+        "name": "rate_above_cap",
+        "purpose": "exchange rate ten percent above the growth-cap ceiling",
+        "overridden": {
+          "layer": "ratio_provider",
+          "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84"
+        },
+        "inputs": {
+          "rate_raw": 1405784574009875782
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 242606143718
+        }
+      },
+      {
+        "name": "rate_drop_20",
+        "purpose": "exchange rate twenty percent below its current value",
+        "overridden": {
+          "layer": "ratio_provider",
+          "address": "0xae7ab96520de3a18e5e111b5eaab095312d7fe84"
+        },
+        "inputs": {
+          "rate_raw": 993507551135034094
+        },
+        "mock_verified": true,
+        "oracle": {
+          "status": "ok",
+          "price_raw": 188602254009
+        }
+      }
+    ]
   }
 }

@@ -3,13 +3,15 @@
     "python",
     "-m",
     "aave_risk_engine.run_oracle_reachability",
+    "--fixture",
+    "aave_risk_engine/data/oracle/ethereum-wsteth-25946216.json",
     "--manifest",
     "aave_risk_engine/docs/manifests/ethereum-wsteth-oracle-reachability-25946216.json"
   ],
   "definitions": {
-    "reconstruction": "base feed answer * min(rate, cap ceiling) / 10**rate decimals, compared to the on-chain source answer",
-    "representable_fall": "1 - deepest floor bound translated into price units, divided by the current price",
-    "staleness_observability": "whether the layer the protocol reads exposes a timestamp that a freshness check could inspect",
+    "behavioural_probe": "eth_call at the pinned block with the code of one feed replaced by a mock serving a stated input; the mock is verified under the same override before the real AaveOracle is asked for the price",
+    "expected_price": "base answer * min(rate, growth-cap ceiling) / 10**rate decimals; no prediction for non-positive inputs",
+    "freshness": "exposing a timestamp, embedding a reader, reading one on the executed path, and enforcing a threshold are recorded as separate properties",
     "test_1": "can the oracle represent the stress and transmit it to the protocol"
   },
   "fixture": {
@@ -17,27 +19,22 @@
       "address": "0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0",
       "symbol": "wstETH"
     },
+    "behaviour_endpoint": "https://rpc.mevblocker.io",
     "block": 25946216,
     "block_timestamp": 1789034015,
     "chain": "ethereum",
     "file": "data/oracle/ethereum-wsteth-25946216.json",
-    "retrieved_at_utc": "2026-09-10T12:26:14+00:00",
-    "schema": "aave-oracle-reachability/1",
-    "sha256": "f384d33b0e5c69a2af29ecbde3e3fc4e9978eadb7ef001320981dacc1ecf2931"
+    "retrieved_at_utc": "2026-09-11T13:43:49+00:00",
+    "schema": "aave-oracle-reachability/2",
+    "sha256": "05de0afe43eb614d562bfdab54a1a79e4119e4e4282be4a45834a650e8359ff3"
   },
-  "generated_at_utc": "2026-09-10T12:28:54.551222+00:00",
+  "generated_at_utc": "2026-09-11T13:47:35.485075+00:00",
   "not_established": [
-    "behaviour of any other Aave reserve or price source",
-    "behaviour at any block other than the pinned one",
-    "whether an operator would in fact pause or freeze in time",
-    "off-chain publication rules of the underlying feed"
-  ],
-  "notes": [
-    "A rejected update need not imply a failed read.",
-    "An aging round need not imply enforced rejection.",
-    "Heartbeat settings alone do not establish a freshness check.",
-    "Pauses and freezes require an operator transaction here.",
-    "The growth cap constrains the exchange rate, not the price."
+    "behaviour of any other reserve or price source",
+    "behaviour at any other block, or after governance replaces the source",
+    "the aggregator's own transmission path, which requires signed reports and was not executed",
+    "whether an operator would pause or freeze in time",
+    "the freshness of the exchange-rate provider's own inputs"
   ],
   "results": {
     "bounds": [
@@ -58,7 +55,6 @@
       "cap_flag_consistent": true,
       "ceiling_ratio_raw": 1284830205753994812,
       "current_ratio_raw": 1243637988258536037,
-      "derived_is_capped": false,
       "derived_yearly_percent": 8.799999998111456,
       "elapsed_seconds": 16498356,
       "headroom": 0.033122353839593055,
@@ -71,16 +67,25 @@
       "yearly_rate_consistent": true
     },
     "caveats": [
-      "the growth cap limits the exchange rate to 8.80% a year and currently has 3.31% of headroom; it is a ceiling on the ratio and does not constrain a fall in price",
-      "the protocol-facing layer exposes no timestamp, so no staleness threshold can be enforced against this price in code; freshness is an operational assumption, not an enforced condition",
-      "the deepest timestamp available is at base_feed, 1788 seconds before the pinned block, and is not read by this path",
-      "borrowing this asset is disabled, so a stale mark affects borrowing against it as collateral rather than borrowing it"
+      "a zero or negative base value makes getAssetPrice revert rather than return zero; the aggregator bounds already refuse to store such values, so on this path an update is refused only below one raw unit of the base feed",
+      "no timestamp is read anywhere on the executed path: with every timestamp getter on the feed reverting, and with a round 2,592,000 seconds old, the oracle returned the unchanged price. Freshness is an operational assumption, not a condition enforced in code",
+      "the growth cap limits the exchange rate to 8.80% a year, with 3.31% of headroom at this block; a rate above the ceiling was clamped and a lower rate passed through, so the cap constrains upward moves in the rate and not a fall in price",
+      "borrowing this asset is disabled, so a stale mark would affect borrowing against it as collateral rather than borrowing it",
+      "behaviour was verified for this source at this block; governance can replace the source, and nothing here transfers to another one"
     ],
-    "floor_price_raw": 1,
-    "max_representable_drawdown": 0.9999999999967533,
+    "freshness": {
+      "enforced": false,
+      "feed_age_seconds": 1788,
+      "source_embeds_timestamp_call": false,
+      "source_exposes_timestamp": false,
+      "stale_probe_age_seconds": 2592000,
+      "threshold_enforced_within_seconds": null,
+      "timestamp_read_on_executed_path": false
+    },
+    "max_verified_fall": 0.9999999999967533,
     "reasons": [
-      "the source answer is reproduced exactly from the base feed and the exchange rate, so the path is modelled, not assumed",
-      "no bound on the path prevents a fall of arbitrary size from being published, so a stress mark is representable"
+      "the baseline price is reproduced exactly from the base feed and the exchange rate, and matches both the source and AaveOracle",
+      "every accepted stress update, down to a base answer of one raw unit, passed through the deployed adapter and oracle exactly as modelled, so a fall of 100.000000% is verified as representable"
     ],
     "reconstruction": {
       "base_answer_raw": 247660473800,
@@ -90,28 +95,103 @@
       "matches_oracle": true,
       "matches_source": true,
       "oracle_raw": 307999973407,
+      "ratio_decimals": 18,
       "ratio_raw": 1243637988258536037,
       "reconstructed_raw": 307999973407,
-      "reported_raw": 307999973407
+      "source_raw": 307999973407
     },
-    "staleness": {
-      "age_seconds": 1788,
-      "deepest_timestamp": 1789032227,
-      "deepest_timestamp_layer": "base_feed",
-      "enforced_anywhere_on_path": false,
-      "protocol_facing_exposes_timestamp": false,
-      "protocol_facing_layer": "0xe1d97bf61901b075e9626c8a2340a7de385861ef",
-      "protocol_facing_reverted": [
-        "latestRoundData()",
-        "version()",
-        "aggregator()",
-        "minAnswer()",
-        "maxAnswer()",
-        "ASSET_TO_PEG()",
-        "PEG_TO_BASE()"
-      ]
-    },
+    "refused_below_raw": 1,
+    "scenarios": [
+      {
+        "expected_raw": 307999973407,
+        "matches": true,
+        "name": "baseline",
+        "observed_raw": 307999973407,
+        "observed_status": "ok",
+        "purpose": "unmodified state at the pinned block"
+      },
+      {
+        "expected_raw": 153999986703,
+        "matches": true,
+        "name": "stress_50",
+        "observed_raw": 153999986703,
+        "observed_status": "ok",
+        "purpose": "accepted stress update: base price halves"
+      },
+      {
+        "expected_raw": 3079999734,
+        "matches": true,
+        "name": "stress_99",
+        "observed_raw": 3079999734,
+        "observed_status": "ok",
+        "purpose": "accepted stress update: base price falls 99%"
+      },
+      {
+        "expected_raw": 1,
+        "matches": true,
+        "name": "stress_floor",
+        "observed_raw": 1,
+        "observed_status": "ok",
+        "purpose": "accepted stress update at the aggregator minimum of one raw unit"
+      },
+      {
+        "expected_raw": null,
+        "matches": null,
+        "name": "zero_answer",
+        "observed_raw": null,
+        "observed_status": "reverted",
+        "purpose": "a value the aggregator bounds would refuse to store, forced through to show what the adapter and oracle do with it"
+      },
+      {
+        "expected_raw": null,
+        "matches": null,
+        "name": "negative_answer",
+        "observed_raw": null,
+        "observed_status": "reverted",
+        "purpose": "a negative value, forced through for the same reason"
+      },
+      {
+        "expected_raw": 307999973407,
+        "matches": true,
+        "name": "timestamps_unreadable",
+        "observed_raw": 307999973407,
+        "observed_status": "ok",
+        "purpose": "elapsed time: every timestamp getter on the feed reverts, so any reader of a timestamp on this path would fail"
+      },
+      {
+        "expected_raw": 307999973407,
+        "matches": true,
+        "name": "stale_30_days",
+        "observed_raw": 307999973407,
+        "observed_status": "ok",
+        "purpose": "elapsed time: the round is thirty days old"
+      },
+      {
+        "expected_raw": 314159972875,
+        "matches": true,
+        "name": "recovery",
+        "observed_raw": 314159972875,
+        "observed_status": "ok",
+        "purpose": "recovery: a later valid update two percent above the baseline"
+      },
+      {
+        "expected_raw": 318201657509,
+        "matches": true,
+        "name": "rate_above_cap",
+        "observed_raw": 318201657509,
+        "observed_status": "ok",
+        "purpose": "exchange rate ten percent above the growth-cap ceiling"
+      },
+      {
+        "expected_raw": 246399978726,
+        "matches": true,
+        "name": "rate_drop_20",
+        "observed_raw": 246399978726,
+        "observed_status": "ok",
+        "purpose": "exchange rate twenty percent below its current value"
+      }
+    ],
     "verdict": "PASS"
   },
-  "schema_version": 1
+  "schema_version": 2
 }

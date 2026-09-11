@@ -110,7 +110,11 @@ class EthRpc:
         )
 
     def try_eth_call(
-        self, to: str, data: str, block: int | str | None = None
+        self,
+        to: str,
+        data: str,
+        block: int | str | None = None,
+        overrides: dict | None = None,
     ) -> tuple[str | None, str]:
         """Call without raising, separating contract answers from outages.
 
@@ -123,8 +127,14 @@ class EthRpc:
 
         Callers recording contract behaviour must never treat
         "unavailable" as "reverted".
+
+        overrides is an eth_call state-override set. Endpoints that ignore
+        it silently return unmodified state, so callers must confirm the
+        override took effect on the same endpoint before trusting a result.
         """
         params = [{"to": to, "data": data}, self.block_tag(block)]
+        if overrides:
+            params.append(overrides)
         payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_call", "params": params}
         body = json.dumps(payload).encode()
         for endpoint in self.endpoints:

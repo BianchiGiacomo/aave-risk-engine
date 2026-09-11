@@ -6,7 +6,7 @@
     "--manifest",
     "aave_risk_engine/docs/manifests/ethereum-wsteth-four-test-assessment-25780402.json"
   ],
-  "generated_at_utc": "2026-09-10T13:26:32.670583+00:00",
+  "generated_at_utc": "2026-09-11T13:56:34.283558+00:00",
   "inputs": {
     "balance_sheet": {
       "file": "docs/manifests/ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json",
@@ -18,31 +18,37 @@
     },
     "reachability": {
       "file": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
-      "sha256": "53ae3c07750f5ddab596f434649efd952f72a49e8e946534de1e98a046609c1a"
+      "sha256": "e506c6aff9964134b9390a9ef79962e75b402713b40b67e5174e626f5ff98cc3"
+    },
+    "simultaneity": {
+      "file": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+      "sha256": "d78665ea5fa0622d5f528af2eef16ac4b36cc08a2f8b79c59379cfb6c9858574"
     }
   },
-  "overall": "FAIL",
-  "overall_reason": "test 3 fails on its stated criterion. Test 4 remains informative but conditional, and cannot establish clearance while test 3 fails.",
+  "overall": "INDETERMINATE",
+  "overall_reason": "no test fails, but tests 3 and 4 cannot be resolved on the available evidence, and missing data is never a pass. Sub-test 3a instant clearance fails within its own scope, which does not decide the test it belongs to.",
   "rules": {
     "FAIL": "the stated criterion is violated",
     "INDETERMINATE": "the available evidence cannot support either conclusion",
     "PASS": "the stated criterion is met on the cited evidence",
+    "assumptions": "an assumed input that flips a verdict across its stated range makes the verdict INDETERMINATE",
     "missing_data": "missing data is never a PASS",
-    "ordering": "later tests remain informative when an earlier one is unresolved, but cannot establish overall clearance"
+    "ordering": "later tests remain informative when an earlier one is unresolved, but cannot establish overall clearance",
+    "sub_outcomes": "a sub-outcome can fail within its scope without deciding the test it belongs to"
   },
-  "schema_version": 1,
+  "schema_version": 2,
   "scope": {
     "asset": "wstETH",
     "block": 25780402,
     "block_timestamp": 1787037143,
     "canonical_loss": 0.04,
     "chain": "ethereum",
-    "stress_path": "two-day horizon, Student-t returns with jumps, correlated peg and depth stress, as pinned in the market report manifest",
+    "stress_path": "two-day horizon, Student-t returns with jumps, correlated peg and depth stress, reproduced from the market report manifest",
     "vintage_consistent": true
   },
   "tests": [
     {
-      "criterion": "the price path reproduces the chain exactly, and no bound on it prevents the stress mark from being published",
+      "criterion": "the path reproduces the recorded source and oracle prices, and the deployed contracts pass stress updates through without a bound or floor above the stress level",
       "evidence": [
         {
           "field": "results.verdict",
@@ -50,27 +56,39 @@
           "value": "PASS"
         },
         {
-          "field": "results.reconstruction.error_raw",
-          "manifest": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
-          "value": 0
-        },
-        {
-          "field": "results.max_representable_drawdown",
+          "field": "results.max_verified_fall",
           "manifest": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
           "value": 0.9999999999957583
         },
         {
-          "field": "results.staleness.protocol_facing_exposes_timestamp",
+          "field": "results.freshness.timestamp_read_on_executed_path",
           "manifest": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
           "value": false
+        },
+        {
+          "field": "results.freshness.enforced",
+          "manifest": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
+          "value": false
+        },
+        {
+          "field": "results.reconstruction.matches_source|matches_oracle",
+          "manifest": "docs/manifests/ethereum-wsteth-oracle-reachability-25780402.json",
+          "value": [
+            true,
+            true
+          ]
         }
       ],
-      "finding": "the path reproduces the chain exactly and no bound stops a fall of up to 100.00%, so a stress mark is representable. Freshness, however, is not enforced in code: the layer the protocol reads exposes no timestamp",
+      "finding": "the baseline price is reproduced exactly and matches both the source and AaveOracle, and every accepted stress update down to one raw unit of the base feed passed through the deployed contracts as modelled, so a fall of 100.00% is verified as representable. No timestamp is read anywhere on the executed path, verified by making every timestamp getter revert, so freshness is an operational assumption rather than an enforced condition",
+      "limits": [
+        "behaviour verified for this source at this block, through eth_call state overrides; the aggregator's own transmission path was not executed"
+      ],
       "missing": [
-        "an off-chain publication guarantee for the underlying feed, since no on-chain freshness check is possible on this path"
+        "an operational guarantee of feed publication, since no on-chain freshness check exists on this path"
       ],
       "number": 1,
       "question": "can the oracle represent the stress and transmit it to the protocol",
+      "sub_outcomes": [],
       "verdict": "PASS",
       "who_can_supply": [
         "the feed operator",
@@ -78,7 +96,7 @@
       ]
     },
     {
-      "criterion": "the simultaneous repayment requirement is quantified from a complete borrower registry at the pinned block",
+      "criterion": "the requirement is computed on the stated stress path, from a complete borrower registry, with protocol liquidation sizing, and with capital recycling inside the horizon accounted for",
       "evidence": [
         {
           "field": "snapshot.borrower_discovery.source",
@@ -86,46 +104,72 @@
           "value": "complete Borrow-event registry"
         },
         {
-          "field": "snapshot.borrower_discovery.active_count",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": 9526
+          "field": "stress_path.reproduces_published_scenarios",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": true
         },
         {
-          "field": "clearance.largest_debt_usd",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": 241998825.04174995
+          "field": "stress_path.horizon_days",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": 2.0
         },
         {
-          "field": "clearance.largest_borrower_usd",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
+          "field": "results.repayment_usd",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": {
+            "maximum": 264616563.40622512,
+            "p50": 0.0,
+            "p90": 32851.557032145,
+            "p95": 47886.83825262,
+            "p99": 7146279.684218701,
+            "tail_mean": 24140957.476186678
+          }
+        },
+        {
+          "field": "results.seizure_usd",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": {
+            "maximum": 280493557.2105986,
+            "p50": 0.0,
+            "p90": 34822.6504540737,
+            "p95": 50760.0485477772,
+            "p99": 7575056.465271825,
+            "tail_mean": 25589414.924757876
+          }
+        },
+        {
+          "field": "results.liquidatable_positions",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": {
+            "maximum": 286.0,
+            "p50": 0.0,
+            "p90": 2.0,
+            "p95": 3.0,
+            "p99": 13.0,
+            "tail_mean": 29.625
+          }
+        },
+        {
+          "field": "results.static_bound_largest_full_seizure_usd",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
           "value": 256518754.54425496
-        },
-        {
-          "field": "clearance.top5_borrowers_usd",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": 506795952.7239979
-        },
-        {
-          "field": "books.combined.debt_usd",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": 964279453.0190697
         }
       ],
-      "finding": "from a complete Borrow-event registry over 9,526 active accounts, the largest single position requires repaying $242.00m of debt against $256.52m of collateral in one event; the top five come to $506.80m against a combined book of $964.28m. The requirement is concentration-driven rather than spread across the book",
+      "finding": "on the published stress path, reproduced exactly, 13 positions are liquidatable at once at the 99% level, requiring $7.15m of debt repayment in exchange for $7.58m of collateral; over the worst 1% of scenarios the mean is $24.14m of repayment and $25.59m of collateral. In those tail scenarios the single largest repayment is on average 42.0% of the total. The full seizure of the largest position, $256.52m of collateral, sits at the extreme of the distribution, where the worst scenario seizes $280.49m: it is a conservative bound, not the tail requirement. Capital does not recycle inside the 2-day horizon: the fastest modelled exit takes 11.26 days, so every repayment in a scenario is concurrent",
+      "limits": [
+        "first liquidation round only; a second round inside the horizon is not counted",
+        "the stress is a single horizon shock, as in the published report"
+      ],
       "missing": [],
       "number": 2,
       "question": "how much debt requires repayment simultaneously, or before capital from earlier liquidations becomes available again",
+      "sub_outcomes": [],
       "verdict": "PASS",
       "who_can_supply": []
     },
     {
-      "criterion": "instant executable capacity inside the liquidation bonus is at least the simultaneous repayment requirement from test 2",
+      "criterion": "either instant clearance covers the simultaneous collateral sale, or evidenced financing covers the simultaneous repayment for the exit horizon; FAIL requires both to be shown insufficient",
       "evidence": [
-        {
-          "field": "clearance.largest_borrower_usd",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": 256518754.54425496
-        },
         {
           "field": "clearance.max_clearable_usd_quiet",
           "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
@@ -137,35 +181,53 @@
           "value": 1366520.185132932
         },
         {
-          "field": "clearance.passes_quiet",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": false
-        },
-        {
-          "field": "clearance.passes_stressed",
-          "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
-          "value": false
-        },
-        {
           "field": "clearance.breakeven_slippage",
           "manifest": "docs/manifests/ethereum-wsteth-2026-08-18.json",
           "value": 0.05660377358490571
+        },
+        {
+          "field": "results.seizure_usd.p99",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": 7575056.465271825
+        },
+        {
+          "field": "results.repayment_usd.p99",
+          "manifest": "docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json",
+          "value": 7146279.684218701
         }
       ],
-      "finding": "instant executable capacity inside the 5.66% break-even slippage is $2.73m quiet and $1.37m stressed, against a $256.52m single-event requirement: short by a factor of 94 in the quiet case",
+      "finding": "instant clearance fails within its own scope, so atomic liquidators alone cannot meet the requirement. That does not show that nobody can finance the repayment and hold the collateral while exiting, which is the question this test asks; on the available evidence that question stays open",
+      "limits": [],
       "missing": [
-        "aggregator depth beyond the quoted notional, so the measured slippage is a lower bound and the true shortfall is at least this large"
+        "committed liquidator financing: balance-sheet capacity, credit lines, or a backstop arrangement of at least the simultaneous repayment for the exit horizon"
       ],
       "number": 3,
       "question": "can eligible liquidators finance that repayment when required",
-      "verdict": "FAIL",
+      "sub_outcomes": [
+        {
+          "criterion": "instant executable capacity inside the bonus, under the stated depth stress, is at least the simultaneous collateral sale",
+          "finding": "routed depth inside the 5.66% break-even slippage clears $2.73m quiet and $1.37m under the stated depth stress, against $7.58m of collateral to be sold at once at the 99% level: short by a factor of 5.5 stressed and 2.8 quiet",
+          "label": "3a instant clearance",
+          "scope": "atomic liquidators, who repay with flash liquidity and must sell the collateral in the same transaction",
+          "verdict": "FAIL"
+        },
+        {
+          "criterion": "evidenced committed financing is at least the simultaneous repayment, available for the modelled exit horizon",
+          "finding": "a warehouse liquidator would need $7.15m at the 99% level, and $24.14m on average over the tail, committed at the moment of liquidation and held for at least 11.26 days. No evidence of committed liquidator capital is available, so whether that financing exists cannot be determined",
+          "label": "3b warehouse financing",
+          "scope": "liquidators who repay with their own or borrowed capital and exit over days",
+          "verdict": "INDETERMINATE"
+        }
+      ],
+      "verdict": "INDETERMINATE",
       "who_can_supply": [
-        "DEX aggregators",
-        "market makers"
+        "liquidators",
+        "market makers",
+        "a DAO-arranged backstop"
       ]
     },
     {
-      "criterion": "the liquidation bonus is at least the minimum economic bonus on a route whose exit capacity is evidenced rather than assumed",
+      "criterion": "at the stated canonical loss, the bonus is at least the minimum economic bonus in every regime of the stated grid, which must include a regime as adverse as the stated depth stress; if the outcome flips across the grid, the verdict is INDETERMINATE and names the inputs that flip it",
       "evidence": [
         {
           "field": "liquidation_bonus",
@@ -173,12 +235,55 @@
           "value": 0.06000000000000005
         },
         {
-          "field": "redemption_throughput_usd_per_day",
+          "field": "regimes",
           "manifest": "docs/manifests/ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json",
           "value": {
-            "quiet": 25000000.0,
-            "stressed": 25000000.0
+            "quiet + redemption": {
+              "dex_refill_hours": 6.0,
+              "instant_dex_capacity_usd": 2112274.630144516,
+              "redemption_capacity_usd_per_day": 25000000.0,
+              "redemption_delay_hours": 24.0,
+              "stalled_drawdown": 0.1
+            },
+            "quiet DEX": {
+              "dex_refill_hours": 6.0,
+              "instant_dex_capacity_usd": 2112274.630144516,
+              "redemption_capacity_usd_per_day": 0.0,
+              "redemption_delay_hours": 24.0,
+              "stalled_drawdown": 0.1
+            },
+            "stressed + redemption": {
+              "dex_refill_hours": 24.0,
+              "instant_dex_capacity_usd": 1056137.315072258,
+              "redemption_capacity_usd_per_day": 25000000.0,
+              "redemption_delay_hours": 24.0,
+              "stalled_drawdown": 0.1
+            },
+            "stressed DEX": {
+              "dex_refill_hours": 24.0,
+              "instant_dex_capacity_usd": 1056137.315072258,
+              "redemption_capacity_usd_per_day": 0.0,
+              "redemption_delay_hours": 24.0,
+              "stalled_drawdown": 0.1
+            }
           }
+        },
+        {
+          "field": "notes",
+          "manifest": "docs/manifests/ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json",
+          "value": [
+            "All capacity and cost inputs are explicit sensitivities.",
+            "ETH/USD is assumed hedged.",
+            "Canonical loss affects DEX and redemption recovery.",
+            "DEX market discount affects only DEX recovery.",
+            "The strategy repays the full selected debt at time zero.",
+            "Profit maximization selects one static total route split.",
+            "Each selected route allocation executes at earliest available capacity.",
+            "Future redemption capacity is an assumption, not a reserved slot.",
+            "V3 close factors may split the selected repayment across transactions.",
+            "Funding and hurdle rates both accrue on capital-days and add economically.",
+            "Economic clearance does not change the strict instant ARFC verdict."
+          ]
         },
         {
           "field": "canonical_loss_sweep[0.040000]",
@@ -186,41 +291,39 @@
           "value": {
             "quiet + redemption": {
               "days_to_clear": 11.260750181770197,
-              "economic_clearance_pass": true,
               "minimum_bonus": 0.046595916748046876,
-              "uses_redemption": true
+              "passes": true
             },
             "quiet DEX": {
               "days_to_clear": 30.110488035438916,
-              "economic_clearance_pass": false,
               "minimum_bonus": 0.0628571319580078,
-              "uses_redemption": false
+              "passes": false
             },
             "stressed + redemption": {
               "days_to_clear": 11.260750181770197,
-              "economic_clearance_pass": true,
               "minimum_bonus": 0.046595916748046876,
-              "uses_redemption": true
+              "passes": true
             },
             "stressed DEX": {
               "days_to_clear": 241.88390428351133,
-              "economic_clearance_pass": false,
               "minimum_bonus": 0.13488700866699216,
-              "uses_redemption": false
+              "passes": false
             }
           }
         }
       ],
-      "finding": "the 6.00% bonus is insufficient on evidenced exit capacity alone, where the required minimum runs from 6.29% to 13.49%. It clears only on the route that assumes $25m a day of primary redemption, which lowers the requirement to 4.66%. That throughput is a stated assumption, not a measured entitlement, so the outcome cannot be called a pass",
+      "finding": "at a 4% canonical recovery loss the 6.00% bonus clears in 2 of 4 regimes: quiet DEX 6.29% in 30.11 days; stressed DEX 13.49% in 241.88 days; quiet + redemption 4.66% in 11.26 days; stressed + redemption 4.66% in 11.26 days. The outcome flips between regimes that differ only in redemption_capacity_usd_per_day. Every input of the grid is a stated sensitivity rather than a measurement, including DEX refill times, the stressed depth haircut, and redemption throughput, as the balance-sheet manifest notes; within the grid the refill assumption does not change the outcome, while the flipping input does. quiet + redemption and stressed + redemption clear only while the canonical loss stays below 5.21%",
+      "limits": [],
       "missing": [
-        "a contractual or evidenced primary redemption entitlement: daily throughput, cut-off, fee, gating, and suspension terms"
+        "evidence for the flipping input (redemption_capacity_usd_per_day); for wstETH that is primary redemption through the Lido withdrawal queue, whose throughput and delay under stress are partly observable on-chain but not measured here"
       ],
       "number": 4,
       "question": "does the bonus compensate for settlement and recovery risk",
+      "sub_outcomes": [],
       "verdict": "INDETERMINATE",
       "who_can_supply": [
-        "the redemption counterparty",
-        "the issuer"
+        "Lido withdrawal queue data",
+        "the redemption counterparty"
       ]
     }
   ]

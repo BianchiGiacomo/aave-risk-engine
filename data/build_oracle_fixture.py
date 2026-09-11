@@ -9,6 +9,14 @@ A probe that no endpoint can answer aborts the build. Recording an
 endpoint outage as "the contract does not support this" would put an
 unverified claim into the evidence.
 
+The builder also runs behavioural probes. For each scenario it replaces
+the code of one feed for the duration of a single eth_call and asks the
+real AaveOracle for the price, so the deployed adapter and oracle execute
+unchanged against a stated input. Every mock is first called directly
+under the same override on the same endpoint, and the probe aborts if the
+override was not honoured. The builder records observations only; the
+comparison with expected values happens offline.
+
 Usage (from the parent directory):
   python -m aave_risk_engine.data.build_oracle_fixture \
       --chain ethereum --asset wstETH --out data/oracle/<name>.json
@@ -31,9 +39,22 @@ from .abi import (
     encode_uint,
     selector,
 )
+from .evm_mock import feed_bytecode, rate_bytecode
 from .rpc import EthRpc
 
-SCHEMA = "aave-oracle-reachability/1"
+SCHEMA = "aave-oracle-reachability/2"
+
+# Calls whose presence in a contract's bytecode would indicate that it reads
+# a timestamp or a bound from the layer beneath it.
+TIMESTAMP_READERS = (
+    "latestRoundData()",
+    "latestTimestamp()",
+    "latestRound()",
+    "getRoundData(uint80)",
+)
+BOUND_READERS = ("minAnswer()", "maxAnswer()")
+
+STALE_AGE_SECONDS = 30 * 86_400
 
 # Signatures probed on the Aave-side price source. The set spans the
 # Chainlink-style interface plus the two Aave adapter families, so the
@@ -246,6 +267,255 @@ def read_controls(rpc: EthRpc, chain, data_provider: str, asset: str, block: int
     }
 
 
+def embedded_calls(
+    rpc: EthRpc, address: str, block: int, signatures: tuple[str, ...]
+) -> dict[str, bool]:
+    """Which selectors appear as constants in a contract's bytecode.
+
+    Absence is evidence the contract does not make that call; it does not
+    exclude a call whose selector is assembled at run time.
+    """
+
+    code = rpc.call("eth_getCode", [address, rpc.block_tag(block)])
+    body = code.removeprefix("0x").lower()
+    return {
+        signature: selector(signature).removeprefix("0x") in body
+        for signature in signatures
+    }
+
+
+def _override_endpoint(chain, feed: str, block: int) -> tuple[EthRpc, str]:
+    """First endpoint that demonstrably honours eth_call state overrides."""
+
+    sentinel = 123_456_789
+    overrides = {feed: {"code": feed_bytecode(sentinel, 8, 1, 1, "fresh")}}
+    for endpoint in chain.rpc_endpoints:
+        candidate = EthRpc(endpoints=(endpoint,))
+        raw, status = candidate.try_eth_call(
+            feed, selector("latestAnswer()"), block, overrides
+        )
+        if status == "ok" and decode_int256(decode_words(raw)[0]) == sentinel:
+            return candidate, endpoint
+    raise FixtureError("no endpoint honours eth_call state overrides here")
+
+
+def _oracle_price(rpc, oracle, asset, block, overrides) -> dict:
+    raw, status = rpc.try_eth_call(
+        oracle,
+        selector("getAssetPrice(address)") + encode_address(asset),
+        block,
+        overrides,
+    )
+    if status == "unavailable":
+        raise FixtureError("oracle probe went unanswered on the override endpoint")
+    return {
+        "status": status,
+        "price_raw": decode_words(raw)[0] if status == "ok" else None,
+    }
+
+
+def _feed_scenario(
+    rpc: EthRpc,
+    name: str,
+    purpose: str,
+    feed: str,
+    answer: int,
+    updated_at: int,
+    timestamps: str,
+    context: dict,
+) -> dict:
+    overrides = {
+        feed: {
+            "code": feed_bytecode(
+                answer, context["feed_decimals"], 1, updated_at, timestamps
+            )
+        }
+    }
+    raw, status = rpc.try_eth_call(
+        feed, selector("latestAnswer()"), context["block"], overrides
+    )
+    if status != "ok" or decode_int256(decode_words(raw)[0]) != answer:
+        raise FixtureError(f"override not honoured for scenario {name}")
+    _, round_status = rpc.try_eth_call(
+        feed, selector("latestRoundData()"), context["block"], overrides
+    )
+    expected_round = "reverted" if timestamps == "revert" else "ok"
+    if round_status != expected_round:
+        raise FixtureError(
+            f"mock round data returned {round_status} in scenario {name}"
+        )
+    return {
+        "name": name,
+        "purpose": purpose,
+        "overridden": {"layer": "base_feed", "address": feed},
+        "inputs": {
+            "base_answer_raw": answer,
+            "updated_at": updated_at,
+            "timestamp_getters": timestamps,
+        },
+        "mock_verified": True,
+        "oracle": _oracle_price(
+            rpc, context["oracle"], context["asset"], context["block"], overrides
+        ),
+    }
+
+
+def _rate_scenario(
+    rpc: EthRpc,
+    name: str,
+    purpose: str,
+    provider: str,
+    method: str,
+    rate: int,
+    context: dict,
+) -> dict:
+    overrides = {
+        provider: {
+            "code": rate_bytecode(method, rate, context["rate_decimals"])
+        }
+    }
+    argument = encode_uint(10**18) if "(uint256)" in method else ""
+    raw, status = rpc.try_eth_call(
+        provider, selector(method) + argument, context["block"], overrides
+    )
+    if status != "ok" or decode_words(raw)[0] != rate:
+        raise FixtureError(f"override not honoured for scenario {name}")
+    return {
+        "name": name,
+        "purpose": purpose,
+        "overridden": {"layer": "ratio_provider", "address": provider},
+        "inputs": {"rate_raw": rate},
+        "mock_verified": True,
+        "oracle": _oracle_price(
+            rpc, context["oracle"], context["asset"], context["block"], overrides
+        ),
+    }
+
+
+def probe_behaviour(chain, fixture: dict) -> dict:
+    """Run the four roadmap scenarios through the deployed contracts."""
+
+    block = fixture["block"]
+    now = fixture["block_timestamp"]
+    base = fixture["base_feed"]
+    feed = base["address"]
+    base_answer = base["supported"]["latestAnswer()"]
+    source = fixture["source"]["supported"]
+    rpc, endpoint = _override_endpoint(chain, feed, block)
+
+    context = {
+        "block": block,
+        "oracle": fixture["aave_oracle"]["address"],
+        "asset": fixture["asset"]["address"],
+        "feed_decimals": base["supported"]["decimals()"],
+        "rate_decimals": source.get("RATIO_DECIMALS()", 18),
+    }
+
+    def feed_case(name, purpose, answer, updated_at, timestamps="fresh"):
+        return _feed_scenario(
+            rpc, name, purpose, feed, answer, updated_at, timestamps, context
+        )
+
+    scenarios = [
+        {
+            "name": "baseline",
+            "purpose": "unmodified state at the pinned block",
+            "overridden": None,
+            "inputs": {},
+            "mock_verified": None,
+            "oracle": _oracle_price(
+                rpc, context["oracle"], context["asset"], block, None
+            ),
+        },
+        feed_case(
+            "stress_50",
+            "accepted stress update: base price halves",
+            base_answer // 2,
+            now,
+        ),
+        feed_case(
+            "stress_99",
+            "accepted stress update: base price falls 99%",
+            base_answer // 100,
+            now,
+        ),
+        feed_case(
+            "stress_floor",
+            "accepted stress update at the aggregator minimum of one raw unit",
+            1,
+            now,
+        ),
+        feed_case(
+            "zero_answer",
+            "a value the aggregator bounds would refuse to store, forced "
+            "through to show what the adapter and oracle do with it",
+            0,
+            now,
+        ),
+        feed_case(
+            "negative_answer",
+            "a negative value, forced through for the same reason",
+            -1,
+            now,
+        ),
+        feed_case(
+            "timestamps_unreadable",
+            "elapsed time: every timestamp getter on the feed reverts, so "
+            "any reader of a timestamp on this path would fail",
+            base_answer,
+            now,
+            "revert",
+        ),
+        feed_case(
+            "stale_30_days",
+            "elapsed time: the round is thirty days old",
+            base_answer,
+            now - STALE_AGE_SECONDS,
+        ),
+        feed_case(
+            "recovery",
+            "recovery: a later valid update two percent above the baseline",
+            base_answer * 102 // 100,
+            now,
+        ),
+    ]
+
+    ratio = fixture.get("ratio_provider") or {}
+    if ratio.get("resolved") and "getSnapshotRatio()" in source:
+        ceiling = source["getSnapshotRatio()"] + source[
+            "getMaxRatioGrowthPerSecond()"
+        ] * (now - source["getSnapshotTimestamp()"])
+        for name, purpose, rate in (
+            (
+                "rate_above_cap",
+                "exchange rate ten percent above the growth-cap ceiling",
+                ceiling * 110 // 100,
+            ),
+            (
+                "rate_drop_20",
+                "exchange rate twenty percent below its current value",
+                ratio["value_raw"] * 80 // 100,
+            ),
+        ):
+            scenarios.append(
+                _rate_scenario(
+                    rpc,
+                    name,
+                    purpose,
+                    ratio["address"],
+                    ratio["method"],
+                    rate,
+                    context,
+                )
+            )
+
+    return {
+        "method": "eth_call with state overrides at the pinned block",
+        "endpoint": endpoint,
+        "scenarios": scenarios,
+    }
+
+
 def build(chain_name: str, asset_symbol: str, block: int | None = None) -> dict:
     chain = aave_v3.CHAINS[chain_name]
     rpc = chain.make_rpc()
@@ -304,6 +574,9 @@ def build(chain_name: str, asset_symbol: str, block: int | None = None) -> dict:
             "address": source,
             "supported": source_values,
             "reverted": source_reverted,
+            "embedded_calls": embedded_calls(
+                rpc, source, block, TIMESTAMP_READERS + BOUND_READERS
+            ),
         },
     }
 
@@ -335,6 +608,9 @@ def build(chain_name: str, asset_symbol: str, block: int | None = None) -> dict:
             "address": ratio_provider,
             **(detect_ratio_method(rpc, source, ratio_provider, block) or {}),
         }
+
+    if "base_feed" in fixture:
+        fixture["behaviour"] = probe_behaviour(chain, fixture)
 
     return fixture
 

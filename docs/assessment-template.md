@@ -62,6 +62,39 @@ on it.
 where the assumption itself is not evidenced, produces INDETERMINATE and
 says which assumption it was.
 
+## Rules that keep the verdicts honest
+
+**Treat assumptions symmetrically.** Do not call one route "evidenced"
+because its inputs look familiar and another "assumed" because they do
+not. Label every input measured or assumed. When a verdict depends on a
+grid of assumed inputs, it is PASS only if it holds in every cell, FAIL
+only if it holds in none, and otherwise INDETERMINATE, naming the inputs
+whose change alone flips the outcome. The grid must include a cell at
+least as adverse as the stated stress, so that no pass rests on benign
+conditions only.
+
+**Keep a narrower check from deciding a broader question.** A test may
+contain sub-outcomes with their own scopes. Instant clearance by atomic
+liquidators can fail while the financing question the test asks remains
+open, because a liquidator with its own capital can repay and hold the
+collateral while it exits. A sub-outcome's FAIL is reported, but it
+decides the test only if the test's criterion says so.
+
+**Compute the requirement on the stress path.** A requirement described
+next to a stress path is not a requirement computed on it. Test 2 must
+size liquidations scenario by scenario, show that the scenario set is
+the one it claims to be, report debt to be repaid and collateral to be
+sold as separate quantities, and account for whether capital can be
+released and reused inside the horizon. A static bound, such as the full
+seizure of the largest position, may be reported, but as a bound.
+
+**Verify behaviour, not interfaces.** For test 1, an interface that does
+not expose a bound or a timestamp says nothing about whether one is
+applied internally. Execute the deployed contracts against stated inputs,
+and treat exposing a timestamp, reading one, and enforcing a threshold
+as separate properties. A reconstructed price must match what the
+protocol actually reads, not only an intermediate layer.
+
 ## Combining the tests
 
 - Any FAIL makes overall clearance FAIL.
@@ -85,15 +118,17 @@ written by hand, so a reader can follow any claim back to its evidence:
 python -m aave_risk_engine.run_four_test_assessment \
     --reachability docs/manifests/<oracle reachability>.json \
     --market docs/manifests/<market report>.json \
+    --simultaneity docs/manifests/<simultaneous requirement>.json \
     --balance-sheet docs/manifests/<liquidator balance sheet>.json \
     --manifest docs/manifests/<assessment>.json
 ```
 
 The rules live in `four_test_assessment.py` and are covered by
-`tests/test_four_test_assessment.py`, which asserts that a failing
-earlier test dominates a later unresolved one, that an unevidenced
-assumption yields INDETERMINATE rather than PASS, and that every verdict
-cites at least one field.
+`tests/test_four_test_assessment.py`. Among other things it asserts that
+a failing earlier test dominates a later unresolved one, that a failing
+sub-outcome does not decide its test, that a bonus which clears only in
+benign regimes is not a pass, that provenance alone does not pass test
+2, and that every verdict cites at least one field.
 
 ## Limits of the format
 
@@ -109,4 +144,6 @@ judgment calls that the assessment must expose rather than bury.
 ## Worked example
 
 [Aave V3 Ethereum wstETH at block 25,780,402](assessments/2026-08-18-aave-v3-ethereum-wsteth.md),
-which returns PASS, PASS, FAIL, INDETERMINATE and an overall FAIL.
+which returns PASS, PASS, INDETERMINATE, INDETERMINATE and an overall
+INDETERMINATE. Instant clearance fails within its own scope; financing
+and bonus adequacy each wait on one named input.

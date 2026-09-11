@@ -140,7 +140,14 @@ python -m aave_risk_engine.run_multiperiod
 python -m aave_risk_engine.run_time_to_exit --redemption-usd-per-day 25000000
 python -m aave_risk_engine.run_liquidator_balance_sheet --redemption-usd-per-day 25000000
 python -m aave_risk_engine.run_rwa_drawdown_stress --manifest docs/manifests/hinc-hyg-proxy-2026-08-31.json
+python -m aave_risk_engine.run_oracle_reachability --fixture data/oracle/ethereum-wsteth-25946216.json --manifest docs/manifests/ethereum-wsteth-oracle-reachability-25946216.json
+python -m aave_risk_engine.run_simultaneous_requirement --manifest docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json
+python -m aave_risk_engine.run_four_test_assessment --manifest docs/manifests/ethereum-wsteth-four-test-assessment-25780402.json
 ```
+
+The oracle fixtures under `data/oracle/` are the only inputs built over the
+network for the assessment, by `data.build_oracle_fixture`; the three
+commands above run offline against them.
 
 Add `--ordered` to `run_market_report` to match the dashboard queue convention.
 See [consolidated results](docs/results.md) for the exact output and parameters.

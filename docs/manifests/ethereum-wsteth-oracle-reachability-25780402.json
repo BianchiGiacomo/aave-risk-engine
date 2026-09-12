@@ -11,7 +11,7 @@
   "definitions": {
     "behavioural_probe": "eth_call at the pinned block with the code of one feed replaced by a mock serving a stated input; the mock is verified under the same override before the real AaveOracle is asked for the price",
     "expected_price": "base answer * min(rate, growth-cap ceiling) / 10**rate decimals; no prediction for non-positive inputs",
-    "freshness": "exposing a timestamp, embedding a reader, reading one on the executed path, and enforcing a threshold are recorded as separate properties",
+    "freshness": "interface exposure, embedded selectors, dependency on probed getters and observed rejection are separate properties; none establishes upstream publication behaviour",
     "test_1": "can the oracle represent the stress and transmit it to the protocol"
   },
   "fixture": {
@@ -28,7 +28,7 @@
     "schema": "aave-oracle-reachability/2",
     "sha256": "8180a47058fba1a7b9edc86b7f37fd262003eed92f48d13d3834c4b62550f0a0"
   },
-  "generated_at_utc": "2026-09-11T13:47:34.834291+00:00",
+  "generated_at_utc": "2026-09-12T17:53:35.000384+00:00",
   "not_established": [
     "behaviour of any other reserve or price source",
     "behaviour at any other block, or after governance replaces the source",
@@ -67,12 +67,13 @@
       "yearly_rate_consistent": true
     },
     "caveats": [
-      "a zero or negative base value makes getAssetPrice revert rather than return zero; the aggregator bounds already refuse to store such values, so on this path an update is refused only below one raw unit of the base feed",
-      "no timestamp is read anywhere on the executed path: with every timestamp getter on the feed reverting, and with a round 2,592,000 seconds old, the oracle returned the unchanged price. Freshness is an operational assumption, not a condition enforced in code",
+      "a forced zero or negative feed answer makes getAssetPrice revert rather than return zero; this is an invalid-answer read probe, not a rejected transmission. Aggregator acceptance, storage after rejection, and publication liveness were not executed",
+      "the downstream read did not require the timestamp getters: both reverting getters and a round 2,592,000 seconds old left its price unchanged. No freshness rejection was observed in these probes; this does not test the replaced feed's internal checks or exclude a caught timestamp read",
       "the growth cap limits the exchange rate to 8.80% a year, with 2.91% of headroom at this block; a rate above the ceiling was clamped and a lower rate passed through, so the cap constrains upward moves in the rate and not a fall in price",
       "borrowing this asset is disabled, so a stale mark would affect borrowing against it as collateral rather than borrowing it",
-      "behaviour was verified for this source at this block; governance can replace the source, and nothing here transfers to another one"
+      "downstream behaviour was verified for tested inputs at this block; a source replacement requires reassessment, and nothing here transfers to another source"
     ],
+    "exposed_minimum_raw": 1,
     "freshness": {
       "enforced": false,
       "feed_age_seconds": 2460,
@@ -80,12 +81,12 @@
       "source_exposes_timestamp": false,
       "stale_probe_age_seconds": 2592000,
       "threshold_enforced_within_seconds": null,
-      "timestamp_read_on_executed_path": false
+      "timestamp_getters_required_on_probed_path": false
     },
     "max_verified_fall": 0.9999999999957583,
     "reasons": [
       "the baseline price is reproduced exactly from the base feed and the exchange rate, and matches both the source and AaveOracle",
-      "every accepted stress update, down to a base answer of one raw unit, passed through the deployed adapter and oracle exactly as modelled, so a fall of 100.000000% is verified as representable"
+      "the tested positive stress inputs, down to one raw unit of the base feed, passed through the deployed adapter and oracle exactly as modelled; the largest observed fall is nearly 100%, not zero price, conditional on upstream delivery"
     ],
     "reconstruction": {
       "base_answer_raw": 189834746393,
@@ -100,7 +101,6 @@
       "reconstructed_raw": 235752817511,
       "source_raw": 235752817511
     },
-    "refused_below_raw": 1,
     "scenarios": [
       {
         "expected_raw": 235752817511,
@@ -193,5 +193,5 @@
     ],
     "verdict": "PASS"
   },
-  "schema_version": 2
+  "schema_version": 3
 }

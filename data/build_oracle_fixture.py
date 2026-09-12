@@ -187,7 +187,9 @@ def probe(
     return supported, reverted
 
 
-def _call_or_fail(rpc: EthRpc, address: str, signature: str, arg: str, block: int):
+def _call_or_fail(
+    rpc: EthRpc, address: str, signature: str, arg: str, block: int
+):
     raw, status = rpc.try_eth_call(address, selector(signature) + arg, block)
     if status != "ok":
         raise FixtureError(f"{signature} on {address} returned {status}")
@@ -225,7 +227,9 @@ def detect_ratio_method(
     }
 
 
-def read_controls(rpc: EthRpc, chain, data_provider: str, asset: str, block: int):
+def read_controls(
+    rpc: EthRpc, chain, data_provider: str, asset: str, block: int
+):
     provider = chain.addresses_provider
     acl_manager = decode_address(
         decode_words(
@@ -307,7 +311,9 @@ def _oracle_price(rpc, oracle, asset, block, overrides) -> dict:
         overrides,
     )
     if status == "unavailable":
-        raise FixtureError("oracle probe went unanswered on the override endpoint")
+        raise FixtureError(
+            "oracle probe went unanswered on the override endpoint"
+        )
     return {
         "status": status,
         "price_raw": decode_words(raw)[0] if status == "ok" else None,
@@ -355,7 +361,8 @@ def _feed_scenario(
         },
         "mock_verified": True,
         "oracle": _oracle_price(
-            rpc, context["oracle"], context["asset"], context["block"], overrides
+            rpc, context["oracle"], context["asset"],
+            context["block"], overrides
         ),
     }
 
@@ -387,13 +394,14 @@ def _rate_scenario(
         "inputs": {"rate_raw": rate},
         "mock_verified": True,
         "oracle": _oracle_price(
-            rpc, context["oracle"], context["asset"], context["block"], overrides
+            rpc, context["oracle"], context["asset"],
+            context["block"], overrides
         ),
     }
 
 
 def probe_behaviour(chain, fixture: dict) -> dict:
-    """Run the four roadmap scenarios through the deployed contracts."""
+    """Probe downstream reads; do not execute aggregator transmissions."""
 
     block = fixture["block"]
     now = fixture["block_timestamp"]
@@ -429,26 +437,26 @@ def probe_behaviour(chain, fixture: dict) -> dict:
         },
         feed_case(
             "stress_50",
-            "accepted stress update: base price halves",
+            "supplied positive answer: base price halves",
             base_answer // 2,
             now,
         ),
         feed_case(
             "stress_99",
-            "accepted stress update: base price falls 99%",
+            "supplied positive answer: base price falls 99%",
             base_answer // 100,
             now,
         ),
         feed_case(
             "stress_floor",
-            "accepted stress update at the aggregator minimum of one raw unit",
+            "supplied answer at the exposed minimum of one raw unit",
             1,
             now,
         ),
         feed_case(
             "zero_answer",
-            "a value the aggregator bounds would refuse to store, forced "
-            "through to show what the adapter and oracle do with it",
+            "forced zero answer: an invalid downstream read, not an "
+            "aggregator transmission or a rejected update",
             0,
             now,
         ),
@@ -460,8 +468,8 @@ def probe_behaviour(chain, fixture: dict) -> dict:
         ),
         feed_case(
             "timestamps_unreadable",
-            "elapsed time: every timestamp getter on the feed reverts, so "
-            "any reader of a timestamp on this path would fail",
+            "timestamp dependency: mock getters revert; a successful "
+            "read need not depend on them but could still catch a revert",
             base_answer,
             now,
             "revert",
@@ -474,7 +482,8 @@ def probe_behaviour(chain, fixture: dict) -> dict:
         ),
         feed_case(
             "recovery",
-            "recovery: a later valid update two percent above the baseline",
+            "separate valid-input read two percent above baseline; "
+            "not a feed-storage recovery sequence",
             base_answer * 102 // 100,
             now,
         ),
@@ -516,7 +525,9 @@ def probe_behaviour(chain, fixture: dict) -> dict:
     }
 
 
-def build(chain_name: str, asset_symbol: str, block: int | None = None) -> dict:
+def build(
+    chain_name: str, asset_symbol: str, block: int | None = None
+) -> dict:
     chain = aave_v3.CHAINS[chain_name]
     rpc = chain.make_rpc()
     if block is None:

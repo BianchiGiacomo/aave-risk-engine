@@ -507,121 +507,113 @@ throughput, fee, gating, and suspension assumptions.
 
 ## 9. Oracle Reachability For Mainnet wstETH
 
-Every section above assumes that a collateral move reaches the protocol.
-Test 1 of the four-test sequence checks that assumption against the
-behaviour of the deployed contracts, pinned to block 25,946,216 for the
-case study and to block 25,780,402 for the assessment in section 10.
+The downstream oracle case is pinned at blocks 25,946,216 and 25,780,402.
+The latter matches the market assessment below.
 
 ```bash
-python -m aave_risk_engine.run_oracle_reachability --manifest docs/manifests/ethereum-wsteth-oracle-reachability-25946216.json
+python -m aave_risk_engine.run_oracle_reachability
 ```
 
-The analysis is offline against a committed fixture. The networked
-builder, `data.build_oracle_fixture`, walks the price path, then runs
-behavioural probes: for each scenario it replaces the code of one feed
-for the duration of a single `eth_call` and asks the real `AaveOracle`
-for the price, so the deployed adapter and oracle execute unchanged
-against a stated input. Each mock is verified under the same override
-before it is used. Selectors are derived with a stdlib Keccak-256.
+The baseline reconstructed price matches both source and AaveOracle at
+each block, with zero raw-unit error. State overrides feed positive
+stress answers and altered exchange rates to the deployed adapter and
+consumer. Nine observations with a model prediction match exactly.
+The two forced non-positive answers make the consumer revert.
 
-```text
-scenario               status    observed          expected          match
-baseline               ok           3,079.99973407    3,079.99973407 True
-stress_50              ok           1,539.99986703    1,539.99986703 True
-stress_99              ok              30.79999734       30.79999734 True
-stress_floor           ok               0.00000001        0.00000001 True
-zero_answer            reverted                  -                 - -
-negative_answer        reverted                  -                 - -
-timestamps_unreadable  ok           3,079.99973407    3,079.99973407 True
-stale_30_days          ok           3,079.99973407    3,079.99973407 True
-recovery               ok           3,141.59972875    3,141.59972875 True
-rate_above_cap         ok           3,182.01657509    3,182.01657509 True
-rate_drop_20           ok           2,463.99978726    2,463.99978726 True
-```
+**PASS is scoped to downstream consumption of the tested inputs.**
+Positive inputs down to one raw unit pass through, giving a price
+nearly zero, not zero. Timestamp getters made to revert and a
+thirty-day-old mock round leave the downstream price unchanged.
 
-Every observation with a prediction matches to the raw unit, at both
-blocks, and the baseline matches both the source and the price
-`AaveOracle` reports.
+The aggregator's transmission path is replaced, not executed. Forced
+invalid-answer reads do not establish rejected-update or stored-round
+behaviour. These probes also do not establish publication liveness,
+the feed's internal freshness policy, or permission to borrow and
+liquidate under every reserve control.
 
-Stress updates down to one raw unit of the base feed pass through, so a
-fall of any size is representable. A zero or negative value makes
-`getAssetPrice` revert; the aggregator's bounds, 1 and 2^176 - 1, refuse
-nothing economically meaningful. The growth cap clamps an exchange rate
-above its ceiling and passes a lower one through, so it constrains upward
-moves in the rate and not a fall in price.
-
-Freshness is recorded as four separate properties, because exposing a
-timestamp is not reading one and reading one is not enforcing a
-threshold. The source exposes none and embeds no reader. Behaviourally,
-with every timestamp getter on the feed reverting, and with a
-thirty-day-old round, the oracle returned the unchanged price. No
-timestamp is read on the executed path, so freshness is an operational
-assumption rather than a condition enforced in code, and every control
-that could respond requires an operator transaction.
-
-Verdict: **PASS**, scoped to this source at these blocks. Full evidence,
-the four roadmap scenarios, control authority, and what the case does not
-establish are in the
-[wstETH oracle reachability case study](case_studies/2026-09-aave-wsteth-oracle-reachability.md).
+Full evidence and limitations are in the
+[oracle case study](case_studies/2026-09-aave-wsteth-oracle-reachability.md).
 
 ## 10. Four-Test Assessment For Mainnet wstETH
 
-The sections above answer separate questions. This one combines them into
-a single decision for one reserve at one block, using the
-[four-test assessment format](assessment-template.md).
+The [assessment format](assessment-template.md) combines four scoped
+questions. The coverage criterion is the p99 first-round repayment under
+the published two-day stress distribution at block 25,780,402.
 
 ```bash
-python -m aave_risk_engine.run_simultaneous_requirement --manifest docs/manifests/ethereum-wsteth-simultaneous-requirement-2026-08-18.json
-python -m aave_risk_engine.run_four_test_assessment --manifest docs/manifests/ethereum-wsteth-four-test-assessment-25780402.json
+python -m aave_risk_engine.run_simultaneous_requirement
+python -m aave_risk_engine.run_four_test_assessment
 ```
 
-All four input manifests are pinned to block 25,780,402. Each verdict is
-derived from a named manifest field rather than written by hand.
+All four input manifests share the block. The historical balance-sheet
+manifest supplies assumptions, while the runner recomputes economics at
+the assessment notional and records them under `derived_economics`.
 
-```text
-test | verdict       | question
------|---------------|-------------------------------------------------------
-  1  | PASS          | can the oracle represent the stress and transmit it
-  2  | PASS          | how much debt requires simultaneous repayment
-  3  | INDETERMINATE | can eligible liquidators finance that repayment
-     | FAIL          |   3a instant clearance, atomic liquidators
-     | INDETERMINATE |   3b warehouse financing
-  4  | INDETERMINATE | does the bonus compensate for settlement and recovery
-```
+| Test | Verdict | Scope |
+|---|---|---|
+| 1: oracle | PASS | Tested downstream inputs, conditional on delivery |
+| 2: requirement | PASS | First round of the single terminal shock |
+| 3: financing | INDETERMINATE | Eligible capital not documented |
+| 3a: atomic | FAIL | Stressed instant capacity below p99 sale |
+| 3b: warehouse | INDETERMINATE | Full repayment funding unknown |
+| 3c: mixed | INDETERMINATE | Independent residual funding unknown |
+| 4: bonus | PASS | Same p99 notional and stated assumption grid |
 
-Test 2 is computed on the published stress path, not beside it. The
-scenario set is rebuilt from the same snapshot and seed and reproduces
-the combined-book CVaR99 of $31,824,054.49 exactly before any liquidation
-is sized. At the 99% level, 13 positions are liquidatable at once,
-requiring $7.15m of debt repayment for $7.58m of collateral; over the
-worst 1% of scenarios the means are $24.14m and $25.59m. The full seizure
-of the largest position, $256.52m of collateral, used as the clearance
-test's single-event requirement in section 1, is the extreme of the
-distribution rather than its tail. Capital committed to a liquidation is
-not released inside the two-day horizon, since the fastest modelled exit
-takes 11.26 days.
+Test 2 reproduces combined-book CVaR99 of $31,824,054.49. Its p99
+repayment is $7.15m and p99 seizure is $7.58m; the means of the worst 1%
+ranked by repayment are $24.14m and $25.59m. The p99 position count, 13,
+is a separate marginal quantile. It need not describe the same scenario.
+The looper stress is a counterfactual canonical-rate impairment.
 
-Test 3 separates the two populations that could meet that requirement.
-Routed depth inside the 5.66% break-even clears $1.37m under the stated
-depth stress, against $7.58m to be sold at once: instant clearance by
-atomic liquidators fails within its scope, short by a factor of 5.5. A
-liquidator repaying with its own capital would need $7.15m held for at
-least 11.26 days, and there is no evidence either way about whether that
-financing exists. The test is INDETERMINATE.
+All first-round repayments occur at the terminal shock. No intervening
+recycling is assumed; this does not follow from time to complete an
+exit. Earlier cash recovery is allowed by the warehouse model.
 
-Test 4 applies one rule to every assumed input. At a 4% canonical loss
-the 6% bonus clears in two of four regimes, and the outcome flips between
-regimes that differ only in redemption throughput. DEX refill times and
-the stressed depth haircut are assumptions too, but within the grid they
-do not change the outcome. The test is INDETERMINATE pending evidence on
-Lido withdrawal-queue throughput under stress.
+Test 3 compares stressed instant sale capacity of $1.37m with $7.58m,
+a factor of 5.5. A mixed allocation could repay about $1.29m atomically,
+leaving $5.86m for independent warehouse financing. Its capacity check
+subtracts the atomic sale from subsequent cumulative exit capacity.
+The conservative full-notional holding bound is 6.17 days across the
+grid, not a minimum or a measured commitment.
 
-Overall clearance is **INDETERMINATE**: no test fails, tests 3 and 4 wait
-on one named input each, and missing data is never a pass. The worked
-assessment, with those inputs and who holds them, is in
-[the wstETH assessment](assessments/2026-08-18-aave-v3-ethereum-wsteth.md).
-A first version of this section reported an overall FAIL; the revision
-note there records what changed and why.
+Identified capital that is insufficient does not establish a market-wide
+shortfall. A financing FAIL requires an evidenced aggregate upper bound
+below the requirement, including the mixed alternative. Shorter duration
+than the conservative bound remains unresolved.
+
+Test 4 is repriced at debt of $7,146,279.68 and collateral of
+$7,575,056.47, using the same cost and capacity assumptions as section 7
+and a 4% canonical recovery loss.
+
+| Regime | Completion, days | Minimum bonus | Clears at 6% |
+|---|---:|---:|---|
+| Quiet DEX | 0.6466 | 5.3454% | yes |
+| Stressed DEX | 6.1724 | 5.4993% | yes |
+| Quiet + redemption | 1.3030 | 4.3492% | yes |
+| Stressed + redemption | 1.3030 | 4.3492% | yes |
+
+Redemption does not flip the verdict at this notional. This does not
+change the historical $256.52m warehouse result in section 7 or the
+94-times deterministic clearance comparison in section 1.
+
+The bonus stops covering the worst regime at about $22.85m of repayment,
+3.2 times the p99 requirement and 95% of the worst-1% mean. The verdict
+is scoped to the stated coverage criterion.
+
+The worst-regime bonus margin is +50.07 bp at p99, -4.14 bp at mean tail
+repayment and -831.56 bp at the maximum. At mean tail repayment the
+minimum bonus is 6.0414%: the narrow shortfall depends on cost assumptions
+as well as notional. Test 4's `diagnostics.bonus_notional_sensitivity`
+records these calculations and the local boundary bracket. This is
+economics at mean repayment, not mean economics over the tail.
+
+Overall: **INDETERMINATE**, because financing remains undocumented.
+The economics PASS is conditional on the stated grid and prices a full
+warehouse route; it does not prove execution capacity or mixed-route
+profitability after atomic gas and auction costs. p99 coverage does not
+cover all tail scenarios. See the
+[worked assessment](assessments/2026-08-18-aave-v3-ethereum-wsteth.md)
+for inputs, limits, optional financing evidence and the revision note.
 
 ## Interpretation
 

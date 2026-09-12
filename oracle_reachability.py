@@ -87,7 +87,8 @@ class CapState:
 
     @property
     def yearly_rate_consistent(self) -> bool:
-        return abs(self.derived_yearly_percent - self.reported_yearly_percent) < 0.01
+        difference = self.derived_yearly_percent - self.reported_yearly_percent
+        return abs(difference) < 0.01
 
     @property
     def cap_flag_consistent(self) -> bool:
@@ -120,34 +121,35 @@ class ScenarioCheck:
     def matches(self) -> bool | None:
         if not self.has_expectation:
             return None
-        return self.observed_status == "ok" and self.observed_raw == self.expected_raw
+        return (self.observed_status == "ok"
+                and self.observed_raw == self.expected_raw)
 
 
 @dataclass(frozen=True)
 class Freshness:
-    """Four distinct properties that are easy to conflate.
+    """Interface evidence and dependency on timestamp getters in probes.
 
-    Exposing a timestamp is not reading one, and reading one is not
-    enforcing a threshold. Each is established separately, and only the
-    behavioural observations can settle the last two.
+    A successful call with reverting getters establishes no dependency
+    on those getters in that probe. It does not exclude caught reads or
+    establish the replaced feed's own freshness policy.
     """
 
     source_exposes_timestamp: bool
     source_embeds_timestamp_call: bool
-    timestamp_read_on_executed_path: bool | None
+    timestamp_getters_required_on_probed_path: bool | None
     threshold_enforced_within_seconds: int | None
     stale_probe_age_seconds: int | None
     feed_age_seconds: int | None
 
     @property
     def enforced(self) -> bool | None:
-        """None when the behaviour was not observed."""
+        """Freshness rejection observed in probes, not a universal policy."""
 
-        if self.timestamp_read_on_executed_path is None:
+        if self.timestamp_getters_required_on_probed_path is None:
             return None
-        if self.timestamp_read_on_executed_path is False:
-            return False
-        return self.threshold_enforced_within_seconds is not None
+        if self.threshold_enforced_within_seconds is not None:
+            return True
+        return False if self.stale_probe_age_seconds is not None else None
 
 
 @dataclass(frozen=True)
@@ -161,7 +163,7 @@ class Assessment:
     scenarios: tuple[ScenarioCheck, ...]
     freshness: Freshness
     max_verified_fall: float | None
-    refused_below_raw: int | None
+    exposed_minimum_raw: int | None
     verdict: str
     reasons: tuple[str, ...] = field(default_factory=tuple)
     caveats: tuple[str, ...] = field(default_factory=tuple)
@@ -171,7 +173,9 @@ def load_fixture(path: str | Path) -> dict:
     with open(path, encoding="utf-8") as handle:
         fixture = json.load(handle)
     if fixture.get("schema") != SCHEMA:
-        raise ValueError(f"unexpected fixture schema: {fixture.get('schema')!r}")
+        raise ValueError(
+            f"unexpected fixture schema: {fixture.get('schema')!r}"
+        )
     return fixture
 
 
@@ -199,8 +203,12 @@ def cap_state(fixture: dict) -> CapState | None:
         snapshot_ratio_raw=snapshot_ratio,
         snapshot_timestamp=snapshot_ts,
         max_growth_per_second=growth,
-        reported_yearly_percent=source["getMaxYearlyGrowthRatePercent()"] / 100.0,
-        derived_yearly_percent=growth * SECONDS_PER_YEAR / snapshot_ratio * 100.0,
+        reported_yearly_percent=(
+            source["getMaxYearlyGrowthRatePercent()"] / 100.0
+        ),
+        derived_yearly_percent=(
+            growth * SECONDS_PER_YEAR / snapshot_ratio * 100.0
+        ),
         minimum_snapshot_delay_s=source.get("MINIMUM_SNAPSHOT_DELAY()", 0),
         elapsed_seconds=elapsed,
         ceiling_ratio_raw=snapshot_ratio + growth * elapsed,
@@ -267,7 +275,9 @@ def collect_bounds(fixture: dict) -> tuple[Bound, ...]:
             layers.append((f"{key}.aggregator", entry["aggregator"]))
     for label, entry in layers:
         supported = entry.get("supported", {})
-        for signature, kind in (("minAnswer()", "min"), ("maxAnswer()", "max")):
+        for signature, kind in (
+            ("minAnswer()", "min"), ("maxAnswer()", "max")
+        ):
             if signature in supported:
                 bounds.append(
                     Bound(label, entry["address"], kind, supported[signature])
@@ -292,7 +302,9 @@ def scenario_checks(fixture: dict) -> tuple[ScenarioCheck, ...]:
                 purpose=scenario["purpose"],
                 observed_status=scenario["oracle"]["status"],
                 observed_raw=scenario["oracle"]["price_raw"],
-                expected_raw=expected_price(fixture, scenario_base, scenario_rate),
+                expected_raw=expected_price(
+                    fixture, scenario_base, scenario_rate
+                ),
             )
         )
     return tuple(checks)
@@ -306,15 +318,19 @@ def freshness(fixture: dict, checks: tuple[ScenarioCheck, ...]) -> Freshness:
     read_on_path: bool | None = None
     unreadable = by_name.get("timestamps_unreadable")
     if unreadable is not None:
-        # If anything on the executed path read a timestamp, the reverting
-        # getters would have made the oracle call revert too.
-        read_on_path = unreadable.observed_status != "ok"
+        # This tests dependency, not whether a caught or ignored read occurred.
+        if unreadable.observed_status == "reverted":
+            read_on_path = True
+        elif unreadable.matches:
+            read_on_path = False
 
     enforced_within: int | None = None
     stale_age: int | None = None
     for scenario in (fixture.get("behaviour") or {}).get("scenarios", ()):
         if scenario["name"] == "stale_30_days":
-            stale_age = fixture["block_timestamp"] - scenario["inputs"]["updated_at"]
+            stale_age = (
+                fixture["block_timestamp"] - scenario["inputs"]["updated_at"]
+            )
             if scenario["oracle"]["status"] != "ok":
                 enforced_within = stale_age
 
@@ -324,7 +340,9 @@ def freshness(fixture: dict, checks: tuple[ScenarioCheck, ...]) -> Freshness:
         feed_age = fixture["block_timestamp"] - round_data["updated_at"]
 
     return Freshness(
-        source_exposes_timestamp="latestRoundData()" in source.get("supported", {}),
+        source_exposes_timestamp=(
+            "latestRoundData()" in source.get("supported", {})
+        ),
         source_embeds_timestamp_call=any(
             embedded.get(sig, False)
             for sig in (
@@ -334,7 +352,7 @@ def freshness(fixture: dict, checks: tuple[ScenarioCheck, ...]) -> Freshness:
                 "getRoundData(uint80)",
             )
         ),
-        timestamp_read_on_executed_path=read_on_path,
+        timestamp_getters_required_on_probed_path=read_on_path,
         threshold_enforced_within_seconds=enforced_within,
         stale_probe_age_seconds=stale_age,
         feed_age_seconds=feed_age,
@@ -374,7 +392,7 @@ def assess(fixture: dict) -> Assessment:
         scenarios=checks,
         freshness=fresh,
         max_verified_fall=max_fall,
-        refused_below_raw=max(aggregator_mins) if aggregator_mins else None,
+        exposed_minimum_raw=max(aggregator_mins) if aggregator_mins else None,
     )
 
     if reconstruction is None:
@@ -390,23 +408,35 @@ def assess(fixture: dict) -> Assessment:
             base,
             [
                 f"the reconstructed price {reconstruction.reconstructed_raw} "
-                f"does not match both the source ({reconstruction.source_raw}) "
+                f"differs from the source ({reconstruction.source_raw}) "
                 f"and the price AaveOracle reports "
                 f"({reconstruction.oracle_raw}), so the protocol is not "
                 "verified to read the modelled path"
             ],
         )
-    if not checks:
+    required = (
+        "baseline", *_STRESS_SCENARIOS, *_REFUSAL_SCENARIOS,
+        *_FRESHNESS_SCENARIOS, "recovery", "rate_above_cap", "rate_drop_20",
+    )
+    observations = (fixture.get("behaviour") or {}).get("scenarios", ())
+    missing = set(required) - set(by_name)
+    unverified_mocks = [
+        s["name"] for s in observations
+        if (s.get("overridden") is not None
+            and s.get("mock_verified") is not True)
+    ]
+    if not checks or missing or unverified_mocks:
         return _indeterminate(
             base,
             [
-                "no behavioural observations were recorded, so the path was "
-                "not verified against contract behaviour"
+                "required observations or verified overrides are missing: "
+                + ", ".join(sorted(missing) + unverified_mocks)
             ],
         )
 
     baseline_check = by_name.get("baseline")
-    if baseline_check is None or baseline_check.observed_raw != reconstruction.oracle_raw:
+    if (baseline_check is None
+            or baseline_check.observed_raw != reconstruction.oracle_raw):
         return _indeterminate(
             base,
             [
@@ -435,6 +465,16 @@ def assess(fixture: dict) -> Assessment:
             ],
         )
 
+    changed_freshness = [
+        c.name for c in checks if c.name in _FRESHNESS_SCENARIOS
+        and c.observed_status == "ok" and not c.matches
+    ]
+    if changed_freshness:
+        return _indeterminate(
+            base, ["timestamp probes changed the price: "
+                   + ", ".join(changed_freshness)]
+        )
+
     stress = [by_name[name] for name in _STRESS_SCENARIOS if name in by_name]
     if not stress:
         return _indeterminate(base, ["no stress scenario was observed"])
@@ -451,7 +491,7 @@ def assess(fixture: dict) -> Assessment:
             verdict=FAIL,
             reasons=(
                 f"the deployed contracts refused or floored the stress in "
-                f"{names}, so the stress mark cannot be published",
+                f"{names}, so those inputs do not reach the consumer",
             ),
         )
     if not all(check.matches for check in stress):
@@ -466,34 +506,37 @@ def assess(fixture: dict) -> Assessment:
     reasons = [
         "the baseline price is reproduced exactly from the base feed and "
         "the exchange rate, and matches both the source and AaveOracle",
-        "every accepted stress update, down to a base answer of one raw "
-        "unit, passed through the deployed adapter and oracle exactly as "
-        f"modelled, so a fall of {max_fall:.6%} is verified as representable",
+        "the tested positive stress inputs, down to one raw unit of the "
+        "base feed, passed through the deployed adapter and oracle exactly "
+        "as modelled; the largest observed fall is nearly 100%, not zero "
+        "price, conditional on upstream delivery",
     ]
 
     caveats: list[str] = []
     refusals = [by_name[n] for n in _REFUSAL_SCENARIOS if n in by_name]
-    if refusals and all(check.observed_status == "reverted" for check in refusals):
+    if refusals and all(c.observed_status == "reverted" for c in refusals):
         caveats.append(
-            "a zero or negative base value makes getAssetPrice revert rather "
-            "than return zero; the aggregator bounds already refuse to store "
-            "such values, so on this path an update is refused only below "
-            "one raw unit of the base feed"
+            "a forced zero or negative feed answer makes getAssetPrice revert "
+            "rather than return zero; this is an invalid-answer read probe, "
+            "not a rejected transmission. Aggregator acceptance, storage "
+            "after rejection, and publication liveness were not executed"
         )
     if fresh is not None:
-        if fresh.timestamp_read_on_executed_path is False:
+        if fresh.timestamp_getters_required_on_probed_path is False:
             caveats.append(
-                "no timestamp is read anywhere on the executed path: with "
-                "every timestamp getter on the feed reverting, and with a "
-                f"round {fresh.stale_probe_age_seconds:,} seconds old, the "
-                "oracle returned the unchanged price. Freshness is an "
-                "operational assumption, not a condition enforced in code"
+                "the downstream read did not require the timestamp getters: "
+                "both reverting getters and a round "
+                f"{fresh.stale_probe_age_seconds:,} seconds old left its "
+                "price unchanged. No freshness rejection was observed in "
+                "these probes; this does not test the replaced feed's "
+                "internal checks or exclude a caught timestamp read"
             )
-        elif fresh.timestamp_read_on_executed_path:
+        elif fresh.timestamp_getters_required_on_probed_path:
             caveats.append(
-                "the executed path reads a timestamp from the feed"
+                "the downstream read depends on the probed timestamp interface"
                 + (
-                    f" and refuses a round {fresh.threshold_enforced_within_seconds:,} "
+                    " and refuses a round "
+                    f"{fresh.threshold_enforced_within_seconds:,} "
                     "seconds old"
                     if fresh.threshold_enforced_within_seconds
                     else ", but did not refuse the stale round probed"
@@ -513,8 +556,9 @@ def assess(fixture: dict) -> Assessment:
             "borrowing against it as collateral rather than borrowing it"
         )
     caveats.append(
-        "behaviour was verified for this source at this block; governance "
-        "can replace the source, and nothing here transfers to another one"
+        "downstream behaviour was verified for tested inputs at this block; "
+        "a source replacement requires reassessment, and nothing here "
+        "transfers to another source"
     )
 
     return Assessment(

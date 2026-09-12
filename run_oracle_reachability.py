@@ -126,16 +126,19 @@ def main() -> None:
     fresh = result.freshness
     if fresh is not None:
         print("\nFreshness, as four separate properties")
-        print(f"  source exposes a timestamp          {fresh.source_exposes_timestamp}")
+        print(
+            "  source exposes a timestamp          "
+            f"{fresh.source_exposes_timestamp}"
+        )
         print(
             "  source bytecode embeds a reader     "
             f"{fresh.source_embeds_timestamp_call}"
         )
         print(
-            "  timestamp read on executed path     "
-            f"{fresh.timestamp_read_on_executed_path}"
+            "  timestamp getters required in probe     "
+            f"{fresh.timestamp_getters_required_on_probed_path}"
         )
-        print(f"  staleness threshold enforced        {fresh.enforced}")
+        print(f"  freshness rejection in probes        {fresh.enforced}")
         if fresh.feed_age_seconds is not None:
             print(
                 "  feed round age at the pinned block  "
@@ -146,7 +149,10 @@ def main() -> None:
     for bound in result.bounds:
         print(f"  {bound.kind} at {bound.layer}: {bound.raw_value}")
     if result.max_verified_fall is not None:
-        print(f"  verified representable fall: {result.max_verified_fall:.6%}")
+        print(
+            "  largest observed fall (rounded): "
+            f"{result.max_verified_fall:.6%}; smallest answer remains positive"
+        )
 
     print(f"\nVerdict on test 1: {result.verdict}")
     for reason in result.reasons:
@@ -156,7 +162,7 @@ def main() -> None:
 
     if args.manifest:
         payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "command": [
                 "python",
@@ -195,9 +201,10 @@ def main() -> None:
                     "decimals; no prediction for non-positive inputs"
                 ),
                 "freshness": (
-                    "exposing a timestamp, embedding a reader, reading one on "
-                    "the executed path, and enforcing a threshold are "
-                    "recorded as separate properties"
+                    "interface exposure, embedded selectors, dependency on "
+                    "probed getters and observed rejection are separate "
+                    "properties; "
+                    "none establishes upstream publication behaviour"
                 ),
             },
             "results": {
@@ -225,12 +232,14 @@ def main() -> None:
                 ),
                 "bounds": [dataclasses.asdict(b) for b in result.bounds],
                 "max_verified_fall": result.max_verified_fall,
-                "refused_below_raw": result.refused_below_raw,
+                "exposed_minimum_raw": result.exposed_minimum_raw,
                 "cap": (
                     {
                         **dataclasses.asdict(result.cap),
                         "headroom": result.cap.headroom,
-                        "yearly_rate_consistent": result.cap.yearly_rate_consistent,
+                        "yearly_rate_consistent": (
+                            result.cap.yearly_rate_consistent
+                        ),
                         "cap_flag_consistent": result.cap.cap_flag_consistent,
                     }
                     if result.cap is not None

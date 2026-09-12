@@ -22,9 +22,21 @@ fail while the financing question the test actually asks stays open.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import copy
+import math
+from dataclasses import dataclass, asdict, field, replace
+from functools import lru_cache
 from itertools import combinations
 from pathlib import Path
+
+from .liquidator_balance_sheet import (
+    LiquidatorAssumptions,
+    minimum_liquidation_bonus,
+    simulate_liquidator_balance_sheet,
+)
+from .time_to_exit import (
+    ExitAssumptions, dex_capacity_at, redemption_capacity_at,
+)
 
 PASS = "PASS"
 FAIL = "FAIL"
@@ -63,15 +75,32 @@ class TestOutcome:
     who_can_supply: tuple[str, ...] = ()
     limits: tuple[str, ...] = ()
     sub_outcomes: tuple[SubOutcome, ...] = ()
+    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class FinancingEvidence:
-    """Evidenced liquidator financing, when someone can supply it."""
+    """Gross repayment capital documented for eligible liquidators.
+
+    exhaustive means the amount is a verified upper bound on all eligible
+    warehouse capital in scope. independent_of_atomic permits combining
+    it with flash-funded atomic repayment without double counting.
+    """
 
     committed_usd: float
     holding_days: float
     source: str
+    exhaustive: bool = False
+    independent_of_atomic: bool = False
+
+    def __post_init__(self) -> None:
+        values = (self.committed_usd, self.holding_days)
+        if any(not math.isfinite(v) or v < 0 for v in values):
+            raise ValueError(
+                "financing amounts must be finite and non-negative"
+            )
+        if not self.source.strip():
+            raise ValueError("financing evidence needs a source")
 
 
 @dataclass(frozen=True)
@@ -85,6 +114,7 @@ class Assessment:
     overall: str
     overall_reason: str
     vintage_consistent: bool
+    economics: dict
 
 
 def load_manifest(path: str | Path) -> dict:
@@ -114,32 +144,99 @@ def _sweep_key(canonical_loss: float) -> str:
     return f"{canonical_loss:.6f}"
 
 
-def fastest_exit_days(balance_sheet: dict, canonical_loss: float) -> float | None:
-    """Shortest modelled time to clear across the balance-sheet regimes."""
+@lru_cache(maxsize=32)
+def _reprice_grid(debt: float, seized: float, loss: float,
+                  assumptions_json: str, regimes_json: str) -> dict:
+    """Cache economic sizing by every numerical input."""
+    assumptions = replace(
+        LiquidatorAssumptions(**json.loads(assumptions_json)),
+        canonical_loss=loss,
+    )
+    rows = {}
+    for name, inputs in json.loads(regimes_json).items():
+        exit_params = ExitAssumptions(**inputs)
+        result = simulate_liquidator_balance_sheet(
+            debt, seized, exit_params, assumptions
+        )
+        minimum = minimum_liquidation_bonus(debt, exit_params, assumptions)
+        rows[name] = {
+            "minimum_bonus": minimum,
+            "result": {
+                "time_to_clear_hours": result.time_to_clear_hours,
+                "cleared": result.cleared,
+                "economic_clearance_pass": result.economic_clearance_pass,
+                "economic_profit_usd": result.economic_profit_usd,
+                "peak_capital_usd": result.peak_capital_usd,
+                "first_cash_recovery_hours": next((
+                    c.horizon_hours for c in result.cash_flows
+                    if c.cash_recovery_usd > 0
+                ), None),
+            },
+        }
+    return rows
 
-    sweep = balance_sheet["canonical_loss_sweep"][_sweep_key(canonical_loss)]
+
+def reprice_balance_sheet(sim: dict, sheet: dict, loss: float) -> dict:
+    """Reuse the historical assumptions, not the historical results."""
+    debt = sim["results"]["repayment_usd"]["p99"]
+    seized = sim["results"]["seizure_usd"]["p99"]
+    if debt <= 0 or not math.isclose(
+        seized, debt * (1 + sheet["liquidation_bonus"]), rel_tol=1e-9
+    ):
+        raise ValueError("p99 debt and seizure must form one bonus envelope")
+    rows = _reprice_grid(
+        debt, seized, loss,
+        json.dumps(sheet["common_assumptions"], sort_keys=True),
+        json.dumps(sheet["regimes"], sort_keys=True),
+    )
+    return {
+        "scope": (
+            "p99 first-round requirement; not the static largest position"
+        ),
+        "debt_repaid_usd": debt,
+        "seized_collateral_usd": seized,
+        "liquidation_bonus": sheet["liquidation_bonus"],
+        "canonical_loss": loss,
+        "repayment_reference_usd": {
+            key: sim["results"]["repayment_usd"][key]
+            for key in ("p99", "tail_mean", "maximum")
+        },
+        "tail_level": sim["results"]["tail_level"],
+        "common_assumptions": {
+            **sheet["common_assumptions"], "canonical_loss": loss,
+        },
+        "regimes": copy.deepcopy(sheet["regimes"]),
+        "canonical_loss_sweep": {_sweep_key(loss): copy.deepcopy(rows)},
+        "notes": [
+            "All exit and cost assumptions remain conditional sensitivities.",
+            "Recomputed at the same p99 notional used by tests 2 and 3.",
+        ],
+    }
+
+
+def holding_bound_days(sheet: dict, loss: float) -> float | None:
+    """Conservative full-notional completion bound across all regimes."""
+    rows = sheet["canonical_loss_sweep"][_sweep_key(loss)].values()
     days = [
-        entry["result"]["time_to_clear_hours"] / 24.0
-        for entry in sweep.values()
-        if entry["result"]["cleared"]
+        r["result"]["time_to_clear_hours"] / 24
+        if r["result"]["cleared"] else None for r in rows
     ]
-    return min(days) if days else None
+    return max(days) if days and all(d is not None for d in days) else None
 
 
 def assess_oracle_reachability(name: str, manifest: dict) -> TestOutcome:
     results = manifest["results"]
     verdict = results["verdict"]
     fresh = results.get("freshness") or {}
-    fall = results.get("max_verified_fall")
     rec = results.get("reconstruction") or {}
 
     if verdict == PASS:
         finding = (
             "the baseline price is reproduced exactly and matches both the "
-            "source and AaveOracle, and every accepted stress update down to "
-            "one raw unit of the base feed passed through the deployed "
-            f"contracts as modelled, so a fall of {fall:.2%} is verified as "
-            "representable"
+            "source and AaveOracle. The tested positive inputs down to one "
+            "raw unit passed through the deployed adapter and consumer as "
+            "modelled, including a fall to nearly zero. This is conditional "
+            "on upstream delivery, not a test of update publication"
         )
     else:
         finding = "; ".join(results.get("reasons", [])) or "not established"
@@ -148,13 +245,13 @@ def assess_oracle_reachability(name: str, manifest: dict) -> TestOutcome:
     who: tuple[str, ...] = ()
     if fresh.get("enforced") is False:
         finding += (
-            ". No timestamp is read anywhere on the executed path, verified "
-            "by making every timestamp getter revert, so freshness is an "
-            "operational assumption rather than an enforced condition"
+            ". Reverting timestamp getters and a thirty-day-old round left "
+            "the downstream price unchanged. No freshness rejection was "
+            "observed in these probes; upstream checks were replaced"
         )
         missing = (
-            "an operational guarantee of feed publication, since no on-chain "
-            "freshness check exists on this path",
+            "upstream publication, liveness, and rejected-round behaviour, "
+            "which were not executed",
         )
         who = ("the feed operator", "Aave governance")
 
@@ -166,8 +263,8 @@ def assess_oracle_reachability(name: str, manifest: dict) -> TestOutcome:
         ),
         criterion=(
             "the path reproduces the recorded source and oracle prices, and "
-            "the deployed contracts pass stress updates through without a "
-            "bound or floor above the stress level"
+            "the deployed adapter and consumer pass the tested positive "
+            "inputs through, conditional on upstream delivery"
         ),
         verdict=verdict,
         finding=finding,
@@ -177,7 +274,7 @@ def assess_oracle_reachability(name: str, manifest: dict) -> TestOutcome:
                 manifest,
                 "results.verdict",
                 "results.max_verified_fall",
-                "results.freshness.timestamp_read_on_executed_path",
+                "results.freshness.timestamp_getters_required_on_probed_path",
                 "results.freshness.enforced",
             ),
             Evidence(
@@ -189,7 +286,7 @@ def assess_oracle_reachability(name: str, manifest: dict) -> TestOutcome:
         missing=missing,
         who_can_supply=who,
         limits=(
-            "behaviour verified for this source at this block, through eth_call "
+            "behaviour verified at this block through eth_call "
             "state overrides; the aggregator's own transmission path was not "
             "executed",
         ),
@@ -213,7 +310,6 @@ def assess_simultaneous_requirement(
     count = results["liquidatable_positions"]
     level = results["tail_level"]
     static_bound = results["static_bound_largest_full_seizure_usd"]
-    exit_days = fastest_exit_days(balance_sheet, canonical_loss)
 
     complete = discovery.startswith("complete")
     if not complete or not reproduces:
@@ -231,38 +327,31 @@ def assess_simultaneous_requirement(
             finding=(
                 "the borrower registry is incomplete"
                 if not complete
-                else "the scenario set does not reproduce the published stress path"
+                else "the scenario set does not reproduce the published run"
             ),
             evidence=_evidence(
                 sim_name, sim, "stress_path.reproduces_published_scenarios"
             ),
         )
 
-    if exit_days is not None and exit_days > horizon:
-        recycling = (
-            f"Capital does not recycle inside the {horizon:g}-day horizon: the "
-            f"fastest modelled exit takes {exit_days:.2f} days, so every "
-            "repayment in a scenario is concurrent"
-        )
-    else:
-        recycling = (
-            "The fastest modelled exit is shorter than the horizon, so capital "
-            "could recycle and the concurrent requirement is overstated"
-        )
+    recycling = (
+        "All first-round repayments occur at the single horizon shock; "
+        "no intervening capital recycling is assumed. This is not inferred "
+        "from a time-to-exit calculation"
+    )
 
     finding = (
         f"on the published stress path, reproduced exactly, "
-        f"{count['p99']:.0f} positions are liquidatable at once at the "
-        f"{level:.0%} level, requiring {_m(repay['p99'])} of debt repayment "
-        f"in exchange for {_m(seize['p99'])} of collateral; over the worst "
+        f"the p99 requirement is {_m(repay['p99'])} of debt repayment "
+        f"and {_m(seize['p99'])} of collateral. The p99 position count is "
+        f"{count['p99']:.0f}, a separate marginal quantile. Over the worst "
         f"{1 - level:.0%} of scenarios the mean is {_m(repay['tail_mean'])} "
         f"of repayment and {_m(seize['tail_mean'])} of collateral. In those "
         f"tail scenarios the single largest repayment is on average "
         f"{results['largest_share_of_tail_repayment']:.1%} of the total. "
-        f"The full seizure of the largest position, {_m(static_bound)} of "
-        f"collateral, sits at the extreme of the distribution, where the "
-        f"worst scenario seizes {_m(seize['maximum'])}: it is a conservative "
-        f"bound, not the tail requirement. {recycling}"
+        f"The static largest-position benchmark is {_m(static_bound)} of "
+        f"collateral, versus {_m(seize['maximum'])} of total collateral in "
+        f"the worst scenario. These are distinct criteria. {recycling}"
     )
 
     return TestOutcome(
@@ -273,8 +362,8 @@ def assess_simultaneous_requirement(
         ),
         criterion=(
             "the requirement is computed on the stated stress path, from a "
-            "complete borrower registry, with protocol liquidation sizing, and "
-            "with capital recycling inside the horizon accounted for"
+            "complete borrower registry, with modelled liquidation sizing, "
+            "with the first-round simultaneity assumption stated"
         ),
         verdict=PASS,
         finding=finding,
@@ -297,168 +386,145 @@ def assess_simultaneous_requirement(
             "first liquidation round only; a second round inside the horizon "
             "is not counted",
             "the stress is a single horizon shock, as in the published report",
+            "p99 is the coverage criterion, not a bound on the worst 1%",
+            "relative-value stress is a counterfactual canonical-rate "
+            "impairment, not an ordinary secondary-market depeg trigger",
         ),
     )
 
 
 def assess_financing_capacity(
-    sim_name: str,
-    sim: dict,
-    market_name: str,
-    market: dict,
-    balance_sheet: dict,
-    canonical_loss: float,
+    sim_name: str, sim: dict, market_name: str, market: dict,
+    balance_sheet: dict, canonical_loss: float,
     financing: FinancingEvidence | None = None,
 ) -> TestOutcome:
     results = sim["results"]
-    level = results["tail_level"]
-    seize_req = results["seizure_usd"]["p99"]
-    repay_req = results["repayment_usd"]["p99"]
-    tail_repay = results["repayment_usd"]["tail_mean"]
-    quiet = _dig(market, "clearance.max_clearable_usd_quiet")
-    stressed = _dig(market, "clearance.max_clearable_usd_stressed")
-    breakeven = _dig(market, "clearance.breakeven_slippage")
-    max_quoted = _dig(market, "clearance.max_quoted_usd")
-    exit_days = fastest_exit_days(balance_sheet, canonical_loss)
-
-    instant_ok = stressed >= seize_req
-    instant_finding = (
-        f"routed depth inside the {breakeven:.2%} break-even slippage clears "
-        f"{_m(quiet)} quiet and {_m(stressed)} under the stated depth stress, "
-        f"against {_m(seize_req)} of collateral to be sold at once at the "
-        f"{level:.0%} level"
-        + (
-            f": short by a factor of {seize_req / stressed:.1f} stressed and "
-            f"{seize_req / quiet:.1f} quiet"
-            if not instant_ok
-            else ""
-        )
+    seized = results["seizure_usd"]["p99"]
+    debt = results["repayment_usd"]["p99"]
+    capacity = _dig(market, "clearance.max_clearable_usd_stressed")
+    atomic_sale = min(capacity, seized)
+    atomic_debt = debt * atomic_sale / seized
+    residual = max(0.0, debt - atomic_debt)
+    hold = holding_bound_days(balance_sheet, canonical_loss)
+    mixed_capacity = {}
+    if hold is not None:
+        for name, inputs in balance_sheet["regimes"].items():
+            params = ExitAssumptions(**inputs)
+            available = (
+                dex_capacity_at(params, 24 * hold)
+                + redemption_capacity_at(params, 24 * hold)
+            )
+            mixed_capacity[name] = {
+                "warehouse_initial_capacity_usd": max(
+                    0.0, dex_capacity_at(params, 0) - atomic_sale
+                ),
+                "warehouse_capacity_at_bound_usd": max(
+                    0.0, available - atomic_sale
+                ),
+                "warehouse_seizure_usd": seized - atomic_sale,
+            }
+    schedule_ok = bool(mixed_capacity) and all(
+        r["warehouse_capacity_at_bound_usd"] + 1e-6
+        >= r["warehouse_seizure_usd"] for r in mixed_capacity.values()
     )
-    if seize_req > max_quoted:
-        instant_finding += (
-            "; the requirement exceeds the largest quoted notional, so the "
-            "shortfall is a lower bound"
-        )
-    instant = SubOutcome(
-        label="3a instant clearance",
-        scope=(
-            "atomic liquidators, who repay with flash liquidity and must sell "
-            "the collateral in the same transaction"
-        ),
-        criterion=(
-            "instant executable capacity inside the bonus, under the stated "
-            "depth stress, is at least the simultaneous collateral sale"
-        ),
-        verdict=PASS if instant_ok else FAIL,
-        finding=instant_finding,
+    duration_ok = (
+        financing is not None and hold is not None
+        and financing.holding_days >= hold
     )
-
-    hold = f" for at least {exit_days:.2f} days" if exit_days is not None else ""
-    if financing is None:
-        warehouse = SubOutcome(
-            label="3b warehouse financing",
-            scope=(
-                "liquidators who repay with their own or borrowed capital and "
-                "exit over days"
-            ),
-            criterion=(
-                "evidenced committed financing is at least the simultaneous "
-                "repayment, available for the modelled exit horizon"
-            ),
-            verdict=INDETERMINATE,
-            finding=(
-                f"a warehouse liquidator would need {_m(repay_req)} at the "
-                f"{level:.0%} level, and {_m(tail_repay)} on average over the "
-                f"tail, committed at the moment of liquidation and held{hold}. "
-                "No evidence of committed liquidator capital is available, so "
-                "whether that financing exists cannot be determined"
-            ),
+    warehouse = mixed = INDETERMINATE
+    if financing is not None:
+        if financing.committed_usd >= debt and duration_ok:
+            warehouse = PASS
+        elif financing.exhaustive and financing.committed_usd < debt:
+            warehouse = FAIL
+        if (financing.committed_usd >= residual and duration_ok
+                and financing.independent_of_atomic and schedule_ok):
+            mixed = PASS
+        elif (financing.exhaustive
+              and financing.committed_usd + atomic_debt < debt):
+            mixed = FAIL
+    instant = PASS if residual <= 1e-8 else FAIL
+    verdict = (
+        PASS if PASS in (instant, warehouse, mixed)
+        else FAIL if mixed == FAIL else INDETERMINATE
+    )
+    hold_text = (
+        f"{hold:.2f} days across the aligned regime grid"
+        if hold is not None else "an unresolved exit horizon"
+    )
+    finding = (
+        f"p99 repayment {_m(debt)}; atomic sale capacity {_m(atomic_sale)} "
+        f"supports {_m(atomic_debt)} of repayment, leaving {_m(residual)} "
+        "for warehouse capital in a mixed allocation. The conservative "
+        f"holding bound is {hold_text}; it is not a minimum holding time "
+        "and does not forbid earlier cash recovery. "
+        + ("No committed warehouse financing is documented."
+           if financing is None else
+           f"Documented: {_m(financing.committed_usd)} for "
+           f"{financing.holding_days:g} days ({financing.source}). "
+           "Insufficient identified capital is not a market-wide upper "
+           "bound unless its evidence explicitly establishes that scope.")
+    )
+    evidence = (
+        *_evidence(market_name, market,
+                   "clearance.max_clearable_usd_stressed"),
+        *_evidence(sim_name, sim, "results.repayment_usd.p99",
+                   "results.seizure_usd.p99"),
+        Evidence("derived_economics", "canonical_loss_sweep",
+                 balance_sheet["canonical_loss_sweep"]),
+        Evidence("derived_mixed_capacity", "net_of_atomic_sale",
+                 mixed_capacity),
+    )
+    if financing is not None:
+        evidence += (
+            Evidence(financing.source, "financing", asdict(financing)),
         )
-    else:
-        enough = (
-            financing.committed_usd >= repay_req
-            and (exit_days is None or financing.holding_days >= exit_days)
-        )
-        warehouse = SubOutcome(
-            label="3b warehouse financing",
-            scope=(
-                "liquidators who repay with their own or borrowed capital and "
-                "exit over days"
-            ),
-            criterion=(
-                "evidenced committed financing is at least the simultaneous "
-                "repayment, available for the modelled exit horizon"
-            ),
-            verdict=PASS if enough else FAIL,
-            finding=(
-                f"{_m(financing.committed_usd)} committed for "
-                f"{financing.holding_days:g} days ({financing.source}) against "
-                f"{_m(repay_req)} required{hold}"
-            ),
-        )
-
-    if instant.verdict == PASS or warehouse.verdict == PASS:
-        verdict = PASS
-    elif warehouse.verdict == FAIL:
-        verdict = FAIL
-    else:
-        verdict = INDETERMINATE
-
-    if verdict == INDETERMINATE:
-        finding = (
-            "instant clearance fails within its own scope, so atomic "
-            "liquidators alone cannot meet the requirement. That does not "
-            "show that nobody can finance the repayment and hold the "
-            "collateral while exiting, which is the question this test asks; "
-            "on the available evidence that question stays open"
-        )
-    elif verdict == PASS:
-        finding = "; ".join(
-            f"{s.label}: {s.verdict}" for s in (instant, warehouse)
-        )
-    else:
-        finding = (
-            "neither atomic clearance nor evidenced warehouse financing covers "
-            "the simultaneous requirement"
-        )
-
     return TestOutcome(
         number=3,
-        question="can eligible liquidators finance that repayment when required",
+        question="can eligible liquidators finance that repayment",
         criterion=(
-            "either instant clearance covers the simultaneous collateral sale, "
-            "or evidenced financing covers the simultaneous repayment for the "
-            "exit horizon; FAIL requires both to be shown insufficient"
+            "atomic, warehouse, or a compatible mixed allocation covers "
+            "p99 repayment; FAIL requires an evidenced aggregate capacity "
+            "upper bound below the requirement"
         ),
-        verdict=verdict,
-        finding=finding,
-        evidence=(
-            *_evidence(
-                market_name,
-                market,
-                "clearance.max_clearable_usd_quiet",
-                "clearance.max_clearable_usd_stressed",
-                "clearance.breakeven_slippage",
+        verdict=verdict, finding=finding, evidence=evidence,
+        missing=(() if verdict == PASS else (
+            "eligible warehouse capital and duration, with explicit scope "
+            "and no double counting against the atomic leg",
+        )),
+        who_can_supply=("liquidators and backstop providers",),
+        limits=(
+            "gross debt repayment only; fees and funding buffers need "
+            "additional resources, whose costs are tested separately",
+            "atomic capacity assumes accessible flash liquidity and excludes "
+            "gas, flash fees and auction payments",
+            "mixed allocation gives initial DEX depth to the atomic leg; "
+            "warehouse exits use remaining cumulative capacity, not the "
+            "same initial depth twice",
+            "the full-notional completion bound is conservative for the "
+            "residual; shorter financing duration is unresolved, not FAIL",
+            "PASS is conditional on the exit-capacity grid; it does not "
+            "prove those capacities are available",
+        ),
+        sub_outcomes=(
+            SubOutcome(
+                "3a instant clearance", "atomic-only benchmark",
+                "stressed routed capacity covers the p99 sale", instant,
+                f"{_m(capacity)} versus {_m(seized)}",
             ),
-            *_evidence(
-                sim_name, sim, "results.seizure_usd.p99", "results.repayment_usd.p99"
+            SubOutcome(
+                "3b warehouse financing", "warehouse-only benchmark",
+                "documented capital covers gross repayment for the bound",
+                warehouse, f"full repayment {_m(debt)}; bound {hold_text}",
+            ),
+            SubOutcome(
+                "3c mixed financing", "non-overlapping allocation",
+                "atomic repayment plus independent warehouse capital "
+                "covers the requirement",
+                mixed,
+                f"atomic {_m(atomic_debt)}; residual {_m(residual)}",
             ),
         ),
-        missing=(
-            ()
-            if financing is not None
-            else (
-                "committed liquidator financing: balance-sheet capacity, "
-                "credit lines, or a backstop arrangement of at least the "
-                "simultaneous repayment for the exit horizon",
-            )
-        ),
-        who_can_supply=(
-            ()
-            if financing is not None
-            else ("liquidators", "market makers", "a DAO-arranged backstop")
-        ),
-        sub_outcomes=(instant, warehouse),
     )
 
 
@@ -469,8 +535,12 @@ def _regime_rows(balance_sheet: dict, canonical_loss: float) -> dict:
         regime: {
             "inputs": balance_sheet["regimes"][regime],
             "minimum_bonus": entry["minimum_bonus"],
-            "days_to_clear": entry["result"]["time_to_clear_hours"] / 24.0,
-            "passes": entry["minimum_bonus"] <= bonus,
+            "days_to_clear": (
+                entry["result"]["time_to_clear_hours"] / 24.0
+                if entry["result"]["cleared"] else None
+            ),
+            "passes": (entry["minimum_bonus"] is not None
+                       and entry["minimum_bonus"] <= bonus),
             "flag": entry["result"]["economic_clearance_pass"],
         }
         for regime, entry in sweep.items()
@@ -490,13 +560,172 @@ def flipping_inputs(rows: dict) -> tuple[str, ...]:
         if a["passes"] == b["passes"]:
             continue
         diff = tuple(
-            sorted(k for k in a["inputs"] if a["inputs"][k] != b["inputs"].get(k))
+            sorted(k for k in a["inputs"]
+                   if a["inputs"][k] != b["inputs"].get(k))
         )
         pairs.append(diff)
     if not pairs:
         return ()
     narrowest = min(len(diff) for diff in pairs)
-    return tuple(sorted({k for diff in pairs if len(diff) == narrowest for k in diff}))
+    return tuple(sorted({
+        k for diff in pairs if len(diff) == narrowest for k in diff
+    }))
+
+
+@lru_cache(maxsize=32)
+def _bonus_notional_sensitivity(
+    bonus: float, loss: float, references_json: str,
+    assumptions_json: str, regimes_json: str,
+) -> dict:
+    """Locate a covered-to-uncovered bracket, not a global capacity bound.
+
+    Hold costs and capacities fixed and scale seizure with repayment.
+    Scan above p99, then bisect the first observed loss of grid coverage.
+    The bracket assumes one transition locally; unobserved crossings and
+    execution capacity beyond this deterministic grid are not established.
+    """
+    references = json.loads(references_json)
+    if any(not math.isfinite(v) or v <= 0 for v in references.values()):
+        raise ValueError("repayment reference amounts must be positive")
+    start, stop = references["p99"], references["maximum"]
+    if not start <= references["tail_mean"] <= stop:
+        raise ValueError("repayment references must be ordered")
+    regimes = json.loads(regimes_json)
+    params = {name: ExitAssumptions(**p) for name, p in regimes.items()}
+    assumptions = replace(
+        LiquidatorAssumptions(**json.loads(assumptions_json)),
+        canonical_loss=loss,
+    )
+
+    def coverage(debt):
+        results = {
+            name: simulate_liquidator_balance_sheet(
+                debt, debt * (1 + bonus), p, assumptions
+            ) for name, p in params.items()
+        }
+        profits = {k: r.economic_profit_usd for k, r in results.items()}
+        failures = [k for k, v in profits.items() if v is not None and v < 0]
+        if failures:
+            return False, failures
+        if any(v is None for v in profits.values()):
+            return None, []
+        return True, []
+
+    samples = {}
+    for label, debt in references.items():
+        rows = _reprice_grid(
+            debt, debt * (1 + bonus), loss,
+            assumptions_json, regimes_json,
+        )
+        resolved = all(r["minimum_bonus"] is not None for r in rows.values())
+        worst = max(rows, key=lambda k: rows[k]["minimum_bonus"] or 0)
+        minimum = rows[worst]["minimum_bonus"] if resolved else None
+        samples[label] = {
+            "repayment_usd": debt,
+            "seized_collateral_usd": debt * (1 + bonus),
+            "worst_regime": worst if resolved else None,
+            "worst_minimum_bonus": minimum,
+            "bonus_margin_bps": (
+                (bonus - minimum) * 1e4 if resolved else None
+            ),
+            "all_regimes_cover": coverage(debt)[0],
+            "regimes": {
+                name: {
+                    "minimum_bonus": row["minimum_bonus"],
+                    "bonus_margin_bps": (
+                        (bonus - row["minimum_bonus"]) * 1e4
+                        if row["minimum_bonus"] is not None else None
+                    ),
+                    "economic_profit_usd": row["result"][
+                        "economic_profit_usd"
+                    ],
+                } for name, row in rows.items()
+            },
+        }
+
+    boundary = {
+        "status": "not_found_in_range",
+        "repayment_usd": None,
+        "covered_lower_usd": None,
+        "uncovered_upper_usd": None,
+        "binding_regimes": [],
+        "multiple_of_p99": None,
+        "fraction_of_tail_mean": None,
+        "search_range_usd": [start, stop],
+        "scan_intervals": 32,
+        "tolerance_usd": 1.0,
+        "method": "log scan then local bisection of economic profit at bonus",
+    }
+    initial = samples["p99"]["all_regimes_cover"]
+    if initial is not True:
+        boundary["status"] = (
+            "not_covered_at_p99" if initial is False else "unresolved"
+        )
+    else:
+        low = start
+        for index in range(1, 33):
+            high = start * (stop / start) ** (index / 32)
+            covers, failures = coverage(high)
+            if covers is None:
+                boundary["status"] = "unresolved"
+                break
+            if covers:
+                low = high
+                continue
+            for _ in range(60):
+                if high - low <= boundary["tolerance_usd"]:
+                    break
+                mid = (low + high) / 2
+                covers, failed_mid = coverage(mid)
+                if covers is None:
+                    break
+                if covers:
+                    low = mid
+                else:
+                    high, failures = mid, failed_mid
+            if covers is None:
+                boundary["status"] = "unresolved"
+                break
+            estimate = (low + high) / 2
+            boundary.update({
+                "status": "bracketed",
+                "repayment_usd": estimate,
+                "covered_lower_usd": low,
+                "uncovered_upper_usd": high,
+                "binding_regimes": failures,
+                "multiple_of_p99": estimate / start,
+                "fraction_of_tail_mean": estimate / references["tail_mean"],
+            })
+            break
+    return {
+        "liquidation_bonus": bonus,
+        "canonical_loss": loss,
+        "samples": samples,
+        "coverage_boundary": boundary,
+        "margin_definition": "(stated bonus - minimum bonus) * 10000",
+        "scope": (
+            "fixed cost and exit grid; local upper transition above p99, "
+            "not a global monotonicity proof or a tail coverage probability; "
+            "economics at mean repayment is not mean tail economics"
+        ),
+    }
+
+
+def _notional_limit(sensitivity: dict) -> str:
+    boundary = sensitivity["coverage_boundary"]
+    if boundary["status"] != "bracketed":
+        return (
+            "The verdict is scoped to the stated coverage criterion. "
+            "No notional boundary is established: " + boundary["status"]
+        )
+    return (
+        "The bonus stops covering the worst regime at about "
+        f"{_m(boundary['repayment_usd'])} of repayment, "
+        f"{boundary['multiple_of_p99']:.1f} times the p99 requirement and "
+        f"{boundary['fraction_of_tail_mean']:.0%} of the worst-"
+        f"{1 - sensitivity['tail_level']:.0%} mean. "
+        "The verdict is scoped to the stated coverage criterion."
+    )
 
 
 def assess_bonus_adequacy(
@@ -507,16 +736,32 @@ def assess_bonus_adequacy(
 ) -> TestOutcome:
     bonus = balance_sheet["liquidation_bonus"]
     rows = _regime_rows(balance_sheet, canonical_loss)
-    capacities = [row["inputs"]["instant_dex_capacity_usd"] for row in rows.values()]
+    capacities = [
+        row["inputs"]["instant_dex_capacity_usd"] for row in rows.values()
+    ]
+    if not capacities:
+        raise ValueError("economic assessment requires a regime grid")
+    sensitivity = copy.deepcopy(_bonus_notional_sensitivity(
+        bonus, canonical_loss,
+        json.dumps(balance_sheet["repayment_reference_usd"], sort_keys=True),
+        json.dumps(balance_sheet["common_assumptions"], sort_keys=True),
+        json.dumps(balance_sheet["regimes"], sort_keys=True),
+    ))
+    sensitivity["tail_level"] = balance_sheet["tail_level"]
     haircut = _dig(market, "clearance.depth_haircut_stressed")
     adverse_needed = max(capacities) * (1.0 - haircut)
     has_adverse = any(c <= adverse_needed * (1.0 + 1e-9) for c in capacities)
     passing = [r for r, row in rows.items() if row["passes"]]
     flips = flipping_inputs(rows)
-    inconsistent = [r for r, row in rows.items() if row["passes"] != row["flag"]]
+    inconsistent = [
+        r for r, row in rows.items() if row["passes"] != row["flag"]
+    ]
 
     table = "; ".join(
-        f"{regime} {row['minimum_bonus']:.2%} in {row['days_to_clear']:.2f} days"
+        (f"{regime} {row['minimum_bonus']:.2%} in "
+         f"{row['days_to_clear']:.2f} days"
+         if row["minimum_bonus"] is not None
+         and row["days_to_clear"] is not None else f"{regime}: unresolved")
         for regime, row in rows.items()
     )
     assumptions = (
@@ -525,7 +770,10 @@ def assess_bonus_adequacy(
         "and redemption throughput, as the balance-sheet manifest notes"
     )
 
-    if inconsistent:
+    if any(r["minimum_bonus"] is None for r in rows.values()):
+        verdict = INDETERMINATE
+        finding = "at least one economic route could not be resolved"
+    elif inconsistent:
         verdict = INDETERMINATE
         finding = (
             "the minimum bonus and the manifest's own clearance flag disagree "
@@ -534,7 +782,7 @@ def assess_bonus_adequacy(
     elif not has_adverse:
         verdict = INDETERMINATE
         finding = (
-            "the regime grid contains no regime as adverse as the stated depth "
+            "the grid contains no regime as adverse as the stated depth "
             "stress, so a pass would rest on benign conditions only"
         )
     elif len(passing) == len(rows):
@@ -556,14 +804,14 @@ def assess_bonus_adequacy(
             f"{bonus:.2%} bonus clears in {len(passing)} of {len(rows)} "
             f"regimes: {table}. The outcome flips between regimes that differ "
             f"only in {', '.join(flips)}. {assumptions}; within the grid the "
-            "refill assumption does not change the outcome, while the "
-            "flipping input does"
+            "grid identifies the narrowest observed input differences"
         )
         breakeven = balance_sheet.get("break_even_canonical_loss", {})
         by_level: dict[float, list[str]] = {}
         for regime in passing:
             if breakeven.get(regime) is not None:
-                by_level.setdefault(round(breakeven[regime], 6), []).append(regime)
+                key = round(breakeven[regime], 6)
+                by_level.setdefault(key, []).append(regime)
         limits = [
             f"{' and '.join(regimes)} clear{'s' if len(regimes) == 1 else ''} "
             f"only while the canonical loss stays below {level:.2%}"
@@ -579,7 +827,7 @@ def assess_bonus_adequacy(
             "evidence for the flipping input "
             f"({', '.join(flips)}); for wstETH that is primary redemption "
             "through the Lido withdrawal queue, whose throughput and delay "
-            "under stress are partly observable on-chain but not measured here",
+            "under stress are not measured here",
         )
         who = ("Lido withdrawal queue data", "the redemption counterparty")
 
@@ -587,7 +835,8 @@ def assess_bonus_adequacy(
         number=4,
         question="does the bonus compensate for settlement and recovery risk",
         criterion=(
-            "at the stated canonical loss, the bonus is at least the minimum "
+            "at the stated p99 repayment and canonical loss, the bonus is "
+            "at least the minimum "
             "economic bonus in every regime of the stated grid, which must "
             "include a regime as adverse as the stated depth stress; if the "
             "outcome flips across the grid, the verdict is INDETERMINATE and "
@@ -595,12 +844,18 @@ def assess_bonus_adequacy(
         ),
         verdict=verdict,
         finding=finding,
+        diagnostics={"bonus_notional_sensitivity": sensitivity},
         evidence=(
             *_evidence(
-                name, balance_sheet, "liquidation_bonus", "regimes", "notes"
+                "derived_economics", balance_sheet,
+                "repayment_reference_usd", "tail_level",
+            ),
+            *_evidence(
+                name, balance_sheet, "liquidation_bonus", "regimes",
+                "common_assumptions"
             ),
             Evidence(
-                manifest=name,
+                manifest="derived_economics",
                 field=f"canonical_loss_sweep[{_sweep_key(canonical_loss)}]",
                 value={
                     regime: {
@@ -614,6 +869,15 @@ def assess_bonus_adequacy(
         ),
         missing=missing,
         who_can_supply=who,
+        limits=(
+            _notional_limit(sensitivity),
+            "bonus margins are conditional on cost assumptions as well as "
+            "notional; they are not uncertainty bands or probability bounds",
+            "conditional on the stated grid and canonical loss; not proof "
+            "that modelled exit capacity is available",
+            "prices a full warehouse exit, not mixed-route profitability "
+            "after atomic gas and auction costs",
+        ),
     )
 
 
@@ -636,7 +900,8 @@ def combine(tests: tuple[TestOutcome, ...]) -> tuple[str, str]:
             )
         else:
             tail = ""
-        return FAIL, f"test {first.number} fails on its stated criterion.{tail}"
+        reason = f"test {first.number} fails on its stated criterion.{tail}"
+        return FAIL, reason
 
     unresolved = [t for t in tests if t.verdict == INDETERMINATE]
     if unresolved:
@@ -654,7 +919,7 @@ def combine(tests: tuple[TestOutcome, ...]) -> tuple[str, str]:
         ]
         joined = "; ".join(scoped)
         note = (
-            f" Sub-test {joined}, which does not decide the test it belongs to."
+            f" Sub-test {joined}, which does not decide its parent test."
             if scoped
             else ""
         )
@@ -675,7 +940,19 @@ def build_assessment(
     canonical_loss: float = 0.04,
     financing: FinancingEvidence | None = None,
 ) -> Assessment:
-    sheet = balance_sheet[1]
+    scopes = [
+        (reachability[1]["fixture"]["chain"],
+         reachability[1]["fixture"]["block"],
+         reachability[1]["fixture"]["asset"]["symbol"]),
+        *((p[1]["snapshot"]["chain"], p[1]["snapshot"]["block"],
+           p[1]["snapshot"]["asset"])
+          for p in (market, simultaneity, balance_sheet)),
+    ]
+    if len(set(scopes)) != 1:
+        raise ValueError("inputs disagree on chain, asset or block")
+    sheet = reprice_balance_sheet(
+        simultaneity[1], balance_sheet[1], canonical_loss
+    )
     tests = (
         assess_oracle_reachability(*reachability),
         assess_simultaneous_requirement(
@@ -688,13 +965,36 @@ def build_assessment(
             balance_sheet[0], sheet, market[1], canonical_loss=canonical_loss
         ),
     )
+    # A funding route and an economic route must be compatible. The current
+    # cost engine prices full warehousing, not atomic MEV or mixed execution.
+    if (tests[2].verdict == PASS
+            and tests[2].sub_outcomes[1].verdict != PASS
+            and tests[3].verdict == PASS):
+        economic = tests[3]
+        tests = (*tests[:3], replace(
+            economic,
+            verdict=INDETERMINATE,
+            finding=(
+                economic.finding + ". Financing is supported only through "
+                "an atomic or mixed allocation; its route-specific costs "
+                "have not been established by the full-warehouse calculation"
+            ),
+            missing=(
+                "economics for the funded atomic or mixed allocation, "
+                "including flash fees, gas and auction payments",
+            ),
+            sub_outcomes=(SubOutcome(
+                "4a full warehouse economics", "conditional warehouse grid",
+                economic.criterion, PASS, economic.finding,
+            ),),
+        ))
     overall, reason = combine(tests)
 
     blocks = {
         _dig(reachability[1], "fixture.block"),
         _dig(market[1], "snapshot.block"),
         _dig(simultaneity[1], "snapshot.block"),
-        _dig(sheet, "snapshot.block"),
+        _dig(balance_sheet[1], "snapshot.block"),
     }
     return Assessment(
         chain=_dig(market[1], "snapshot.chain"),
@@ -706,4 +1006,5 @@ def build_assessment(
         overall=overall,
         overall_reason=reason,
         vintage_consistent=len(blocks) == 1,
+        economics=sheet,
     )

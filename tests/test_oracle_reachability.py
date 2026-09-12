@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 
@@ -14,7 +15,9 @@ from aave_risk_engine.data.abi import (
     keccak256,
     selector,
 )
-from aave_risk_engine.data.evm_mock import assemble, feed_bytecode, rate_bytecode
+from aave_risk_engine.data.evm_mock import (
+    assemble, feed_bytecode, rate_bytecode,
+)
 from aave_risk_engine.oracle_reachability import (
     FAIL,
     INDETERMINATE,
@@ -104,7 +107,9 @@ def test_mock_bytecode_embeds_the_scenario_inputs():
     reverting = feed_bytecode(12345, 8, 1, 999, "revert").removeprefix("0x")
     # With reverting timestamp getters the updated_at value is never served.
     assert f"{999:064x}" not in reverting
-    rate = rate_bytecode("getPooledEthByShares(uint256)", 7, 18).removeprefix("0x")
+    rate = rate_bytecode(
+        "getPooledEthByShares(uint256)", 7, 18
+    ).removeprefix("0x")
     assert selector("getPooledEthByShares(uint256)").removeprefix("0x") in rate
 
 
@@ -183,7 +188,7 @@ def test_non_positive_values_are_refused_by_reverting():
     fixture = _fixture()
     for name in ("zero_answer", "negative_answer"):
         assert _scenario(fixture, name)["oracle"]["status"] == "reverted"
-    assert any("revert rather than" in c for c in assess(fixture).caveats)
+    assert any("rather than return zero" in c for c in assess(fixture).caveats)
 
 
 def test_cap_clamps_a_rate_above_the_ceiling():
@@ -199,17 +204,17 @@ def test_freshness_properties_are_separate_and_behaviourally_settled():
     fresh = freshness(fixture, scenario_checks(fixture))
     assert fresh.source_exposes_timestamp is False
     assert fresh.source_embeds_timestamp_call is False
-    assert fresh.timestamp_read_on_executed_path is False
+    assert fresh.timestamp_getters_required_on_probed_path is False
     assert fresh.enforced is False
     assert fresh.stale_probe_age_seconds == 30 * 86_400
 
 
-def test_a_reverting_timestamp_probe_means_the_path_reads_one():
+def test_reverting_getters_test_dependency_not_an_upstream_policy():
     fixture = copy.deepcopy(_fixture())
     scenario = _scenario(fixture, "timestamps_unreadable")
     scenario["oracle"] = {"status": "reverted", "price_raw": None}
     fresh = freshness(fixture, scenario_checks(fixture))
-    assert fresh.timestamp_read_on_executed_path is True
+    assert fresh.timestamp_getters_required_on_probed_path is True
     # Reading a timestamp is not the same as enforcing a threshold.
     assert fresh.enforced is False
     stale = _scenario(fixture, "stale_30_days")
@@ -223,22 +228,23 @@ def test_without_behaviour_nothing_is_verified():
     del fixture["behaviour"]
     result = assess(fixture)
     assert result.verdict == INDETERMINATE
-    assert result.freshness.timestamp_read_on_executed_path is None
+    assert result.freshness.timestamp_getters_required_on_probed_path is None
     assert result.freshness.enforced is None
 
 
 def test_a_floored_stress_is_fail():
     fixture = copy.deepcopy(_fixture())
     scenario = _scenario(fixture, "stress_99")
-    scenario["oracle"]["price_raw"] = _scenario(fixture, "stress_50")["oracle"][
-        "price_raw"
-    ]
+    stress = _scenario(fixture, "stress_50")["oracle"]
+    scenario["oracle"]["price_raw"] = stress["price_raw"]
     assert assess(fixture).verdict == FAIL
 
 
 def test_a_refused_stress_is_fail():
     fixture = copy.deepcopy(_fixture())
-    _scenario(fixture, "stress_50")["oracle"] = {"status": "reverted", "price_raw": None}
+    _scenario(fixture, "stress_50")["oracle"] = {
+        "status": "reverted", "price_raw": None
+    }
     assert assess(fixture).verdict == FAIL
 
 
@@ -274,6 +280,40 @@ def test_manifests_match_the_committed_fixtures():
         assert manifest["results"]["verdict"] == PASS
         assert manifest["results"]["reconstruction"]["matches_oracle"]
         assert manifest["results"]["freshness"]["enforced"] is False
+        expected = assess(_fixture(block))
+        assert manifest["results"]["reasons"] == list(expected.reasons)
+        assert manifest["results"]["caveats"] == list(expected.caveats)
+        digest = hashlib.sha256(_FIXTURES[block].read_bytes()).hexdigest()
+        assert manifest["fixture"]["sha256"] == digest
+
+
+def test_missing_stress_observation_cannot_pass():
+    fixture = copy.deepcopy(_fixture())
+    fixture["behaviour"]["scenarios"] = [
+        s for s in fixture["behaviour"]["scenarios"]
+        if s["name"] != "stress_floor"
+    ]
+    assert assess(fixture).verdict == INDETERMINATE
+
+
+def test_unverified_override_cannot_pass():
+    fixture = copy.deepcopy(_fixture())
+    _scenario(fixture, "stress_50")["mock_verified"] = False
+    assert assess(fixture).verdict == INDETERMINATE
+
+
+def test_invalid_answer_probe_does_not_claim_a_rejected_transmission():
+    result = assess(_fixture())
+    caveats = " ".join(result.caveats)
+    assert "not a rejected transmission" in caveats
+    assert "refused only below" not in caveats
+    assert result.exposed_minimum_raw == 1
+
+
+def test_changed_timestamp_probe_price_is_not_claimed_unchanged():
+    fixture = copy.deepcopy(_fixture())
+    _scenario(fixture, "stale_30_days")["oracle"]["price_raw"] += 1
+    assert assess(fixture).verdict == INDETERMINATE
 
 
 def _run_all():

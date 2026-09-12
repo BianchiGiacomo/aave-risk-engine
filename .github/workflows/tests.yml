@@ -31,3 +31,7 @@ jobs:
           python -m aave_risk_engine.tests.test_multiperiod
           python -m aave_risk_engine.tests.test_time_to_exit
           python -m aave_risk_engine.tests.test_liquidator_balance_sheet
+          python -m aave_risk_engine.tests.test_rwa_drawdown
+          python -m aave_risk_engine.tests.test_oracle_reachability
+          python -m aave_risk_engine.tests.test_simultaneous_requirement
+          python -m aave_risk_engine.tests.test_four_test_assessment

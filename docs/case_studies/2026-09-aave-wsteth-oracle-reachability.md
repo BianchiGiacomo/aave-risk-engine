@@ -2,19 +2,19 @@
 
 Case date: September 10, 2026, revised September 11 after review. Pinned
 block 25,946,216, timestamp 1789034015. Verdict on test 1: **PASS**,
-with caveats about freshness that matter more than the verdict.
+for the tested downstream inputs, conditional on upstream delivery.
 
 ## The question
 
-Every liquidation calculation in this repository assumes something it
-never checks: that when collateral moves, the protocol sees the move. A
-bound can stop the move from being published, and a path that never
-reads a timestamp cannot reject a stale price. Test 1 of the four-test
+The liquidation calculations assume that the protocol sees the modelled
+collateral move. A bound can prevent publication, while a downstream
+path may consume an answer without requiring freshness evidence.
+This case starts checking that assumption. Test 1 of the four-test
 sequence asks whether the stress can be represented and transmitted at
 all, before anyone asks whether the bonus is adequate.
 
-This case answers it for one integration, at one block, against the
-behaviour of the deployed contracts.
+This case tests downstream price consumption for one integration at two
+pinned blocks. It does not execute the upstream publication lifecycle.
 
 ## Reproduce
 
@@ -98,32 +98,37 @@ reports: a match against the source alone would not show that the
 protocol reads the modelled path, and the analysis now treats a mismatch
 against either as INDETERMINATE.
 
-## The four scenarios the roadmap requires
+## Behavioural Coverage And Its Boundary
 
-**Accepted stress update.** The base feed was set to half its value, to
-one percent of it, and to one raw unit, the aggregator's minimum. Each
-time the oracle returned exactly the modelled price, down to 0.00000001.
-There is no floor or clamp between today's price and zero on the
-executed path, so a fall of any size is representable.
+**Positive stress inputs.** The mock base feed supplies half the baseline,
+one percent of it, and one raw unit. The deployed adapter and consumer
+return the modelled prices, down to 0.00000001. The largest observed fall
+is nearly 100%, not a zero price. These finite probes establish the
+observed cases; they are not a proof about every possible input.
 
-**Rejected update.** Two layers can refuse an update. The aggregator
-stores only answers inside its bounds of 1 and 2^176 - 1, so it refuses
-nothing above one raw unit of the base feed, which is 0.00000001 USD per
-ETH. Its transmission path requires signed reports and was not executed
-here. Below the aggregator, a zero or negative value forced through the
-feed makes `getAssetPrice` revert rather than return zero. On this
-integration, then, no economically meaningful update is refused, and the
-only refusal the protocol can see is a failed price read.
+**Invalid-answer reads, not rejected updates.** Forced zero and negative
+feed answers make `getAssetPrice` revert. The real aggregator is bypassed
+by the override. Its exposed bounds are recorded as interface evidence;
+neither its signed-report acceptance nor storage after rejection was
+executed. No conclusion that it refuses only non-positive updates follows.
 
-**Elapsed time.** With every timestamp getter on the feed made to
-revert, the oracle still returned the unchanged price. With a round
-thirty days old, it did the same. If anything on the executed path read
-a timestamp, the first probe would have reverted; if anything enforced a
-threshold of thirty days or less, the second would have.
+A rejected transmission and a consumer reading an invalid answer are
+different events. To close the original rejected-update requirement,
+the former would need its own acceptance/storage evidence. This case
+deliberately leaves that item unverified rather than substituting the
+invalid-answer probe for it.
 
-**Recovery.** A later valid update two percent above the baseline is
-reflected at once. The whole path is view-only, so no read can leave
-state behind that a later update would have to clear.
+**Timestamp dependency.** Reverting mock timestamp getters and a
+thirty-day-old mock round both leave the downstream price unchanged.
+The tested call therefore does not require those getters to succeed,
+and no freshness rejection is observed in those cases. This does not
+exclude a caught timestamp read, another timestamp source, or checks
+inside the feed whose code was replaced.
+
+**Later valid input.** A separate call with a valid answer two percent
+above baseline returns the modelled result. It establishes successful
+consumption of that input. The consumer reads do not persist state;
+this is not a sequential test of rejected and recovered feed storage.
 
 ## The growth cap constrains the rate, not the price
 
@@ -138,29 +143,24 @@ the ceiling, and a rate twenty percent below the current one passed
 through unchanged. The cap therefore limits how fast the wstETH/stETH
 rate may rise; it places no floor under the price.
 
-## Freshness, as four separate properties
+## Freshness Evidence
 
-These are easy to conflate, so the analysis records them separately:
+The fixture records source-interface exposure, embedded selector
+constants, dependency on the probed timestamp getters, and rejection
+observed with an old mock round. These are separate properties.
 
-```text
-source exposes a timestamp          False
-source bytecode embeds a reader     False
-timestamp read on executed path     False
-staleness threshold enforced        False
-feed round age at the pinned block  1,788 s
-```
+At both blocks the source exposes no `latestRoundData()`, no timestamp
+reader from the probed set appears in its bytecode, and the downstream
+price is unchanged by the timestamp probes. The manifest records
+`timestamp_getters_required_on_probed_path: false` and
+`enforced: false`, where the latter means no freshness rejection was
+observed in these probes, not that every upstream policy was inspected.
 
-The first two come from the interface and the bytecode. The last two
-are behavioural and settle the question: no timestamp is read anywhere
-on the executed path, so no staleness threshold can be enforced there.
-Freshness on this integration is an operational assumption, not a
-condition enforced in code. This is ordinary Aave V3 behaviour rather
-than a defect specific to wstETH, which is exactly why it belongs in an
-explicit test instead of an unstated premise.
-
-Because borrowing wstETH is disabled on this reserve, a stale mark would
-affect borrowing **against** wstETH as collateral, not borrowing the
-asset itself.
+An old positive answer can therefore be consumed in the tested
+downstream conditions. Actual publication liveness, the feed's own
+internal checks and the exchange-rate provider's input freshness are
+not established. Reserve borrowing and liquidation controls are not
+exercised by `getAssetPrice` either.
 
 ## Controls and who holds them
 
@@ -168,19 +168,22 @@ asset itself.
 | --- | --- | --- |
 | ACL manager | `0xc2aacf6553d20d1e9d78e365aaba8032af9c85b0` | n/a |
 | ACL admin | `0x5300a1a15135ea4dc7ad5a167152c01efc9b192a` | n/a |
-| replace the price source | pool or asset listing admin | no |
-| freeze or pause the reserve | operator transaction | no |
+| replace the price source | pool or asset listing admin | not tested |
+| freeze or pause the reserve | authorized transaction | not tested |
 
 The ACL admin holds `isPoolAdmin` and none of the asset listing, risk, or
 emergency admin roles. `AaveOracle.setAssetSources` is restricted to
-asset listing or pool admins. Every control on this path requires an
-operator transaction; none is automatic.
+asset listing or pool admins. The fixture records these role and state
+reads; it does not enumerate all role holders or test automated execution
+of reserve controls. A
+transaction requirement alone does not imply human reaction time.
 
 ## What this case does not establish
 
 - Behaviour of any other reserve or price source, or of this reserve at
   another block or after governance replaces the source.
-- The aggregator's own transmission path, which was not executed.
+- The aggregator's transmission path and stored round after rejection.
+- Borrowing and liquidation permission under every reserve control.
 - The freshness of the exchange-rate provider's own inputs.
 - Whether an operator would in fact pause or freeze in time.
 - Anything about HINC or mWIN. Those motivated the question; their
@@ -192,5 +195,5 @@ operator transaction; none is automatic.
 The HINC and mWIN integrations motivated the question, but their feed,
 adapter, consumer, and reserve controls were not all publicly
 identifiable, so they could not satisfy the evidence gate. This reserve
-does: every layer is public and executable at a pinned block, without
-depending on a proposer or an issuer to supply anything.
+supports a reproducible downstream case without private issuer data.
+The upstream lifecycle remains a documented limit of this deliverable.

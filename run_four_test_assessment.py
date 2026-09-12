@@ -12,7 +12,9 @@ import sys
 import textwrap
 from pathlib import Path
 
-from .four_test_assessment import build_assessment, load_manifest
+from .four_test_assessment import (
+    FinancingEvidence, build_assessment, load_manifest,
+)
 
 _PACKAGE_DIR = Path(__file__).resolve().parent
 _MANIFESTS = _PACKAGE_DIR / "docs" / "manifests"
@@ -52,7 +54,9 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--reachability",
-        default=str(_MANIFESTS / "ethereum-wsteth-oracle-reachability-25780402.json"),
+        default=str(
+            _MANIFESTS / "ethereum-wsteth-oracle-reachability-25780402.json"
+        ),
     )
     parser.add_argument(
         "--market", default=str(_MANIFESTS / "ethereum-wsteth-2026-08-18.json")
@@ -60,18 +64,23 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--simultaneity",
         default=str(
-            _MANIFESTS / "ethereum-wsteth-simultaneous-requirement-2026-08-18.json"
+            _MANIFESTS
+            / "ethereum-wsteth-simultaneous-requirement-2026-08-18.json"
         ),
     )
     parser.add_argument(
         "--balance-sheet",
         default=str(
-            _MANIFESTS / "ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json"
+            _MANIFESTS
+            / "ethereum-wsteth-liquidator-balance-sheet-2026-08-18.json"
         ),
     )
     parser.add_argument("--canonical-loss", type=float, default=0.04)
     parser.add_argument("--stress-path", default=_DEFAULT_STRESS)
     parser.add_argument("--manifest")
+    parser.add_argument(
+        "--financing", help="JSON evidence for eligible warehouse capital"
+    )
     return parser.parse_args()
 
 
@@ -98,6 +107,8 @@ def main() -> None:
         loaded["balance_sheet"],
         stress_path=args.stress_path,
         canonical_loss=args.canonical_loss,
+        financing=(FinancingEvidence(**load_manifest(args.financing))
+                   if args.financing else None),
     )
 
     print("Four-test assessment")
@@ -148,7 +159,7 @@ def main() -> None:
 
     if args.manifest:
         payload = {
-            "schema_version": 2,
+            "schema_version": 4,
             "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
             "command": [
                 "python",
@@ -170,6 +181,15 @@ def main() -> None:
                 "vintage_consistent": result.vintage_consistent,
             },
             "tests": [dataclasses.asdict(test) for test in result.tests],
+            "derived_economics": result.economics,
+            "financing_evidence": (
+                {"file": os.path.relpath(
+                    Path(args.financing).resolve(), _PACKAGE_DIR
+                 ).replace("\\", "/"),
+                 "sha256": _sha256(Path(args.financing)),
+                 "values": load_manifest(args.financing)}
+                if args.financing else None
+            ),
             "overall": result.overall,
             "overall_reason": result.overall_reason,
             "rules": {

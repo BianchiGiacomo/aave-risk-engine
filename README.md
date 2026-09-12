@@ -145,9 +145,14 @@ python -m aave_risk_engine.run_simultaneous_requirement --manifest docs/manifest
 python -m aave_risk_engine.run_four_test_assessment --manifest docs/manifests/ethereum-wsteth-four-test-assessment-25780402.json
 ```
 
-The oracle fixtures under `data/oracle/` are the only inputs built over the
-network for the assessment, by `data.build_oracle_fixture`; the three
-commands above run offline against them.
+The oracle fixtures under `data/oracle/` are built over the network by
+`data.build_oracle_fixture`. The last three commands run offline against
+committed fixtures and manifests.
+
+The assessment reprices warehouse economics at its p99 requirement.
+Optional `--financing <evidence.json>` supplies documented capital;
+see the [assessment template](docs/assessment-template.md) for its schema
+and the distinction between identified capital and a capacity upper bound.
 
 Add `--ordered` to `run_market_report` to match the dashboard queue convention.
 See [consolidated results](docs/results.md) for the exact output and parameters.
@@ -238,11 +243,15 @@ python -m aave_risk_engine.tests.test_multiperiod
 python -m aave_risk_engine.tests.test_time_to_exit
 python -m aave_risk_engine.tests.test_liquidator_balance_sheet
 python -m aave_risk_engine.tests.test_rwa_drawdown
+python -m aave_risk_engine.tests.test_oracle_reachability
+python -m aave_risk_engine.tests.test_simultaneous_requirement
+python -m aave_risk_engine.tests.test_four_test_assessment
 ```
 
-The project contains 121 offline tests: 23 engine, 5 Hub, 50 data, 10
+The project contains 190 offline tests: 23 engine, 5 Hub, 50 data, 10
 multi-period, 8 time-to-exit, 19 liquidator balance-sheet, and 6 RWA drawdown
-tests. GitHub Actions runs the same suites on Python 3.11 and 3.12.
+tests, plus 29 oracle, 8 simultaneity and 32 assessment tests. GitHub
+Actions runs all ten suites on Python 3.11 and 3.12.
 
 ## License
 

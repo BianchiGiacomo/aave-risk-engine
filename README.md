@@ -196,7 +196,6 @@ explicit sensitivities, not measured guarantees.
 Read next:
 
 - [Consolidated results](docs/results.md)
-- [Research roadmap and adoption milestones](docs/research-roadmap.md)
 - [Mathematical model specification](docs/model-specification.md)
 - [Methodology](METHODOLOGY.md)
 - [Implementation notes](IMPLEMENTATION.md)
